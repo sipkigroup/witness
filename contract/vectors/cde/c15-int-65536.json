@@ -1,0 +1,8 @@
+{
+ "id": "c15-int-65536",
+ "json": {
+  "n": 65536
+ },
+ "cde_hex": "a1616e1a00010000",
+ "note": "integer boundary"
+}

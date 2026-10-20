@@ -1,0 +1,12 @@
+{
+ "id": "c18-empty-arrays",
+ "json": {
+  "data": [],
+  "x": [
+   []
+  ],
+  "m": {}
+ },
+ "cde_hex": "a3616da061788180646461746180",
+ "note": "empty containers"
+}

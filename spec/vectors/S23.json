@@ -1,0 +1,50 @@
+{
+ "id": "S23",
+ "class": "valid",
+ "kind": "sequence",
+ "title": "Mandate with optional members left out (no budget, no named_circle, `to` null, empty sale) is well formed",
+ "source": "draft-deus-aar-02 (Changes from -01)",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "purchase": {
+       "max_per_action": 500
+      },
+      "message": {
+       "to": null
+      },
+      "sale": {},
+      "disclosure": {
+       "to": [
+        "a@b.example"
+       ]
+      }
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "accept"
+   }
+  ]
+ },
+ "note": "-02 6.1 CDDL"
+}

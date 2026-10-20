@@ -1,0 +1,36 @@
+{
+ "id": "E5-3f",
+ "kind": "requirements",
+ "title": "E5-3: purchase {max_per_action: 100, budget: 50000}: the largest number is 50000, not greater than X: only `money`",
+ "source": "ERRATA-05 / PROFILE-webauthn-01 Section 6",
+ "tiers": [
+  {
+   "if": "money",
+   "role": "budget",
+   "k": 1
+  },
+  {
+   "if": "money_over",
+   "amount": 50000,
+   "role": "budget",
+   "k": 2
+  },
+  {
+   "if": "access",
+   "role": "access",
+   "k": 1
+  }
+ ],
+ "mandate_permissions": {
+  "purchase": {
+   "max_per_action": 100,
+   "budget": 50000
+  }
+ },
+ "expected": [
+  [
+   "budget",
+   1
+  ]
+ ]
+}

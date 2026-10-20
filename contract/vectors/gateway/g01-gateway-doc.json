@@ -1,0 +1,48 @@
+{
+ "cde_hex": "a461767064772d676174657761792d302e322e3465746f6f6c73a365746f6f6c73a4687075726368617365a565636c61737368707572636861736566616d6f756e746e242e616d6f756e745f63656e747366737472696374f56863757272656e63796355534469726563697069656e7468242e76656e646f7269726561645f66696c65a165636c61737364706173736a73656e645f656d61696ca364746578748269242e7375626a65637466242e626f647965636c617373676d65737361676569726563697069656e748264242e746f64242e63636f64656c6574655f7265736f75726365a465636c6173736664656c65746566737472696374f569726563697069656e746a242e7265736f757263656a72657665727369626c65a16963616368652d746d70f56764656661756c746464656e796776657273696f6e016761647669736f7269686575726973746963687061747465726e7381784033643839666335646462616336633765376261363031376232656462383366646530376233316562313030363431623362656463336231343135646636386136",
+ "id": "g01-gateway-doc",
+ "json": {
+  "advisor": "heuristic",
+  "patterns": [
+   "3d89fc5ddbac6c7e7ba6017b2edb83fde07b31eb100641b3bedc3b1415df68a6"
+  ],
+  "tools": {
+   "default": "deny",
+   "tools": {
+    "delete_resource": {
+     "class": "delete",
+     "recipient": "$.resource",
+     "reversible": {
+      "cache-tmp": true
+     },
+     "strict": true
+    },
+    "purchase": {
+     "amount": "$.amount_cents",
+     "class": "purchase",
+     "currency": "USD",
+     "recipient": "$.vendor",
+     "strict": true
+    },
+    "read_file": {
+     "class": "pass"
+    },
+    "send_email": {
+     "class": "message",
+     "recipient": [
+      "$.to",
+      "$.cc"
+     ],
+     "text": [
+      "$.subject",
+      "$.body"
+     ]
+    }
+   },
+   "version": 1
+  },
+  "v": "dw-gateway-0.2.4"
+ },
+ "note": "toolmap_sha256 is 64 hex in JSON and bstr .size 32 in the CDE bytes (draft-deus-aar-05 6.1, 8.6)",
+ "sha256": "5d996ce00f206f2ae4b8cbddff644c8a79235115b3bdacb40d71415b5d76cb06"
+}

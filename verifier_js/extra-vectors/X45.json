@@ -1,0 +1,18 @@
+{
+ "id": "X45",
+ "class": "invalid",
+ "kind": "cose-verify",
+ "title": "Detached payload",
+ "keys": {
+  "c0bd04955518438ef8b1b20d2306bbab": {
+   "alg": "EdDSA",
+   "pub": "e9289957329069f236585be4f4bd4978d288b1f58cdf0836c66d34e0f80e5c41"
+  }
+ },
+ "typ": "application/aar-receipt+cbor",
+ "cose_hex": "d2845848a401270450c0bd04955518438ef8b1b20d2306bbab0fa301697769746e6573732d310262723006186410781c6170706c69636174696f6e2f6161722d726563656970742b63626f72a0f658406e6eb16cee02166e3925a2082ddf745cc973b4415864fea9675e0de0cb0f33de7463e5cf452d77c2256e4fda5688f539efea51d32971f52499e765c7143bf001",
+ "expected": {
+  "result": "reject"
+ },
+ "basis": "§8.1 \"payload: the aar map below, attached\""
+}

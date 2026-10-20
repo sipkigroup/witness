@@ -1,0 +1,48 @@
+{
+ "agent": {
+  "id": "ag_b4339a7c440e",
+  "name": "demo-bot",
+  "key_prefix": "dwk_FQM2NPKJ",
+  "created_at": 1792350237,
+  "active_mandate_id": null,
+  "toolmap": {
+   "version": 1,
+   "default": "deny",
+   "tools": {
+    "send_email": {
+     "class": "message",
+     "recipient": "$.to",
+     "text": [
+      "$.subject",
+      "$.body"
+     ]
+    },
+    "purchase": {
+     "class": "purchase",
+     "recipient": "$.vendor",
+     "amount": "$.amount_cents",
+     "currency": "USD"
+    },
+    "delete_resource": {
+     "class": "delete",
+     "recipient": "$.resource",
+     "reversible": {
+      "cache-tmp": true
+     }
+    },
+    "publish": {
+     "class": "publish",
+     "recipient": "$.channel",
+     "text": [
+      "$.text"
+     ]
+    },
+    "read_file": {
+     "class": "pass"
+    }
+   }
+  },
+  "toolmap_sha256": "6dcc0d8bd3b18c172494ffdc0528fd5ad6d3c205f5668aa30542c03df1b1bbd7",
+  "toolmap_signed": false
+ }
+}

@@ -1,0 +1,40 @@
+{
+ "id": "D24",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "Unspecified file permission: defer to principal",
+ "source": "svidetel v3 language: ESKALACIYA_FAYL",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "purchase": {
+     "max_per_action": 15000,
+     "budget": 37500
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "file",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "neighbour@example.org",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "defer",
+  "reason": "ESCALATE_FILE"
+ }
+}

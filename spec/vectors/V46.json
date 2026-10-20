@@ -1,0 +1,36 @@
+{
+ "id": "V46",
+ "class": "invalid",
+ "kind": "verification",
+ "title": "C3-2: a CEILING as the first entry (the ledger has no currency yet): CEILING_MALFORMED at the entry",
+ "source": "draft-deus-aar-04 (Changes from -03)",
+ "input": {
+  "witness_key": "pk-witness",
+  "operator_keys": [
+   "pk-operator"
+  ],
+  "pinned_principal_key": "pk-principal",
+  "entries": [
+   {
+    "seq": 0,
+    "type": "CEILING",
+    "t": 0,
+    "body": {
+     "id": "c1",
+     "amount": 600,
+     "currency": "USD",
+     "window_s": 86400,
+     "signed_by": "pk-principal"
+    },
+    "prev": null,
+    "hash": "h0"
+   }
+  ]
+ },
+ "expected": {
+  "result": "invalid",
+  "reason": "CEILING_MALFORMED",
+  "at": 0
+ },
+ "note": "-04 5.2, 6.3, 10 step 4 (C3-2)"
+}

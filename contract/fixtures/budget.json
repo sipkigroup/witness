@@ -1,0 +1,11 @@
+[
+ {
+  "mandate_id": "1611033ab8aa471f7cad225065c55114",
+  "agent_id": "ag_b4339a7c440e",
+  "currency": "USD",
+  "budget": 20000,
+  "max_per_action": 10000,
+  "committed": 20000,
+  "window_s": 86400
+ }
+]

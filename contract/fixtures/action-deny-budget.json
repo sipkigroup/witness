@@ -1,0 +1,20 @@
+{
+ "rid": "r_RJ3O7EYS266WAIGIFR5PS5SYRY",
+ "verdict": "deny",
+ "reason": "BUDGET",
+ "status": "denied",
+ "action": {
+  "agent": "ag_b4339a7c440e",
+  "class": "purchase",
+  "args_sha256": "ca5da359f1a502fd2b443ee737dd798a0cd29079e015726659641e9a22b1528d",
+  "recipient": "shop.example",
+  "data": [],
+  "amount": 9000,
+  "currency": "USD"
+ },
+ "expires": 1792351137,
+ "aar_b64": null,
+ "proof": null,
+ "approval_url": null,
+ "promise_b64": null
+}

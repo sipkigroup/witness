@@ -1,0 +1,39 @@
+{
+  "name": "@deus-witness/sdk",
+  "version": "0.2.14",
+  "description": "Deus Witness SDK (fetch, no dependencies)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://witness.sipkigroup.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sipkigroup/witness.git",
+    "directory": "sdk-ts"
+  },
+  "bugs": {
+    "email": "support@sipkigroup.com"
+  },
+  "author": "Sipki LLC <support@sipkigroup.com>",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

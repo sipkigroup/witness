@@ -1,0 +1,27 @@
+{
+ "flow_id": "7a98e6931ecbb3db",
+ "options": {
+  "rp": {
+   "id": "localhost",
+   "name": "Deus Witness"
+  },
+  "user": {
+   "id": "jqOYAzcfmiLxMihv2snE1A",
+   "name": "Demo owner",
+   "displayName": "Demo owner"
+  },
+  "challenge": "YY1HwtCLF86HwXArw-Z5XB7GjHPNIIaM0HbQZxJ4zFc",
+  "pubKeyCredParams": [
+   {
+    "type": "public-key",
+    "alg": -7
+   }
+  ],
+  "authenticatorSelection": {
+   "residentKey": "required",
+   "userVerification": "required"
+  },
+  "attestation": "none",
+  "timeout": 300000
+ }
+}

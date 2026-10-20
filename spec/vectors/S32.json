@@ -1,0 +1,80 @@
+{
+ "id": "S32",
+ "class": "invalid",
+ "kind": "sequence",
+ "title": "A register_ceiling op with a member that is not in the ceiling map: CEILING_MALFORMED",
+ "source": "draft-deus-aar-03 (Changes from -02)",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "message": {
+       "to": [
+        "buh@firma1.example",
+        "partner@firma1.example"
+       ]
+      },
+      "file": {
+       "to": [
+        "buh@firma1.example",
+        "partner@firma1.example"
+       ]
+      },
+      "disclosure": {
+       "to": [
+        "buh@firma1.example",
+        "partner@firma1.example"
+       ],
+       "data": []
+      },
+      "purchase": {
+       "max_per_action": 15000,
+       "budget": 37500
+      },
+      "sale": {
+       "min_price": 0
+      },
+      "meeting": true,
+      "refund": true
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "named_circle": false,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "register_ceiling",
+    "id": "c1",
+    "amount": 600,
+    "currency": "USD",
+    "window_s": 86400,
+    "note": "x",
+    "signed_by": "pk-principal"
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "accept"
+   },
+   {
+    "result": "reject",
+    "reason": "CEILING_MALFORMED"
+   }
+  ]
+ },
+ "note": "-03 App. A convention (6) (C2-7)"
+}

@@ -1,0 +1,1161 @@
+openapi: 3.1.0
+info:
+  title: Deus Witness Cloud
+  version: 0.1.3
+  description: 'Machine form of cloud/ARHITEKTURA.md sections 5.1-5.3. Bytes are base64url
+    without padding (*_b64). Times are Unix seconds. Errors: {error, detail}.'
+servers:
+- url: https://witness.sipkigroup.com
+- url: http://localhost:8787
+paths:
+  /api/auth/register/begin:
+    post:
+      summary: Start passkey registration
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flow_id: &id001
+                    type: string
+                  options:
+                    $ref: '#/components/schemas/CreationOptions'
+                required:
+                - flow_id
+                - options
+        default: &id002
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: *id001
+  /api/auth/register/finish:
+    post:
+      summary: Finish registration (attestation none, ES256 only); sets dw_session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account:
+                    $ref: '#/components/schemas/Account'
+                  keycard:
+                    $ref: '#/components/schemas/Keycard'
+                required:
+                - account
+                - keycard
+        default: *id002
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                flow_id: *id001
+                credential:
+                  type: object
+              required:
+              - flow_id
+              - credential
+  /api/auth/login/begin:
+    post:
+      summary: Start discoverable-credential login
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flow_id: *id001
+                  options:
+                    type: object
+                required:
+                - flow_id
+                - options
+        default: *id002
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+  /api/auth/login/finish:
+    post:
+      summary: Finish login; sets dw_session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account:
+                    $ref: '#/components/schemas/Account'
+        default: *id002
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                flow_id: *id001
+                credential:
+                  type: object
+              required:
+              - flow_id
+              - credential
+  /api/auth/logout:
+    post:
+      summary: Logout
+      responses:
+        '204': &id003
+          description: No content
+        default: *id002
+      security: &id004
+      - cookieSession: []
+  /api/auth/logout-all:
+    post:
+      summary: 'Sign out everywhere: ends every session of the account (0.1.1, R-17)'
+      responses:
+        '204': *id003
+        default: *id002
+      security: *id004
+  /api/auth/stepup/begin:
+    post:
+      summary: Start a passkey step-up (R-17)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flow_id: *id001
+                  options:
+                    type: object
+                required:
+                - flow_id
+                - options
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+  /api/auth/stepup/finish:
+    post:
+      summary: Finish step-up; later PUT data-patterns / PUT toolmap / POST agents
+        (0.1.2, N-12) / DELETE agent need it within 5 minutes, else 403 STEPUP_REQUIRED
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: &id006
+                    type: boolean
+                  valid_for_s: &id005
+                    type: integer
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                flow_id: *id001
+                credential:
+                  type: object
+              required:
+              - flow_id
+              - credential
+  /api/me:
+    get:
+      summary: Current account and key card
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account:
+                    $ref: '#/components/schemas/Account'
+                  keycard:
+                    $ref: '#/components/schemas/KeycardFull'
+        default: *id002
+      security: *id004
+  /api/agents:
+    get:
+      summary: List agents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+        default: *id002
+      security: *id004
+    post:
+      summary: Create agent; api_key shown once
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    $ref: '#/components/schemas/Agent'
+                  api_key:
+                    type: string
+                    pattern: ^dwk_[A-Z2-7]{52}$
+                required:
+                - agent
+                - api_key
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: *id001
+                preset:
+                  type: string
+                  enum:
+                  - demo
+                  - filesystem
+                  - empty
+              required:
+              - name
+  /api/agents/{id}/toolmap:
+    put:
+      summary: Replace toolmap; 422 TOOLMAP_INVALID
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent:
+                    $ref: '#/components/schemas/Agent'
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                toolmap:
+                  $ref: '#/components/schemas/Toolmap'
+              required:
+              - toolmap
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /api/agents/{id}:
+    delete:
+      summary: Disable agent (key stops working)
+      responses:
+        '204': *id003
+        default: *id002
+      security: *id004
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id001
+  /api/data-patterns:
+    get:
+      summary: Closed-data literals for DLP
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  patterns:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: *id001
+        default: *id002
+      security: *id004
+    put:
+      summary: Replace closed-data literals
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  patterns:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: *id001
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                patterns:
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items: *id001
+              required:
+              - patterns
+  /api/mandates/draft:
+    post:
+      summary: Build the -04 mandate map from the form (section 5.3)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandate:
+                    $ref: '#/components/schemas/Mandate'
+                  typ:
+                    const: application/aar-mandate+cbor
+                  toolmap_sha256: *id001
+                required:
+                - mandate
+                - typ
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent_id: *id001
+                form:
+                  $ref: '#/components/schemas/MandateForm'
+              required:
+              - agent_id
+              - form
+  /api/mandates:
+    post:
+      summary: Submit mandate + wa-sig envelope; 409 code = -04 code or WA_*
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandate_id: *id001
+                  status:
+                    const: active
+                  ledger_seq: *id005
+                  toolmap_sha256: *id001
+                required:
+                - mandate_id
+                - status
+                - ledger_seq
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mandate:
+                  $ref: '#/components/schemas/Mandate'
+                envelope_b64: *id001
+                toolmap_sha256: *id001
+              required:
+              - mandate
+              - envelope_b64
+    get:
+      summary: List mandates
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: *id001
+                    agent_id: *id001
+                    status:
+                      enum:
+                      - active
+                      - revoked
+                      - expired
+                      - superseded
+                    mandate:
+                      $ref: '#/components/schemas/Mandate'
+                    ledger_seq: *id005
+                    created_at: *id005
+        default: *id002
+      security: *id004
+  /api/feed:
+    get:
+      summary: Action feed, newest first
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/FeedItem'
+                  next_before:
+                    type:
+                    - integer
+                    - 'null'
+                required:
+                - items
+        default: *id002
+      security: *id004
+      parameters:
+      - name: agent_id
+        in: query
+        schema: *id001
+      - name: before
+        in: query
+        schema: *id005
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          maximum: 200
+          default: 50
+  /api/budget:
+    get:
+      summary: Budget use per active mandate
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    mandate_id: *id001
+                    agent_id: *id001
+                    currency: *id001
+                    budget:
+                      type:
+                      - integer
+                      - 'null'
+                    max_per_action:
+                      type:
+                      - integer
+                      - 'null'
+                    committed: *id005
+                    window_s: *id005
+        default: *id002
+      security: *id004
+  /api/approvals:
+    get:
+      summary: Pending approvals
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    rid: *id001
+                    t: *id005
+                    agent_id: *id001
+                    tool: *id001
+                    action:
+                      $ref: '#/components/schemas/Action'
+                    expires: *id005
+        default: *id002
+      security: *id004
+      parameters:
+      - name: status
+        in: query
+        schema:
+          const: pending
+  /api/approvals/{rid}:
+    get:
+      summary: Approval details; the browser builds the -04 6.6 payload from mandate+action
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rid: *id001
+                  status: *id001
+                  action:
+                    $ref: '#/components/schemas/Action'
+                  mandate:
+                    $ref: '#/components/schemas/Mandate'
+                  expires: *id005
+                  tool: *id001
+                  args_preview: *id001
+                  text_preview: *id001
+                  preview_note: *id001
+                  confirm:
+                    type: object
+                    description: '0.2.13: level (laptop|phone) where this pending action may be confirmed, phone_for, text; delegated (Team)'
+        default: *id002
+      security: *id004
+      parameters:
+      - name: rid
+        in: path
+        required: true
+        schema: *id001
+    post:
+      summary: Submit approval wa-sig; 409 APPROVAL_SIG|NOT_DEFERRED|WA_*
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verdict:
+                    enum:
+                    - allow
+                    - refused
+                required:
+                - verdict
+        default: *id002
+      security: *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                approved: *id006
+                envelope_b64: *id001
+              required:
+              - approved
+              - envelope_b64
+      parameters:
+      - name: rid
+        in: path
+        required: true
+        schema: *id001
+  /api/export:
+    get:
+      summary: Evidence pack zip
+      responses:
+        '200':
+          description: zip
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        default: *id002
+      security: *id004
+  /api/witness:
+    get:
+      summary: Witness identity
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Witness'
+        default: *id002
+      security: []
+  /v1/witness:
+    get:
+      summary: Witness identity
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Witness'
+        default: *id002
+      security: []
+  /healthz:
+    get:
+      summary: Health
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: *id006
+                  ledgers: *id005
+                  last_anchor_t:
+                    type:
+                    - integer
+                    - 'null'
+        default: *id002
+      security: []
+  /v1/actions:
+    post:
+      summary: Submit a tool call for a decision; repeat of a pending/approved identical
+        call returns the same action
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResult'
+        default: *id002
+      security: &id007
+      - bearerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tool: *id001
+                args:
+                  type: object
+                client:
+                  type: object
+                  properties:
+                    name: *id001
+                    version: *id001
+              required:
+              - tool
+              - args
+  /v1/actions/{rid}:
+    get:
+      summary: Long poll while pending_approval
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionResult'
+        default: *id002
+      security: *id007
+      parameters:
+      - name: rid
+        in: path
+        required: true
+        schema: *id001
+      - name: wait
+        in: query
+        schema:
+          type: integer
+          minimum: 0
+          maximum: 25
+  /v1/actions/{rid}/present:
+    post:
+      summary: CONSUME the receipt (before executing the tool)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    enum:
+                    - accept
+                    - reject
+                  reason: *id001
+                required:
+                - result
+        default: *id002
+      security: *id007
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+      parameters:
+      - name: rid
+        in: path
+        required: true
+        schema: *id001
+  /v1/actions/{rid}/report:
+    post:
+      summary: Report execution
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    enum:
+                    - released
+                    - ignored
+                required:
+                - result
+        default: *id002
+      security: *id007
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                executed: *id006
+              required:
+              - executed
+      parameters:
+      - name: rid
+        in: path
+        required: true
+        schema: *id001
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: dw_session
+    bearerKey:
+      type: http
+      scheme: bearer
+      description: dwk_<52 base32 chars>
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: *id001
+        detail: *id001
+      required:
+      - error
+    Account:
+      type: object
+      properties:
+        id: *id001
+        principal: *id001
+        display_name: *id001
+      required:
+      - id
+      - principal
+    Keycard:
+      type: object
+      properties:
+        kid_hex: *id001
+        short: *id001
+      required:
+      - kid_hex
+      - short
+    KeycardFull:
+      type: object
+      properties:
+        kid_hex: *id001
+        short: *id001
+        credential_id_b64: *id001
+        rp_id: *id001
+        origins:
+          type: array
+          items: *id001
+    CreationOptions:
+      type: object
+      properties:
+        rp:
+          type: object
+          properties:
+            id: *id001
+            name: *id001
+        user:
+          type: object
+          properties: {}
+        challenge: *id001
+        pubKeyCredParams:
+          type: array
+          items:
+            type: object
+            properties:
+              type: *id001
+              alg:
+                const: -7
+        authenticatorSelection:
+          type: object
+          properties: {}
+        attestation:
+          const: none
+      required:
+      - rp
+      - challenge
+      - pubKeyCredParams
+    Toolmap:
+      type: object
+      properties:
+        version:
+          const: 1
+        default:
+          enum:
+          - deny
+          - pass
+        tools:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              class:
+                enum:
+                - message
+                - file
+                - disclosure
+                - purchase
+                - sale
+                - meeting
+                - refund
+                - delete
+                - publish
+                - pass
+                - command
+              dangerous: *id006
+              recipient:
+                oneOf:
+                - *id001
+                - type: array
+                  items: *id001
+              extra_keys:
+                type: array
+                items: *id001
+              text:
+                type: array
+                items: *id001
+              amount:
+                oneOf:
+                - *id001
+                - *id005
+              currency: *id001
+              reversible:
+                oneOf:
+                - *id006
+                - type: object
+                  additionalProperties: *id006
+            required:
+            - class
+      required:
+      - version
+      - default
+      - tools
+    Agent:
+      type: object
+      properties:
+        id: *id001
+        name: *id001
+        key_prefix: *id001
+        created_at: *id005
+        active_mandate_id:
+          anyOf:
+          - *id001
+          - type: 'null'
+        toolmap:
+          $ref: '#/components/schemas/Toolmap'
+        toolmap_sha256: *id001
+        toolmap_signed: *id006
+      required:
+      - id
+      - name
+      - toolmap
+    MandateForm:
+      type: object
+      properties:
+        currency: *id001
+        valid_days: *id005
+        purchase:
+          type: object
+          properties:
+            enabled: *id006
+            budget: *id005
+            max_per_action: *id005
+        message:
+          type: object
+          properties:
+            domains:
+              type: array
+              items: *id001
+            to:
+              type: array
+              items: *id001
+        forbidden_data:
+          type: array
+          items: *id001
+        delete:
+          anyOf:
+          - type: object
+            properties:
+              targets:
+                type: array
+                items: *id001
+              allow_irreversible: *id006
+          - type: 'null'
+        publish:
+          anyOf:
+          - type: object
+            properties:
+              channels:
+                type: array
+                items: *id001
+          - type: 'null'
+        command:
+          oneOf:
+          - type: 'null'
+          - const: false
+          - type: object
+            properties:
+              allow:
+                type: array
+                items: *id001
+              unlisted:
+                enum:
+                - ask
+                - allow
+                - deny
+      required:
+      - currency
+      - valid_days
+    Mandate:
+      type: object
+      properties:
+        v:
+          const: deus-aar-0.1
+        id: *id001
+        principal: *id001
+        agent: *id001
+        nbf: *id005
+        exp: *id005
+        currency: *id001
+        budget_window_s: *id005
+        permissions:
+          type: object
+          properties: {}
+        forbidden_data:
+          type: array
+          items: *id001
+        named_circle: *id006
+        key_attestation:
+          const: passkey
+        pin_source: *id001
+      required:
+      - v
+      - id
+      - principal
+      - agent
+      - nbf
+      - exp
+      - currency
+      - budget_window_s
+      - permissions
+      - forbidden_data
+      - key_attestation
+    Action:
+      type: object
+      properties:
+        agent: *id001
+        class: *id001
+        recipient: *id001
+        data:
+          type: array
+          items: *id001
+        amount: *id005
+        currency: *id001
+        reversible: *id006
+        dangerous: *id006
+      required:
+      - agent
+      - class
+    FeedItem:
+      type: object
+      properties:
+        rid: *id001
+        t: *id005
+        agent_id: *id001
+        tool: *id001
+        class: *id001
+        recipient:
+          anyOf:
+          - *id001
+          - type: 'null'
+        amount:
+          anyOf:
+          - *id005
+          - type: 'null'
+        currency:
+          anyOf:
+          - *id001
+          - type: 'null'
+        verdict:
+          enum:
+          - allow
+          - deny
+          - defer
+          - pass
+        reason: *id001
+        status:
+          enum:
+          - pass
+          - allowed
+          - denied
+          - pending_approval
+          - approved
+          - refused
+          - consumed
+          - executed
+          - not_executed
+          - expired
+          - covered
+        args_preview: *id001
+      required:
+      - rid
+      - t
+      - verdict
+      - reason
+      - status
+    ActionResult:
+      type: object
+      properties:
+        rid: *id001
+        verdict:
+          enum:
+          - allow
+          - deny
+          - defer
+          - pass
+        reason: *id001
+        status: *id001
+        action:
+          anyOf:
+          - $ref: '#/components/schemas/Action'
+          - type: 'null'
+        expires: *id005
+        aar_b64:
+          anyOf:
+          - *id001
+          - type: 'null'
+        proof:
+          anyOf:
+          - type: object
+            properties:
+              entry_b64: *id001
+              path_b64:
+                type: array
+                items: *id001
+              checkpoint_b64: *id001
+              approval:
+                anyOf:
+                - type: object
+                  properties: {}
+                - type: 'null'
+          - type: 'null'
+        approval_url:
+          anyOf:
+          - *id001
+          - type: 'null'
+        promise_b64:
+          anyOf:
+          - *id001
+          - type: 'null'
+      required:
+      - rid
+      - verdict
+      - reason
+      - status
+      - expires
+    Witness:
+      type: object
+      properties:
+        iss: *id001
+        alg:
+          const: EdDSA
+        kid_hex: *id001
+        pub_hex: *id001
+        web_js_sha256:
+          type: object
+          additionalProperties: *id001
+      required:
+      - iss
+      - alg
+      - kid_hex
+      - pub_hex

@@ -1,0 +1,36 @@
+{
+ "id": "D29",
+ "class": "valid",
+ "kind": "decision",
+ "title": "Meeting unspecified, principal present: allow",
+ "source": "svidetel v3 language",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {},
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "meeting",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "",
+   "data": [],
+   "principal_present": true
+  }
+ },
+ "expected": {
+  "verdict": "allow",
+  "reason": "OK_UNSPECIFIED"
+ }
+}

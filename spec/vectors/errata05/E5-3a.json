@@ -1,0 +1,33 @@
+{
+ "id": "E5-3a",
+ "kind": "requirements",
+ "title": "E5-3: purchase {} (granted, no limits): `money` fires, `money_over` does not (a class with no number contributes 0; the witness defers each purchase, step 10)",
+ "source": "ERRATA-05 / PROFILE-webauthn-01 Section 6",
+ "tiers": [
+  {
+   "if": "money",
+   "role": "budget",
+   "k": 1
+  },
+  {
+   "if": "money_over",
+   "amount": 50000,
+   "role": "budget",
+   "k": 2
+  },
+  {
+   "if": "access",
+   "role": "access",
+   "k": 1
+  }
+ ],
+ "mandate_permissions": {
+  "purchase": {}
+ },
+ "expected": [
+  [
+   "budget",
+   1
+  ]
+ ]
+}

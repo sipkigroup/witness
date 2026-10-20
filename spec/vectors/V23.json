@@ -1,0 +1,144 @@
+{
+ "id": "V23",
+ "class": "valid",
+ "kind": "verification",
+ "title": "Two reservations expire together: two consecutive RELEASEs (cause expired), then a new receipt",
+ "source": "draft-deus-aar-02 (Changes from -01)",
+ "input": {
+  "witness_key": "pk-witness",
+  "operator_keys": [
+   "pk-operator"
+  ],
+  "pinned_principal_key": "pk-principal",
+  "entries": [
+   {
+    "seq": 0,
+    "type": "MANDATE",
+    "t": 0,
+    "body": {
+     "mandate": {
+      "id": "m1",
+      "principal": "pk-principal",
+      "agent": "agent-1",
+      "nbf": 0,
+      "exp": 86400,
+      "key_attestation": "software",
+      "permissions": {
+       "purchase": {
+        "max_per_action": 15000,
+        "budget": 37500
+       }
+      },
+      "forbidden_data": [],
+      "budget_window_s": 86400,
+      "named_circle": false,
+      "v": "deus-aar-0.1",
+      "currency": "USD"
+     },
+     "signed_by": "pk-principal"
+    },
+    "prev": null,
+    "hash": "h0"
+   },
+   {
+    "seq": 1,
+    "type": "RECEIPT",
+    "t": 100,
+    "body": {
+     "id": "r0",
+     "mandate": "m1",
+     "action": {
+      "class": "purchase",
+      "agent": "agent-1",
+      "t": 100,
+      "amount": 12000,
+      "recipient": "",
+      "data": [],
+      "currency": "USD"
+     },
+     "verdict": "allow",
+     "reason": "OK",
+     "audience": "tool-A",
+     "ttl": 300
+    },
+    "prev": "h0",
+    "hash": "h1"
+   },
+   {
+    "seq": 2,
+    "type": "RECEIPT",
+    "t": 100,
+    "body": {
+     "id": "r1",
+     "mandate": "m1",
+     "action": {
+      "class": "purchase",
+      "agent": "agent-1",
+      "t": 100,
+      "amount": 12000,
+      "recipient": "",
+      "data": [],
+      "currency": "USD"
+     },
+     "verdict": "allow",
+     "reason": "OK",
+     "audience": "tool-A",
+     "ttl": 300
+    },
+    "prev": "h1",
+    "hash": "h2"
+   },
+   {
+    "seq": 3,
+    "type": "RELEASE",
+    "t": 1000,
+    "body": {
+     "receipt": "r0",
+     "cause": "expired"
+    },
+    "prev": "h2",
+    "hash": "h3"
+   },
+   {
+    "seq": 4,
+    "type": "RELEASE",
+    "t": 1000,
+    "body": {
+     "receipt": "r1",
+     "cause": "expired"
+    },
+    "prev": "h3",
+    "hash": "h4"
+   },
+   {
+    "seq": 5,
+    "type": "RECEIPT",
+    "t": 1000,
+    "body": {
+     "id": "r2",
+     "mandate": "m1",
+     "action": {
+      "class": "purchase",
+      "agent": "agent-1",
+      "t": 1000,
+      "amount": 12000,
+      "recipient": "",
+      "data": [],
+      "currency": "USD"
+     },
+     "verdict": "allow",
+     "reason": "OK",
+     "audience": "tool-A",
+     "ttl": 300
+    },
+    "prev": "h4",
+    "hash": "h5"
+   }
+  ]
+ },
+ "expected": {
+  "result": "valid",
+  "anchor": "none"
+ },
+ "note": "-02 7.4/10 step 7 (C-4)"
+}

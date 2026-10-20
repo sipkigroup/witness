@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:        # also run as the first gate of release.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spec-vectors:
+    name: spec vectors (reference model)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: All abstract spec vectors
+        run: |
+          python spec/vectors/check_vectors.py | tail -1 | tee /dev/stderr | grep -q "mismatches: 0"
+
+  js-verifier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - name: Clean-room JavaScript verifier on all vectors
+        working-directory: verifier_js
+        run: |
+          npm ci
+          npm test | tail -5
+
+  swift-verifier:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and run the clean-room Swift verifier
+        working-directory: verifier_swift
+        run: |
+          ./build.sh
+          ./aarc --quiet --extra extra-vectors
+
+  ts-sdk:
+    name: sdk-ts build and pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - run: bash scripts/check-version.sh
+      # Integration tests of the client need a running witness; they are not part of this repository (skipped on purpose).
+      - name: Type-check, build, dry-run pack
+        working-directory: sdk-ts
+        run: |
+          npm install
+          npm run build
+          npm pack --dry-run

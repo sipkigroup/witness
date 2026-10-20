@@ -1,0 +1,8 @@
+{
+ "id": "c20-unicode",
+ "json": {
+  "s": "Ünḯcode ☃ 😀 и"
+ },
+ "cde_hex": "a1617377c39c6ec3afcc81636f646520e2988320f09f988020d0b8",
+ "note": "no NFC normalisation (e + combining acute is kept)"
+}

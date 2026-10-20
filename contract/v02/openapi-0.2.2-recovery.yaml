@@ -1,0 +1,549 @@
+openapi: 3.1.0
+info:
+  title: Deus Witness Cloud 0.2.2 recovery (new paths only)
+  version: 0.2.2
+  description: 'Several passkeys per person, recovery codes, key replacement in a
+    team, batch revocation (docs/recovery.md). Bytes base64url without padding (*_b64)
+    or hex (*_hex). Errors: {error, detail}.'
+servers:
+- url: https://witness.sipkigroup.com
+paths:
+  /api/auth/keys:
+    get:
+      summary: The person's passkeys (active and removed) and the recovery-code count
+        (never the codes)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Key'
+                  recovery_codes:
+                    $ref: '#/components/schemas/CodesState'
+                required:
+                - keys
+                - recovery_codes
+        default: &id001
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: &id002
+      - cookieSession: []
+  /api/auth/keys/add/begin:
+    post:
+      summary: Registration options for a NEW passkey (excludeCredentials = every
+        passkey of the person)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegOptions'
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: &id003
+                  type: string
+  /api/auth/keys/add/finish:
+    post:
+      summary: 'The new passkey is created but NOT active: returns the key-event payload
+        a CURRENT passkey must sign'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  confirm_id: *id003
+                  typ: &id004
+                    const: application/dw-key-event+cbor
+                  payload_b64: *id003
+                  kid_hex: *id003
+                  short: *id003
+                  sign_with:
+                    type: array
+                    items:
+                      type: object
+                required:
+                - confirm_id
+                - typ
+                - payload_b64
+                - kid_hex
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                flow_id: *id003
+                credential:
+                  type: object
+              required:
+              - flow_id
+              - credential
+  /api/auth/keys/add/confirm:
+    post:
+      summary: 'wa-sig (typ dw-key-event) by an ACTIVE passkey of the person, not
+        the new one. 409: KEY_SELF, KEY_NOT_ACTIVE, KEY_EVENT_SIG, WA_*'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kid_hex: *id003
+                  short: *id003
+                  added_by:
+                    const: passkey
+                  signed_by: *id003
+                required:
+                - kid_hex
+                - added_by
+                - signed_by
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm_id: *id003
+                envelope_b64: *id003
+              required:
+              - confirm_id
+              - envelope_b64
+  /api/auth/keys/{kid}/remove/begin:
+    post:
+      summary: 'The key-event payload of a removal. 409 LAST_KEY: the last active
+        passkey is never removed'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flow_id: *id003
+                  typ: *id004
+                  payload_b64: *id003
+                required:
+                - flow_id
+                - typ
+                - payload_b64
+        default: *id001
+      security: *id002
+      parameters:
+      - name: kid
+        in: path
+        required: true
+        schema: *id003
+  /api/auth/keys/{kid}/remove:
+    post:
+      summary: wa-sig by an active passkey of the person; the key stops at once, sessions
+        it opened end; what it signed stays valid
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kid_hex: *id003
+                  removed_at: &id005
+                    type: integer
+                  signed_by: *id003
+                  mandates_signed_by_it: *id005
+                required:
+                - kid_hex
+                - removed_at
+                - signed_by
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                flow_id: *id003
+                envelope_b64: *id003
+              required:
+              - flow_id
+              - envelope_b64
+      parameters:
+      - name: kid
+        in: path
+        required: true
+        schema: *id003
+  /api/auth/recovery-codes:
+    get:
+      summary: How many codes are left (never the codes)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodesState'
+        default: *id001
+      security: *id002
+    post:
+      summary: Step-up. 10 new one-time codes, shown ONCE (only scrypt hashes are
+        kept); earlier codes stop working
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  codes:
+                    type: array
+                    items: *id003
+                    minItems: 10
+                    maxItems: 10
+                  created_at: *id005
+                  remaining: *id005
+                required:
+                - codes
+                - created_at
+        default: *id001
+      security: *id002
+  /api/auth/recovery/login:
+    post:
+      summary: 'A recovery code: every session of the person ends, a 15-min session
+        that may ONLY add a passkey starts, the person''s devices get a push. 401
+        RECOVERY_INVALID (unknown, used or wrong: one answer)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scope:
+                    const: recovery
+                  next: *id003
+                  expires_in_s: *id005
+                  codes_left: *id005
+                required:
+                - scope
+                - codes_left
+        default: *id001
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code: *id003
+              required:
+              - code
+  /api/auth/recovery/state:
+    get:
+      summary: Recovery session only
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  display_name:
+                    anyOf:
+                    - *id003
+                    - type: 'null'
+                  expires_at: *id005
+                  codes_left: *id005
+                required:
+                - expires_at
+                - codes_left
+        default: *id001
+      security: *id002
+  /api/auth/recovery/passkey/begin:
+    post:
+      summary: 'Recovery session only: registration options for the new passkey'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegOptions'
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: *id003
+  /api/auth/recovery/passkey/finish:
+    post:
+      summary: 'Recovery session only: the new passkey is active at once (by recovery-code,
+        recorded in the registry log); the recovery session ends'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kid_hex: *id003
+                  short: *id003
+                  added_by:
+                    const: recovery-code
+                  codes_left: *id005
+                required:
+                - kid_hex
+                - added_by
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                flow_id: *id003
+                credential:
+                  type: object
+                label: *id003
+              required:
+              - flow_id
+              - credential
+  /api/org/key-replace:
+    post:
+      summary: Open the policy request that replaces ONE member's lost key by their
+        newest active passkey; needs = rule recovery (k >= 2 others) or rule policy.
+        409 NO_NEW_KEY, WQ_POLICY_UNKNOWN
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  req_id: *id003
+                  needs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        role: *id003
+                        k: *id005
+                      required:
+                      - role
+                      - k
+                  old_kid: *id003
+                  new_kid: *id003
+                  rule:
+                    enum:
+                    - recovery
+                    - policy
+                required:
+                - req_id
+                - needs
+                - old_kid
+                - new_kid
+                - rule
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: *id003
+              required:
+              - user_id
+  /api/mandates/by-key/{kid}:
+    get:
+      summary: Active mandates of the current account that a key signed (they stay
+        valid until revoked)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kid_hex: *id003
+                  typ: *id003
+                  max_per_batch: *id005
+                  mandates:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: *id003
+                        agent_id: *id003
+                        mandate:
+                          type: object
+                        created_at: *id005
+                      required:
+                      - id
+                      - mandate
+                required:
+                - kid_hex
+                - mandates
+        default: *id001
+      security: *id002
+      parameters:
+      - name: kid
+        in: path
+        required: true
+        schema: *id003
+  /api/mandates/revoke-batch:
+    post:
+      summary: 'One wb envelope of typ revocation (challenge over the items AND the
+        typ) revokes up to 20 mandates. 409: WB_*, KEY_REVOKED, KEY_NOT_ACTIVE, WQ_NOT_MEMBER,
+        MANDATE_NOT_ACTIVE'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked:
+                    type: array
+                    items: *id003
+                  ledger_seqs:
+                    type: array
+                    items: *id005
+                required:
+                - revoked
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mandate_ids:
+                  type: array
+                  items: *id003
+                  minItems: 1
+                  maxItems: 20
+                envelope_b64: *id003
+              required:
+              - mandate_ids
+              - envelope_b64
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: dw_session
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: *id003
+        detail: *id003
+      required:
+      - error
+    Key:
+      type: object
+      properties:
+        kid_hex: *id003
+        short: *id003
+        label: *id003
+        created_at: *id005
+        last_used_at:
+          anyOf:
+          - *id005
+          - type: 'null'
+        added_by:
+          enum:
+          - registration
+          - passkey
+          - recovery-code
+        removed_at:
+          anyOf:
+          - *id005
+          - type: 'null'
+        active: &id006
+          type: boolean
+        this_session: *id006
+        credential_id_b64: *id003
+        team_key_in:
+          type: array
+          items:
+            type: object
+            properties:
+              account_id: *id003
+              name:
+                anyOf:
+                - *id003
+                - type: 'null'
+      required:
+      - kid_hex
+      - label
+      - active
+      - added_by
+    CodesState:
+      type: object
+      properties:
+        total: *id005
+        remaining: *id005
+        created_at:
+          anyOf:
+          - *id005
+          - type: 'null'
+      required:
+      - total
+      - remaining
+    RegOptions:
+      type: object
+      properties:
+        flow_id: *id003
+        options:
+          type: object
+      required:
+      - flow_id
+      - options

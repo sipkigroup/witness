@@ -1,0 +1,12 @@
+{
+ "rid": "r_7ZBPPFNJHXF6DBFNPVGXRX2WNY",
+ "verdict": "deny",
+ "reason": "TOOL_UNMAPPED",
+ "status": "denied",
+ "action": null,
+ "expires": 1792351137,
+ "aar_b64": null,
+ "proof": null,
+ "approval_url": null,
+ "promise_b64": null
+}

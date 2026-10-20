@@ -1,0 +1,36 @@
+{
+ "id": "D28",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "Purchase with no signed limits: defer (reservation held)",
+ "source": "svidetel v3 language: ESKALACIYA_DENGI",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {},
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "purchase",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 5000,
+   "recipient": "",
+   "data": [],
+   "currency": "USD"
+  }
+ },
+ "expected": {
+  "verdict": "defer",
+  "reason": "ESCALATE_MONEY"
+ }
+}

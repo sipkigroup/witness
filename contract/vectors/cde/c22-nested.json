@@ -1,0 +1,16 @@
+{
+ "id": "c22-nested",
+ "json": {
+  "permissions": {
+   "delete": {
+    "targets": [
+     "cache-*"
+    ],
+    "allow_irreversible": false
+   },
+   "publish": null
+  }
+ },
+ "cde_hex": "a16b7065726d697373696f6e73a26664656c657465a26774617267657473816763616368652d2a72616c6c6f775f697272657665727369626c65f4677075626c697368f6",
+ "note": "nested"
+}

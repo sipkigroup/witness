@@ -1,0 +1,48 @@
+{
+ "id": "D38",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "Named circle NOT opted in: same file is denied",
+ "source": "svidetel v3 KRUG (divergence)",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "file": {
+     "to": [
+      "buh@firma3.example"
+     ]
+    },
+    "message": {
+     "to": [
+      "buh@firma3.example",
+      "partner@firma3.example"
+     ]
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "file",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "partner@firma3.example",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "deny",
+  "reason": "RECIPIENT"
+ },
+ "note": "Divergence from reference svidetel v3, which applies the circle rule unconditionally (OK_KRUG). The draft makes it an explicit, principal-signed opt-in (Section 6.5)."
+}

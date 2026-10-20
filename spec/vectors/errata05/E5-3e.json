@@ -1,0 +1,35 @@
+{
+ "id": "E5-3e",
+ "kind": "requirements",
+ "title": "E5-3: sale {min_price: 60000}: min_price counts as a size, `money_over` fires",
+ "source": "ERRATA-05 / PROFILE-webauthn-01 Section 6",
+ "tiers": [
+  {
+   "if": "money",
+   "role": "budget",
+   "k": 1
+  },
+  {
+   "if": "money_over",
+   "amount": 50000,
+   "role": "budget",
+   "k": 2
+  },
+  {
+   "if": "access",
+   "role": "access",
+   "k": 1
+  }
+ ],
+ "mandate_permissions": {
+  "sale": {
+   "min_price": 60000
+  }
+ },
+ "expected": [
+  [
+   "budget",
+   2
+  ]
+ ]
+}

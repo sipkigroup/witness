@@ -1,0 +1,49 @@
+{
+ "id": "D76",
+ "class": "valid",
+ "kind": "decision",
+ "title": "Named circle applies to a disclosure of non-protected data (evaluated under message)",
+ "source": "draft-deus-aar-02 (Changes from -01)",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "message": {
+     "to": [
+      "a@x.example"
+     ]
+    },
+    "file": {
+     "to": [
+      "b@y.example"
+     ]
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": true,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "disclosure",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "b@y.example",
+   "data": [
+    "city"
+   ]
+  }
+ },
+ "expected": {
+  "verdict": "allow",
+  "reason": "OK_CIRCLE"
+ },
+ "note": "-02 6.5"
+}

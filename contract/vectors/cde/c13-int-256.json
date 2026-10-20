@@ -1,0 +1,8 @@
+{
+ "id": "c13-int-256",
+ "json": {
+  "n": 256
+ },
+ "cde_hex": "a1616e190100",
+ "note": "integer boundary"
+}

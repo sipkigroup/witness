@@ -1,0 +1,986 @@
+openapi: 3.1.0
+info:
+  title: Deus Witness Cloud 0.2 (new paths only)
+  version: 0.2.0-draft
+  description: 'Machine form of cloud/ARHITEKTURA-0.2.md 2.7 and 8. The 0.1 paths
+    are in ../openapi.yaml. Bytes are base64url without padding (*_b64). Errors: {error,
+    detail}.'
+servers:
+- url: https://witness.sipkigroup.com
+- url: http://localhost:8801
+paths:
+  /api/orgs:
+    get:
+      summary: Organisations of the user (an organisation = an account, principal
+        dw:<id>)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrgRef'
+        default: &id001
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      security: &id002
+      - cookieSession: []
+  /api/orgs/switch:
+    post:
+      summary: Switch the current organisation of the session
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id: &id003
+                    type: string
+                required:
+                - account_id
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id: *id003
+              required:
+              - account_id
+  /api/org/invites:
+    post:
+      summary: Owner, step-up. One-time invite link, 24 h; the token is shown once
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url: *id003
+                required:
+                - url
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                roles:
+                  type: array
+                  items: &id004
+                    enum:
+                    - owner
+                    - budget
+                    - access
+                    - observer
+              required:
+              - roles
+  /api/org/join:
+    post:
+      summary: Join with an invite token; observer is active at once, other roles
+        stay pending until a policy version lists the member
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id: *id003
+                  status:
+                    enum:
+                    - pending
+                    - active
+                  roles:
+                    type: array
+                    items: *id004
+                required:
+                - account_id
+                - status
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token: *id003
+              required:
+              - token
+  /api/org:
+    get:
+      summary: Members, roles, current policy, settings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Org'
+        default: *id001
+      security: *id002
+  /api/org/policy/draft:
+    post:
+      summary: Owner. Build the org-policy map (2.2) and open a signature request;
+        422 POLICY_MALFORMED
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  req_id: *id003
+                  typ:
+                    const: application/dw-org-policy+cbor
+                  payload_b64: *id003
+                  policy:
+                    $ref: '#/components/schemas/PolicyJson'
+                required:
+                - req_id
+                - typ
+                - payload_b64
+                - policy
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                members:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      user_id: *id003
+                      roles:
+                        type: array
+                        items:
+                          enum:
+                          - owner
+                          - budget
+                          - access
+                      label: *id003
+                    required:
+                    - user_id
+                    - roles
+                rules:
+                  $ref: '#/components/schemas/PolicyRules'
+              required:
+              - members
+              - rules
+  /api/sig-requests:
+    get:
+      summary: Pending signature requests the user can sign (role in needs, not signed
+        yet)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SigRequest'
+        default: *id001
+      security: *id002
+  /api/sig-requests/{id}:
+    get:
+      summary: One request with payload_b64 (the bytes the browser must sign as an
+        ordinary wa-sig)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SigRequestFull'
+        default: *id001
+      security: *id002
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+    post:
+      summary: 'Submit an ordinary wa-sig of the signer. 409 codes: WA_*, KEY_MISMATCH,
+        WQ_NOT_MEMBER, WQ_DUP_SIGNER, POLICY_*. Quorum reached -> request applied
+        (mandate active / policy version added)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SigProgress'
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                envelope_b64: *id003
+              required:
+              - envelope_b64
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+  /api/org/settings:
+    put:
+      summary: Owner, step-up. Organisation settings
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrgSettings'
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrgSettings'
+  /api/mandates/draft:
+    post:
+      summary: '0.2 reply of the 0.1 path: with an org policy the draft also opens
+        a quorum request (req_id, needs)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandate:
+                    type: object
+                  typ: *id003
+                  toolmap_sha256: *id003
+                  req_id: *id003
+                  needs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Need'
+                  quorum: &id006
+                    type: boolean
+                required:
+                - mandate
+                - typ
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent_id: *id003
+                form:
+                  type: object
+              required:
+              - agent_id
+              - form
+  /api/suggestions:
+    get:
+      summary: '3.2: groups approved >= 3 times in 14 days and never refused -> ''add
+        to mandate''; only widens (fatigue-fix): an unspecified class is never closed;
+        money = per agent, max approved x 1.5 and the largest 24 h sum x 1.5, rounded
+        up to 10 USD, below every refused amount'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  suggestions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Suggestion'
+                required:
+                - suggestions
+        default: *id001
+      security: *id002
+  /api/digest:
+    get:
+      summary: '3.5: period figures W/H/F, breakdowns, pending per role, suggestions,
+        APPROVAL_RATE denials, catalog drift'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Digest'
+        default: *id001
+      security: *id002
+      parameters:
+      - name: since
+        in: query
+        schema: &id005
+          type: integer
+        description: unix seconds
+  /api/approvals/batch:
+    post:
+      summary: '3.3: one wb envelope approves up to 20 homogeneous pending items (k=1
+        only). 409: WB_MALFORMED, WB_ITEM, WA_*, KEY_MISMATCH, WQ_QUORUM, WQ_NOT_MEMBER,
+        NOT_DEFERRED, BATCH_NOT_HOMOGENEOUS'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approved:
+                    type: array
+                    items: *id003
+                  n: *id005
+                  envelope_items: *id005
+                required:
+                - approved
+                - n
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rids:
+                  type: array
+                  items: *id003
+                  minItems: 1
+                  maxItems: 20
+                envelope_b64: *id003
+              required:
+              - rids
+              - envelope_b64
+  /api/approvals/{rid}/release:
+    post:
+      summary: '4.2: release or reject an item held by the advisor; wa-sig typ application/dw-release+cbor
+        over {rid, args_sha256 (bstr 32), release}'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: *id003
+                  verdict: *id003
+                  reason: *id003
+                required:
+                - status
+                - verdict
+                - reason
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                release: *id006
+                envelope_b64: *id003
+              required:
+              - release
+              - envelope_b64
+      parameters:
+      - name: rid
+        in: path
+        required: true
+        schema: *id003
+  /api/mandates/{mid}/revoke:
+    get:
+      summary: '0.2.0: the bytes to sign to revoke (typ application/aar-revocation+cbor,
+        aar_ref revocation_payload); any ONE signer suffices (0 p.3)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandate_id: *id003
+                  status: *id003
+                  typ: *id003
+                  payload_b64: *id003
+                required:
+                - mandate_id
+                - status
+                - typ
+                - payload_b64
+        default: *id001
+      security: *id002
+      parameters:
+      - name: mid
+        in: path
+        required: true
+        schema: *id003
+    post:
+      summary: '0.2.0: revoke with an ordinary wa-sig of one signer (wrapped in a
+        wq of one under the policy in force). 409: WA_*, WQ_NOT_MEMBER, MANDATE_NOT_ACTIVE'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mandate_id: *id003
+                  status: *id003
+                  ledger_seq: *id005
+                required:
+                - mandate_id
+                - status
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                envelope_b64: *id003
+              required:
+              - envelope_b64
+      parameters:
+      - name: mid
+        in: path
+        required: true
+        schema: *id003
+  /v1/catalog:
+    post:
+      summary: '6: proxy sends tools/list of the MCP server; server stores the catalog
+        and its hash'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  catalog_sha256: *id003
+                  n_tools: *id005
+                  changed: *id006
+                required:
+                - catalog_sha256
+                - n_tools
+                - changed
+        default: *id001
+      security: &id007
+      - bearerKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tools:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: *id003
+                      description: *id003
+                      inputSchema:
+                        type: object
+                    required:
+                    - name
+              required:
+              - tools
+  /v1/coverage:
+    post:
+      summary: '5.3: operator-declared coverage level (a claim, not a proof)'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: *id006
+                  level: *id003
+                required:
+                - ok
+                - level
+        default: *id001
+      security: *id007
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                level:
+                  enum:
+                  - C0
+                  - C1
+                  - C2
+                  - C3
+                unwitnessed:
+                  type: array
+                  items: *id003
+                tool: *id003
+                pass_net_tools:
+                  type: array
+                  items: *id003
+              required:
+              - level
+  /api/catalog/{agent}:
+    get:
+      summary: Catalog, drift flag, suggested toolmap with UNKNOWN list, declared
+        coverage
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogView'
+        default: *id001
+      security: *id002
+      parameters:
+      - name: agent
+        in: path
+        required: true
+        schema: *id003
+  /api/catalog/{agent}/draft:
+    post:
+      summary: Toolmap draft from the catalog; applicable only when unknown is empty
+        (apply = PUT toolmap, step-up)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  toolmap_draft:
+                    type: object
+                  unknown:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Unknown'
+                  applicable: *id006
+                  catalog_sha256: *id003
+                required:
+                - toolmap_draft
+                - unknown
+                - applicable
+        default: *id001
+      security: *id002
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+      parameters:
+      - name: agent
+        in: path
+        required: true
+        schema: *id003
+components:
+  securitySchemes:
+    cookieSession:
+      type: apiKey
+      in: cookie
+      name: dw_session
+    bearerKey:
+      type: http
+      scheme: bearer
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: *id003
+        detail: *id003
+      required:
+      - error
+    Need:
+      type: object
+      properties:
+        role:
+          enum:
+          - owner
+          - budget
+          - access
+          - any
+        k: *id005
+      required:
+      - role
+      - k
+    OrgRef:
+      type: object
+      properties:
+        account_id: *id003
+        principal: *id003
+        name: *id003
+        roles:
+          type: array
+          items: *id004
+        status: *id003
+        current: *id006
+      required:
+      - account_id
+      - principal
+      - roles
+      - current
+    Member:
+      type: object
+      properties:
+        user_id: *id003
+        label: *id003
+        roles:
+          type: array
+          items: *id004
+        status:
+          enum:
+          - pending
+          - active
+          - removed
+        kid: *id003
+      required:
+      - user_id
+      - roles
+      - status
+      - kid
+    OrgSettings:
+      type: object
+      properties:
+        profile:
+          enum:
+          - smb
+          - enterprise
+        defer_ttl_s:
+          type: integer
+          minimum: 900
+          maximum: 3600
+        max_pending: *id005
+        max_defers_hour: *id005
+        escalate_after_s: *id005
+        advisor:
+          enum:
+          - 'off'
+          - heuristic
+          - ner
+    Tier:
+      type: object
+      properties:
+        if:
+          enum:
+          - money
+          - money_over
+          - access
+        amount: *id005
+        role:
+          enum:
+          - budget
+          - access
+          - owner
+        k: *id005
+      required:
+      - if
+      - role
+      - k
+    PolicyRules:
+      type: object
+      properties:
+        policy:
+          $ref: '#/components/schemas/Need'
+        mandate:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tier'
+        approval:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tier'
+        revocation:
+          $ref: '#/components/schemas/Need'
+        ceiling:
+          $ref: '#/components/schemas/Need'
+        recovery:
+          $ref: '#/components/schemas/Need'
+      required:
+      - policy
+      - mandate
+      - approval
+      - revocation
+      - ceiling
+      description: '0.2.2: optional `recovery` (k >= 2 other members replace one member''s
+        lost key; see openapi-0.2.2-recovery.yaml)'
+    PolicyJson:
+      type: object
+      properties:
+        v:
+          const: dw-org-policy-0.1
+        principal: *id003
+        ver: *id005
+        prev:
+          anyOf:
+          - *id003
+          - type: 'null'
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              kid: *id003
+              pub: *id003
+              cred: *id003
+              roles:
+                type: array
+                items: *id003
+              label: *id003
+        rules:
+          $ref: '#/components/schemas/PolicyRules'
+      required:
+      - v
+      - principal
+      - ver
+      - members
+      - rules
+      description: bytes members are hex
+    Org:
+      type: object
+      properties:
+        account_id: *id003
+        principal: *id003
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+        policy:
+          anyOf:
+          - $ref: '#/components/schemas/PolicyJson'
+          - type: 'null'
+        policy_ver: *id005
+        settings:
+          $ref: '#/components/schemas/OrgSettings'
+      required:
+      - account_id
+      - members
+      - policy_ver
+    SigRequest:
+      type: object
+      properties:
+        id: *id003
+        kind:
+          enum:
+          - mandate
+          - approval
+          - policy
+        ref: *id003
+        typ: *id003
+        needs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Need'
+        have: *id005
+        need: *id005
+        status:
+          enum:
+          - collecting
+          - done
+        signed_by:
+          type: array
+          items: *id003
+        created_at: *id005
+        expires: *id005
+      required:
+      - id
+      - kind
+      - typ
+      - needs
+      - have
+      - need
+      - status
+    SigRequestFull:
+      allOf:
+      - $ref: '#/components/schemas/SigRequest'
+      - type: object
+        properties:
+          payload_b64: *id003
+          policy_hash_b64:
+            anyOf:
+            - *id003
+            - type: 'null'
+          body:
+            type: object
+        required:
+        - payload_b64
+    SigProgress:
+      type: object
+      properties:
+        status:
+          enum:
+          - collecting
+          - done
+        have: *id005
+        need: *id005
+        mandate_id: *id003
+        mandate_status: *id003
+        policy_ver: *id005
+      required:
+      - status
+      - have
+      - need
+    Suggestion:
+      type: object
+      properties:
+        id: *id003
+        agent_id: *id003
+        kind:
+          enum:
+          - recipient
+          - budget
+        class: *id003
+        key: *id003
+        approved: *id005
+        rejected: *id005
+        window_days: *id005
+        proposal: *id003
+        proposed_budget: *id005
+      required:
+      - id
+      - agent_id
+      - kind
+      - class
+      - key
+      - approved
+      - rejected
+    Digest:
+      type: object
+      properties:
+        since: *id005
+        until: *id005
+        W: *id005
+        H: *id005
+        F: *id005
+        by_verdict:
+          type: object
+          additionalProperties: *id005
+        by_reason:
+          type: object
+          additionalProperties: *id005
+        by_agent:
+          type: object
+          additionalProperties: *id005
+        pending_by_role:
+          type: object
+          properties:
+            budget: *id005
+            access: *id005
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Suggestion'
+        approval_rate_denials: *id005
+        catalog_drift:
+          type: array
+          items: *id003
+      required:
+      - since
+      - until
+      - W
+      - H
+      - F
+    Unknown:
+      type: object
+      properties:
+        tool: *id003
+        arg: *id003
+      required:
+      - tool
+      - arg
+    CatalogView:
+      type: object
+      properties:
+        agent_id: *id003
+        catalog_sha256:
+          anyOf:
+          - *id003
+          - type: 'null'
+        tools:
+          type: array
+          items:
+            type: object
+        drift: *id006
+        suggested_toolmap:
+          anyOf:
+          - type: object
+          - type: 'null'
+        unknown:
+          type: array
+          items:
+            $ref: '#/components/schemas/Unknown'
+        coverage:
+          anyOf:
+          - type: object
+            properties:
+              level: *id003
+              unwitnessed:
+                type: array
+                items: *id003
+              tool: *id003
+              pass_net_tools:
+                type: array
+                items: *id003
+              t: *id005
+              operator_declared:
+                const: true
+          - type: 'null'
+      required:
+      - agent_id
+      - drift
+      - unknown

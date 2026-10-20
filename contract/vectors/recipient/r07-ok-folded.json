@@ -1,0 +1,9 @@
+{
+ "id": "r07-ok-folded",
+ "recipient": "  Bob@ACME.example ",
+ "mandate_domains": [
+  "acme.example"
+ ],
+ "expect": "allow",
+ "note": "ERRATA-04 E1 (review R-01)"
+}

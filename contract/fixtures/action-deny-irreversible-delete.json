@@ -1,0 +1,19 @@
+{
+ "rid": "r_YW2M3SNJUVBLYOIE3LUOEZR57I",
+ "verdict": "deny",
+ "reason": "IRREVERSIBLE_DELETE",
+ "status": "denied",
+ "action": {
+  "agent": "ag_b4339a7c440e",
+  "class": "delete",
+  "args_sha256": "de805ffc9a019ede87f8d20cd409ed0fb104e8bce95870eacae7cb4e6bf492a5",
+  "recipient": "prod-db",
+  "data": [],
+  "reversible": false
+ },
+ "expires": 1792351137,
+ "aar_b64": null,
+ "proof": null,
+ "approval_url": null,
+ "promise_b64": null
+}

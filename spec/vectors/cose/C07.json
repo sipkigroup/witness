@@ -1,0 +1,18 @@
+{
+ "id": "C07",
+ "class": "invalid",
+ "kind": "cose-verify",
+ "title": "not a COSE_Sign1 (plain CBOR map)",
+ "keys": {
+  "dd2fb4e18b5e1ce30c4633aaa5f681da79c3b32998cc5aa21b1149c37231a6ac": {
+   "alg": "EdDSA",
+   "pub": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+  }
+ },
+ "cose_hex": "a1616101",
+ "expected": {
+  "result": "reject",
+  "reason": "MALFORMED"
+ },
+ "typ": "application/aar-receipt+cbor"
+}

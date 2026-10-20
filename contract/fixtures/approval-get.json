@@ -1,0 +1,47 @@
+{
+ "rid": "r_4SIJKSOOHOVLZ6VK42ILDDJ2GM",
+ "status": "pending_approval",
+ "action": {
+  "agent": "ag_b4339a7c440e",
+  "class": "publish",
+  "args_sha256": "0c7605eaee9c8734048bd84284f6e2a8d1efad24b4da0b98fffc128793f953fc",
+  "recipient": "blog",
+  "data": []
+ },
+ "mandate": {
+  "v": "deus-aar-0.1",
+  "id": "1611033ab8aa471f7cad225065c55114",
+  "principal": "dw:fe04fe34d8d9f2b541d6fd4e1de5cb8a",
+  "agent": "ag_b4339a7c440e",
+  "nbf": 1792350237,
+  "exp": 1794942237,
+  "currency": "USD",
+  "budget_window_s": 86400,
+  "permissions": {
+   "purchase": {
+    "max_per_action": 10000,
+    "budget": 20000
+   },
+   "message": {
+    "domains": [
+     "acme.example"
+    ],
+    "to": [
+     "bob@partner.example"
+    ]
+   }
+  },
+  "forbidden_data": [
+   "home_address",
+   "phone"
+  ],
+  "named_circle": false,
+  "key_attestation": "passkey",
+  "pin_source": "webauthn-registration:localhost:2026-10-18T19:03:57Z:registry-log#1"
+ },
+ "expires": 1792351137,
+ "tool": "publish",
+ "args_preview": "{\"channel\": \"blog\", \"text\": \"launch\"}",
+ "text_preview": "",
+ "preview_note": "Shown by the witness page, not signed. What your passkey signs is the action above, including args_sha256."
+}

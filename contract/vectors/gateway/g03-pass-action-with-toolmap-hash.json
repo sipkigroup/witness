@@ -1,0 +1,14 @@
+{
+ "cde_hex": "a6646461746180656167656e746461675f3165636c617373647061737366616d6f756e740069726563697069656e746e746f6f6c3a726561645f66696c656e746f6f6c6d61705f73686132353658205d996ce00f206f2ae4b8cbddff644c8a79235115b3bdacb40d71415b5d76cb06",
+ "id": "g03-pass-action-with-toolmap-hash",
+ "json": {
+  "agent": "ag_1",
+  "amount": 0,
+  "class": "pass",
+  "data": [],
+  "recipient": "tool:read_file",
+  "toolmap_sha256": "5d996ce00f206f2ae4b8cbddff644c8a79235115b3bdacb40d71415b5d76cb06"
+ },
+ "note": "toolmap_sha256 is 64 hex in JSON and bstr .size 32 in the CDE bytes (draft-deus-aar-05 6.1, 8.6)",
+ "sha256": "af2ddfa711e94ed8aa422c91d5cfa2fef89ac59db2480f002d0a408c9d299d88"
+}

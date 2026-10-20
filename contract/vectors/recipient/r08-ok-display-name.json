@@ -1,0 +1,9 @@
+{
+ "id": "r08-ok-display-name",
+ "recipient": "Doe, J <bob@acme.example>",
+ "mandate_domains": [
+  "acme.example"
+ ],
+ "expect": "allow",
+ "note": "ERRATA-04 E1 (review R-01)"
+}

@@ -1,0 +1,41 @@
+{
+ "id": "D67",
+ "class": "valid",
+ "kind": "decision",
+ "title": "message permission `{to: null, domains: null}` is unspecified (same as absent)",
+ "source": "draft-deus-aar-02 (Changes from -01)",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "message": {
+     "to": null,
+     "domains": null
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "message",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "x@y.example",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "allow",
+  "reason": "OK_UNSPECIFIED"
+ },
+ "note": "6.2: domains absent or null"
+}

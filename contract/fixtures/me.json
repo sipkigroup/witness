@@ -1,0 +1,16 @@
+{
+ "account": {
+  "id": "fe04fe34d8d9f2b541d6fd4e1de5cb8a",
+  "principal": "dw:fe04fe34d8d9f2b541d6fd4e1de5cb8a",
+  "display_name": "Demo owner"
+ },
+ "keycard": {
+  "kid_hex": "7f88ea84764c51a0e12b6517c3e79f5079340a181e45e0ef57f3e4658fdb0325",
+  "short": "7f88 ea84 764c 51a0",
+  "credential_id_b64": "maywz2FKq5kNiBvyGxF_bwdStelyRBZ_7kfYH0DIgkU",
+  "rp_id": "localhost",
+  "origins": [
+   "http://localhost:8899"
+  ]
+ }
+}

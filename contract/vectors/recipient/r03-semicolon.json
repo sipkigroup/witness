@@ -1,0 +1,9 @@
+{
+ "id": "r03-semicolon",
+ "recipient": "thief@attacker.example;a@acme.example",
+ "mandate_domains": [
+  "acme.example"
+ ],
+ "expect": "deny RECIPIENT",
+ "note": "ERRATA-04 E1 (review R-01)"
+}

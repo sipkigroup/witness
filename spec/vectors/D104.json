@@ -1,0 +1,55 @@
+{
+ "id": "D104",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "file unspecified (R = defer ESCALATE_FILE) and count tier asks (K = defer): R's reason is kept: defer ESCALATE_FILE",
+ "source": "draft-deus-aar-05 (Changes from -04)",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "message": {
+     "to": [
+      "buh@firma1.example"
+     ]
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD",
+   "ask_over": {
+    "count": {
+     "file": {
+      "ask_over": 0,
+      "max": 1
+     }
+    }
+   }
+  },
+  "action": {
+   "class": "file",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "buh@firma1.example",
+   "data": []
+  },
+  "ledger_state": {
+   "counts": {
+    "file": 0
+   }
+  }
+ },
+ "expected": {
+  "verdict": "defer",
+  "reason": "ESCALATE_FILE"
+ },
+ "note": "-05 6.4 steps 12a/13, 6.9 (counter tiers)"
+}

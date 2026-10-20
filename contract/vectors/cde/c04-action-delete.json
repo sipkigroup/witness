@@ -1,0 +1,12 @@
+{
+ "id": "c04-action-delete",
+ "json": {
+  "agent": "ag",
+  "class": "delete",
+  "recipient": "prod-db",
+  "data": [],
+  "reversible": false
+ },
+ "cde_hex": "a5646461746180656167656e7462616765636c6173736664656c65746569726563697069656e746770726f642d64626a72657665727369626c65f4",
+ "note": "action of class delete"
+}

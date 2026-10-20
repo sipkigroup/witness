@@ -1,0 +1,33 @@
+{
+ "id": "E5-3c",
+ "kind": "requirements",
+ "title": "E5-3: purchase true (plain true): unbounded, `money_over` fires",
+ "source": "ERRATA-05 / PROFILE-webauthn-01 Section 6",
+ "tiers": [
+  {
+   "if": "money",
+   "role": "budget",
+   "k": 1
+  },
+  {
+   "if": "money_over",
+   "amount": 50000,
+   "role": "budget",
+   "k": 2
+  },
+  {
+   "if": "access",
+   "role": "access",
+   "k": 1
+  }
+ ],
+ "mandate_permissions": {
+  "purchase": true
+ },
+ "expected": [
+  [
+   "budget",
+   2
+  ]
+ ]
+}

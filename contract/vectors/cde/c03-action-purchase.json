@@ -1,0 +1,13 @@
+{
+ "id": "c03-action-purchase",
+ "json": {
+  "agent": "ag",
+  "class": "purchase",
+  "recipient": "vendor",
+  "data": [],
+  "amount": 1500,
+  "currency": "USD"
+ },
+ "cde_hex": "a6646461746180656167656e7462616765636c61737368707572636861736566616d6f756e741905dc6863757272656e63796355534469726563697069656e746676656e646f72",
+ "note": "action of class purchase"
+}

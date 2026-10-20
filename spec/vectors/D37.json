@@ -1,0 +1,47 @@
+{
+ "id": "D37",
+ "class": "valid",
+ "kind": "decision",
+ "title": "Named circle opted in: file to contact named for messages",
+ "source": "svidetel v3 KRUG",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "file": {
+     "to": [
+      "buh@firma3.example"
+     ]
+    },
+    "message": {
+     "to": [
+      "buh@firma3.example",
+      "partner@firma3.example"
+     ]
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": true,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "file",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "partner@firma3.example",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "allow",
+  "reason": "OK_CIRCLE"
+ }
+}

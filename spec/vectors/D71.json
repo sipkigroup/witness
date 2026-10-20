@@ -1,0 +1,36 @@
+{
+ "id": "D71",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "Invalid recipient, file permission unspecified: RECIPIENT, not ESCALATE_FILE",
+ "source": "draft-deus-aar-02 (Changes from -01)",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {},
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "file",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "<a@x.example> <b@y.example>",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "deny",
+  "reason": "RECIPIENT"
+ },
+ "note": "-02 6.4 step 10"
+}

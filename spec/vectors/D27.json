@@ -1,0 +1,44 @@
+{
+ "id": "D27",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "Protected data class permitted, recipients unspecified: defer",
+ "source": "svidetel v3 language: ESKALACIYA_DANNYE",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "disclosure": {
+     "to": null,
+     "data": [
+      "address"
+     ]
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "disclosure",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "courier@example.org",
+   "data": [
+    "address"
+   ]
+  }
+ },
+ "expected": {
+  "verdict": "defer",
+  "reason": "ESCALATE_DATA"
+ }
+}

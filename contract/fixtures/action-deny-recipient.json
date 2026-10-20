@@ -1,0 +1,18 @@
+{
+ "rid": "r_NTFJUSFCY2S4MW5KNV66AGAJUM",
+ "verdict": "deny",
+ "reason": "RECIPIENT",
+ "status": "denied",
+ "action": {
+  "agent": "ag_b4339a7c440e",
+  "class": "message",
+  "args_sha256": "581dadbe369dad3688625d486dd033323778604a4e5eab770ec549108fe837e6",
+  "recipient": "eve@evil.example",
+  "data": []
+ },
+ "expires": 1792351137,
+ "aar_b64": null,
+ "proof": null,
+ "approval_url": null,
+ "promise_b64": null
+}

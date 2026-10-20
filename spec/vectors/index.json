@@ -1,0 +1,1616 @@
+{
+ "spec": "draft-deus-aar-05 (rev 4.6). Abstract vectors D/S/V (221) and byte vectors cose/C01-C82 (82). -04 baseline (with ERRATA-04): 178 abstract + C01-C82.",
+ "level": "abstract (semantic) vectors: signatures and hashes are symbolic; signature validity is an input flag. Byte-level vectors in cose/ are real COSE_Sign1 (kid = RFC 9679 thumbprint). In abstract sequence vectors action.t is a harness shorthand: the witness clock reads at least t before the step (Appendix A).",
+ "units": "amounts are integer minor units (USD cents); times are seconds on the witness clock",
+ "class": "valid = honest trace, conforming implementation MUST allow/accept/validate; invalid = attack or malformed input, MUST deny, defer, reject or invalidate",
+ "checker": "python3 check_vectors.py",
+ "counts": {
+  "decision/invalid": 88,
+  "decision/valid": 29,
+  "sequence/invalid": 31,
+  "sequence/valid": 11,
+  "verification/invalid": 46,
+  "verification/valid": 16
+ },
+ "total": 221,
+ "valid": 56,
+ "invalid": 165,
+ "vectors": [
+  {
+   "id": "D01",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Robb red: sale below signed minimum price",
+   "source": "MIR-W pair robb (red 0)"
+  },
+  {
+   "id": "D02",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Robb red: home address disclosed to buyer",
+   "source": "MIR-W pair robb (red 1)"
+  },
+  {
+   "id": "D03",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Robb red: meeting without principal present",
+   "source": "MIR-W pair robb (red 2)"
+  },
+  {
+   "id": "D04",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Robb green: sale at min price + $15",
+   "source": "MIR-W pair robb (green 0)"
+  },
+  {
+   "id": "D05",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Robb green: city (non-protected) to named contact",
+   "source": "MIR-W pair robb (green 1)"
+  },
+  {
+   "id": "D06",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Robb green: meeting with principal present",
+   "source": "MIR-W pair robb (green 2)"
+  },
+  {
+   "id": "D07",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Injection red: file to look-alike mailbox in permitted organisation",
+   "source": "MIR-W pair inzhekciya (red 0)"
+  },
+  {
+   "id": "D08",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Injection red: address to attacker",
+   "source": "MIR-W pair inzhekciya (red 1)"
+  },
+  {
+   "id": "D09",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Injection green: file to named accountant",
+   "source": "MIR-W pair inzhekciya (green 0)"
+  },
+  {
+   "id": "D10",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Injection green: plain message to named partner",
+   "source": "MIR-W pair inzhekciya (green 1)"
+  },
+  {
+   "id": "D100",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "count tier message {ask_over 2, max 3}: 2 counted, this is the 3rd: defer ESCALATE_COUNT",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D101",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "count tier message {ask_over 2, max 3}: 3 counted, this is the 4th: deny COUNT_LIMIT",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D102",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "count tier and a recipient outside the list: the class rule denies first (step 11): deny RECIPIENT",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D103",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "count limit reached and protected data without a disclosure grant: D before K: deny DATA_NOT_PERMITTED",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D104",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "file unspecified (R = defer ESCALATE_FILE) and count tier asks (K = defer): R's reason is kept: defer ESCALATE_FILE",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D105",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "file unspecified (R = defer) and count max reached (K = deny): deny COUNT_LIMIT",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D106",
+   "class": "valid",
+   "kind": "decision",
+   "title": "mandate and action carry the same tool map hash: allow OK",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D107",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "the action was mapped by another tool map than the signed one: deny TOOLMAP_CHANGED",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D108",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "the mandate binds a tool map, the action states none: deny TOOLMAP_CHANGED",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D109",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "the action was mapped (carries a hash), the mandate binds no tool map: deny TOOLMAP_CHANGED",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D11",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Limit red: purchase at 1.6x per-action limit",
+   "source": "MIR-W pair limit (red)"
+  },
+  {
+   "id": "D110",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "order: an expired mandate and a changed map: step 4 first: deny EXPIRED",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D111",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "order: an unregistered class under a changed map: step 4a before step 5: deny TOOLMAP_CHANGED",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D112",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "a call the signed map does not cover is submitted as class `unmapped` (8.6): deny CLASS_UNKNOWN",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D113",
+   "class": "valid",
+   "kind": "decision",
+   "title": "class `pass` (the signed map marks the tool as outside the mandate): allow OK_PASS, logged like any decision",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D114",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "class `pass` without a tool map in the mandate (an unsigned map cannot declare pass): deny TOOLMAP_CHANGED",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D115",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "class `pass` carrying protected data: deny DATA_FORBIDDEN (step 12 does not apply, as for publish)",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D116",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "count tier on `pass` {max 2}: 2 counted, the 3rd pass: deny COUNT_LIMIT",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D117",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "class `pass` with a non-zero amount: deny BAD_AMOUNT (pass is not monetary)",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D12",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Limit green: purchase at 0.6x limit",
+   "source": "MIR-W pair limit (green)"
+  },
+  {
+   "id": "D13",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Literalist red: documents to random contact",
+   "source": "MIR-W pair bukvalist (red 0)"
+  },
+  {
+   "id": "D14",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Literalist red: phone number to random contact",
+   "source": "MIR-W pair bukvalist (red 1)"
+  },
+  {
+   "id": "D15",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Negative amount (fake refund to reset spend counter)",
+   "source": "adversary v0 otric_summa"
+  },
+  {
+   "id": "D16",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Non-integer amount (fractional minor units)",
+   "source": "adversary v0 otric_summa (variant)"
+  },
+  {
+   "id": "D17",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Homoglyph recipient (Cyrillic a in domain)",
+   "source": "adversary v0 dvoynik_poluchatelya"
+  },
+  {
+   "id": "D18",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Subdomain is not the permitted domain (exact match only)",
+   "source": "adversary v0 dvoynik_poluchatelya"
+  },
+  {
+   "id": "D19",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Domain grant covers any mailbox of that exact domain",
+   "source": "adversary v0 dvoynik_poluchatelya (semantics)"
+  },
+  {
+   "id": "D20",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Address in body of message to permitted relay",
+   "source": "adversary v0 dannye_v_tele (red 0)"
+  },
+  {
+   "id": "D21",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Passport attached to file for permitted relay",
+   "source": "adversary v0 dannye_v_tele (red 1)"
+  },
+  {
+   "id": "D22",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Data-in-body green: city to permitted contact",
+   "source": "adversary v0 dannye_v_tele (green)"
+  },
+  {
+   "id": "D23",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Unspecified message permission, low risk: allow and log",
+   "source": "svidetel v3 language: OK_NE_UKAZANO"
+  },
+  {
+   "id": "D24",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Unspecified file permission: defer to principal",
+   "source": "svidetel v3 language: ESKALACIYA_FAYL"
+  },
+  {
+   "id": "D25",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Sale with no signed minimum price: defer",
+   "source": "MIR-W L1 neodnoznachnoe"
+  },
+  {
+   "id": "D26",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Protected data with disclosure unspecified: deny, not defer",
+   "source": "svidetel v3 language: DANNYE_NE_RAZRESHENY"
+  },
+  {
+   "id": "D27",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Protected data class permitted, recipients unspecified: defer",
+   "source": "svidetel v3 language: ESKALACIYA_DANNYE"
+  },
+  {
+   "id": "D28",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Purchase with no signed limits: defer (reservation held)",
+   "source": "svidetel v3 language: ESKALACIYA_DENGI"
+  },
+  {
+   "id": "D29",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Meeting unspecified, principal present: allow",
+   "source": "svidetel v3 language"
+  },
+  {
+   "id": "D30",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Deletion without any permission and without reversibility: deny (irreversible)",
+   "source": "svidetel v3 (unknown kind = irreversible); updated at Step 2: delete is now registered"
+  },
+  {
+   "id": "D31",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "forbidden_data overrides an explicit disclosure grant",
+   "source": "svidetel v1+ zapret_dannye"
+  },
+  {
+   "id": "D32",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Action by a different agent than the mandate names",
+   "source": "TZ v0.1 threat table"
+  },
+  {
+   "id": "D33",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Action after mandate expiry (witness clock)",
+   "source": "TZ v0.1 threat table"
+  },
+  {
+   "id": "D34",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Mandate signature does not verify under pinned principal key",
+   "source": "svidetel v3 D-221"
+  },
+  {
+   "id": "D35",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "No mandate at all",
+   "source": "svidetel v0"
+  },
+  {
+   "id": "D36",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Class explicitly denied by principal",
+   "source": "svidetel v3 language"
+  },
+  {
+   "id": "D37",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Named circle opted in: file to contact named for messages",
+   "source": "svidetel v3 KRUG"
+  },
+  {
+   "id": "D38",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Named circle NOT opted in: same file is denied",
+   "source": "svidetel v3 KRUG (divergence)"
+  },
+  {
+   "id": "D39",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Named circle never opens protected data",
+   "source": "svidetel v3 KRUG"
+  },
+  {
+   "id": "D40",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Mandate budget exhausted (committed = consumed + active reservations)",
+   "source": "MIR-W pair droblenie"
+  },
+  {
+   "id": "D41",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Principal ceiling exhausted across mandates",
+   "source": "adversary v1 mnogo_mandatov / svidetel v3 POTOLOK"
+  },
+  {
+   "id": "D42",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Signed refund permission",
+   "source": "svidetel v3 language"
+  },
+  {
+   "id": "D43",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Display-name and case are canonicalised",
+   "source": "svidetel v0 kanon_adres"
+  },
+  {
+   "id": "D44",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Unregistered action class (teleport): fail closed",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D45",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Delete: reversible, target inside permitted prefix",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D46",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete: irreversible without allow_irreversible",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D47",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete: target outside the permitted set",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D48",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete: unspecified permission, reversible -> escalate",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D49",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete: class explicitly denied",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D50",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Delete: irreversible but mandate allows it for the target",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D51",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Publish: permitted channel, no protected data",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D52",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Publish: protected data to an open audience",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D53",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Publish: unspecified permission -> escalate",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D54",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Publish: channel outside the permitted set",
+   "source": "Step 2 (deus-aar-0.1 delete/publish classes)"
+  },
+  {
+   "id": "D55",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete: wildcard target never matches a '..' path segment",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D56",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete: a bare '*' target matches nothing",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D57",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete: allow_irreversible does not widen the target list",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D58",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Publish with protected data and no publish permission: denied, not escalated",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D59",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Publish permission false",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D60",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Purchase without a currency (absent = BAD_AMOUNT)",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D61",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Explicit empty domains list is a specification that matches nobody (not 'unspecified')",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D62",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Recipient with two <...> pairs is invalid and never matches",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D63",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Amount above 10^15",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D64",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Amount exactly 10^15 is allowed",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D65",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Delete with a non-boolean 'reversible' is irreversible",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "D66",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Purchase permission without `budget` (absent = null): unspecified, escalated",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D67",
+   "class": "valid",
+   "kind": "decision",
+   "title": "message permission `{to: null, domains: null}` is unspecified (same as absent)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D68",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Protected data under a disclosure permission without `data` (absent = null)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D69",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Invalid recipient, message permission unspecified: RECIPIENT, not OK_UNSPECIFIED",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D70",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Invalid recipient does not match `to: \"*\"`",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D71",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Invalid recipient, file permission unspecified: RECIPIENT, not ESCALATE_FILE",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D72",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "message false, disclosure unspecified, disclosure of `city`: CLASS_DENIED (evaluated under message)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D73",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "disclosure false, message unspecified, disclosure of `city`: CLASS_DENIED (own permission false)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D74",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Named circle is not opened by a `domains` list of another class",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D75",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Named circle is not opened by `to: \"*\"` of another class",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D76",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Named circle applies to a disclosure of non-protected data (evaluated under message)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D77",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Non-monetary action with a non-zero amount",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D78",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "Monetary action without `amount`",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D79",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Non-monetary action without `amount` is allowed",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D80",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "meeting with principal_present = \"yes\" is not present",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D81",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "meeting with principal_present = 1 is not present",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "D82",
+   "class": "valid",
+   "kind": "decision",
+   "title": "Disclosure permission with `data` but no `to`/`domains`: the recipients are unspecified (OK_UNSPECIFIED in step 10), then ESCALATE_DATA in step 12",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "D83",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "list in one string: `thief@attacker.example, colleague@firma1.example` (comma) must not pass the domain grant",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D84",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "two `@`: `thief@attacker.example@firma1.example` is not one mailbox",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D85",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "semicolon list: `thief@attacker.example; a@firma1.example`",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D86",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "quoted local part with `@`: `\"a@attacker.example\"@firma1.example`",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D87",
+   "class": "valid",
+   "kind": "decision",
+   "title": "control: whitespace and case are still folded (`  Buh@Firma1.EXAMPLE `)",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D88",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "empty local part `@firma1.example`",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D89",
+   "class": "valid",
+   "kind": "decision",
+   "title": "control: display name with a comma, address in angle brackets (`Doe, J <buh@firma1.example>`)",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D90",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "no `@` at all",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D91",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "`file` with `to: \"*\"` and a comma list: an invalid recipient is not matched by `*` (C-8 still holds)",
+   "source": "spec/ERRATA-04.md E1 (review R-01)"
+  },
+  {
+   "id": "D92",
+   "class": "valid",
+   "kind": "decision",
+   "title": "ask_over.amount 5000: a purchase of exactly 5000 is decided by the witness alone (`up to X` is inclusive): allow OK",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D93",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "ask_over.amount 5000: a purchase of 5001 (below max_per_action 15000, within budget) is deferred to the principal: defer ESCALATE_MONEY",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D94",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "ask_over.amount 5000: a purchase above max_per_action (15001) is denied, not deferred (explicit limit beats asking)",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D95",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "ask_over.committed 20000: committed 18000 + 3000 > 20000 (budget 37500 not reached): defer ESCALATE_MONEY",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D96",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "ask_over.committed 20000 and budget 37500: committed 36000 + 3000 exceeds the budget: deny BUDGET (deny before ask)",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D97",
+   "class": "invalid",
+   "kind": "decision",
+   "title": "refund granted (`true`) with ask_over.amount 5000: a refund of 7000 is deferred: defer ESCALATE_MONEY",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D98",
+   "class": "valid",
+   "kind": "decision",
+   "title": "refund granted with ask_over.amount 5000: a refund of 4000 is allowed: allow OK",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "D99",
+   "class": "valid",
+   "kind": "decision",
+   "title": "count tier message {ask_over 2, max 3}: 1 counted message in the window, this is the 2nd: allow OK",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "S01",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Budget splitting: 5 x 0.7 limit against budget 2.5 limit",
+   "source": "MIR-W pair droblenie (red)"
+  },
+  {
+   "id": "S02",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Splitting green: 3 x 0.7 limit within budget",
+   "source": "MIR-W pair droblenie (green)"
+  },
+  {
+   "id": "S03",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "TOCTOU: authorise and never confirm execution",
+   "source": "adversary v0 toctou"
+  },
+  {
+   "id": "S04",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Negative amount inside a spending run",
+   "source": "adversary v0 otric_summa"
+  },
+  {
+   "id": "S05",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "New session does not reset the mandate budget",
+   "source": "adversary v0 novaya_sessiya"
+  },
+  {
+   "id": "S06",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Receipt replay and re-binding to a larger request",
+   "source": "adversary v0 replay"
+  },
+  {
+   "id": "S07",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Bypass: tool presented with no receipt",
+   "source": "MIR-W pair obhod / adversary v0+v1 obhod"
+  },
+  {
+   "id": "S08",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Witness restart: budget is rebuilt from the ledger, not memory",
+   "source": "adversary v1 perezapusk ($345 vs witness v1)"
+  },
+  {
+   "id": "S09",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Two witness instances share one principal ledger",
+   "source": "adversary v1 dva_shlyuza ($345 vs witness v1)"
+  },
+  {
+   "id": "S10",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Extra mandates signed by host key under principal's name",
+   "source": "adversary v1 mnogo_mandatov ($1065 vs witness v1)"
+  },
+  {
+   "id": "S11",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Principal-signed ceiling bounds several legitimate mandates",
+   "source": "svidetel v3 POTOLOK"
+  },
+  {
+   "id": "S12",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Agent lies 'not executed' after the tool consumed",
+   "source": "adversary v1 toctou_lozh"
+  },
+  {
+   "id": "S13",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Tool-signed non-execution releases the reservation",
+   "source": "TZ v0.1 two-phase reservation"
+  },
+  {
+   "id": "S14",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Host clock jump forward then back; expired receipt presented",
+   "source": "adversary v1 chasy_otkat"
+  },
+  {
+   "id": "S15",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Deferred purchase approved by principal-key signature",
+   "source": "svidetel v3 ODOBRENIE"
+  },
+  {
+   "id": "S16",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Approval forged by operator key",
+   "source": "svidetel v3 ODOBRENIE (negative)"
+  },
+  {
+   "id": "S17",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Receipt presented to a different tool (audience)",
+   "source": "TZ v0.1: replay on another tool not tested"
+  },
+  {
+   "id": "S18",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Operator rewrites request after witness decision (post-signing substitution)",
+   "source": "Keel verifier README limitation (inverse case)"
+  },
+  {
+   "id": "S19",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Revoked mandate: later actions are denied (EXPIRED)",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "S20",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Revocation by a key that is not the pinned principal key is refused and changes nothing",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "S21",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Refused deferral (approved=false) releases the reservation",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "S22",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Second presentation of a non-monetary receipt is a replay",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "S23",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Mandate with optional members left out (no budget, no named_circle, `to` null, empty sale) is well formed",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S24",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Mandate without a REQUIRED member (agent) is MANDATE_MALFORMED",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S25",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Ceiling without window_s: CEILING_MALFORMED (no default window)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S26",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Ceiling without currency: CEILING_MALFORMED",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S27",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Only a purchase reserves: a sale and a refund do not count toward committed (budget 37500)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S28",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "Approval after the deferral timeout is NOT_DEFERRED (the receipt expired)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S29",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "A second approval of the same deferral is NOT_DEFERRED",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S30",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Approved deferral counts as allow: the tool accepts once, then REPLAY",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "S31",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "Optional members given as `null` (named_circle, pin_source, payment_mandate_ref, permit_ref, allow_irreversible) are well formed",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "S32",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "A register_ceiling op with a member that is not in the ceiling map: CEILING_MALFORMED",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "S33",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "A second RECEIPT with the same id is refused by the witness: DUPLICATE_RECEIPT_ID (a step result, convention 8)",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "S34",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "A second mandate in another currency than the ledger's: MANDATE_MALFORMED",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "S35",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "A ceiling in another currency than the ledger's: CEILING_MALFORMED",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "S36",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "A tool non-execution report after the tool consumed releases nothing: `ignored`",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "S37",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "C3-2: a ceiling registered before any mandate is refused: CEILING_MALFORMED; the mandate that follows is accepted",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "S38",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "C3-9: the witness refuses to approve a deferral after its mandate was revoked: NOT_DEFERRED",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "S39",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "-05 6.1 CDDL: ask_over with a negative amount, an unregistered class in `count`, an unknown member of a tier, a non-bstr toolmap_sha256, an unknown member of ask_over: MANDATE_MALFORMED each; a well-formed -05 mandate (null members) is accepted",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "S40",
+   "class": "invalid",
+   "kind": "sequence",
+   "title": "counter in the ledger: message tier {ask_over 2, max 3}: allow, allow, defer ESCALATE_COUNT (the deferral counts), deny COUNT_LIMIT; after the window (86400 s) the count restarts: allow",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "S41",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "pass with a receipt: under a signed tool map a pass call is authorized (allow OK_PASS, RECEIPT in the ledger) and the gateway accepts its AAR",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "S42",
+   "class": "valid",
+   "kind": "sequence",
+   "title": "ask_over.amount 5000 in the ledger: a purchase of 6000 is deferred, the principal approves, the tool accepts the approved AAR",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V01",
+   "class": "valid",
+   "kind": "verification",
+   "title": "Valid log, checkpoint anchored in Bitcoin via OpenTimestamps",
+   "source": "Section 8 happy path"
+  },
+  {
+   "id": "V02",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Witness key is one of the operator's keys",
+   "source": "Section 4.3 independence"
+  },
+  {
+   "id": "V03",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Hash chain broken (entry removed or reordered)",
+   "source": "TZ v0.1 journal truncation"
+  },
+  {
+   "id": "V04",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Colluding witness signs 'allow' beyond mandate budget",
+   "source": "Section 9.5 collusion"
+  },
+  {
+   "id": "V05",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Receipt cites a mandate that is not in the ledger (substitution)",
+   "source": "Section 9.4"
+  },
+  {
+   "id": "V06",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Mandate signed by a key other than the pinned principal key",
+   "source": "svidetel v3 D-221 / TOFU"
+  },
+  {
+   "id": "V07",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Checkpoint head does not match ledger (truncated tail)",
+   "source": "TZ v0.1 external head"
+  },
+  {
+   "id": "V08",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "OpenTimestamps proof commits to a different digest",
+   "source": "Section 7.6 anchoring"
+  },
+  {
+   "id": "V09",
+   "class": "valid",
+   "kind": "verification",
+   "title": "Anchor pending (calendar commitment only)",
+   "source": "Section 7.6 anchoring"
+  },
+  {
+   "id": "V10",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Witness signature invalid on a receipt",
+   "source": "Section 8 step 1"
+  },
+  {
+   "id": "V11",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Receipt issued off-log by colluding witness: refused without an inclusion path (v4.1)",
+   "source": "Section 8.4(9) / 12.6"
+  },
+  {
+   "id": "V12",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Off-log receipt presented with an inclusion path that points at another entry",
+   "source": "Section 8.4(9) / 12.6"
+  },
+  {
+   "id": "V13",
+   "class": "valid",
+   "kind": "verification",
+   "title": "Tool-reported receipt included in the ledger under the checkpoint",
+   "source": "Section 8.4(9)"
+  },
+  {
+   "id": "V14",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Reservation expired but no explicit RELEASE before the next entry",
+   "source": "Section 7.4 / 10 (v4.1)"
+  },
+  {
+   "id": "V15",
+   "class": "valid",
+   "kind": "verification",
+   "title": "Expired reservation released explicitly (cause expired), then a new receipt",
+   "source": "Section 7.4 (v4.1)"
+  },
+  {
+   "id": "V16",
+   "class": "valid",
+   "kind": "verification",
+   "title": "Refusal for an unknown mandate is logged and the ledger stays valid",
+   "source": "Section 8.2 / 10.5 (v4.1)"
+  },
+  {
+   "id": "V17",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Tail truncated below a checkpoint",
+   "source": "Section 9.1 / 10.7 (v4.1)"
+  },
+  {
+   "id": "V18",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "History rewritten and re-chained after a checkpoint",
+   "source": "Section 9.1 / 10.7 (v4.1)"
+  },
+  {
+   "id": "V19",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "RELEASE with a cause outside the registered set (an agent's word)",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "V20",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "RELEASE of a reservation that is already consumed",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "V21",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Two failures: the first one in ledger order wins (CHAIN_BREAK at 2 before WITNESS_SIG at 3)",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "V22",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Ledger that does not start at seq 0",
+   "source": "draft-deus-aar-01 (Changes from -00)"
+  },
+  {
+   "id": "V23",
+   "class": "valid",
+   "kind": "verification",
+   "title": "Two reservations expire together: two consecutive RELEASEs (cause expired), then a new receipt",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V24",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Two reservations expired; the witness releases the second with cause tool_not_executed while the first is still active: RELEASE_MISSING",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V25",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Missing RELEASE and a verdict that would only reproduce without the expired reservation: RELEASE_MISSING is reported first (step 7(a) before step 5)",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V26",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "RECEIPT without `reason` is MALFORMED",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V27",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "RECEIPT (allow) without `audience` is MALFORMED",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V28",
+   "class": "valid",
+   "kind": "verification",
+   "title": "A refusal for an unknown mandate needs no `audience`",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V29",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "CHECKPOINT entry body without `root` is MALFORMED",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V30",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "CHECKPOINT entry whose head is not the hash of the entry it names: CHECKPOINT_HEAD",
+   "source": "draft-deus-aar-02 (Changes from -01)"
+  },
+  {
+   "id": "V31",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "Two RECEIPTs with the same id: DUPLICATE_RECEIPT_ID at the second",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V32",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "APPROVAL of a receipt that is not a deferral (it is allow): MANDATE_KEY at the APPROVAL",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V33",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "APPROVAL after the deferral expired (t 500 > expires 400): MANDATE_KEY at the APPROVAL",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V34",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "A second MANDATE entry in another currency: MANDATE_MALFORMED",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V35",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "A CEILING entry in another currency than the ledger's: CEILING_MALFORMED",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V36",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "A tool reports as accepted a receipt whose RECEIPT entry records a refusal (deny BUDGET): OFFLOG_RECEIPT",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V37",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "A tool reports as accepted a receipt whose RECEIPT entry records defer, with no approving APPROVAL: NO_INCLUSION",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V38",
+   "class": "valid",
+   "kind": "verification",
+   "title": "A deferral followed by its approving APPROVAL entry, both included under the checkpoint",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V39",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "The APPROVAL entry records a refusal (approved false): the receipt is not an allow, OFFLOG_RECEIPT",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V40",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "CHECKPOINT entry whose body `seq` equals its own seq: MALFORMED",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V41",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "An APPROVAL for a receipt that is not in the ledger: MANDATE_KEY",
+   "source": "draft-deus-aar-03 (Changes from -02)"
+  },
+  {
+   "id": "V42",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "C3-1 (shape of C's XV35): two purchases of 12000 at t=50000, a third of 12000 back-dated to t=10 (budget 25000, spent 36000): CHAIN_BREAK at the back-dated entry",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V43",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "C3-1 (expiry variant): a mandate with exp 1000; a refusal EXPIRED at t=2000, then an allow RECEIPT back-dated to t=500 would re-evaluate as allow: CHAIN_BREAK",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V44",
+   "class": "valid",
+   "kind": "verification",
+   "title": "C3-1 boundary: entries with an EQUAL t are in order (the rule is `not less than`)",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V45",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "C3-1 for any entry type: a CONSUME back-dated below the RECEIPT before it is CHAIN_BREAK",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V46",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "C3-2: a CEILING as the first entry (the ledger has no currency yet): CEILING_MALFORMED at the entry",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V47",
+   "class": "valid",
+   "kind": "verification",
+   "title": "C3-5: an approval proof given for a receipt whose RECEIPT entry records allow is ignored",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V48",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "C3-7: an entry without `t` after a reservation that has expired: MALFORMED at the entry, 7(a) is not evaluated for it",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V49",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "C3-9: an APPROVAL of a deferral after the REVOCATION of its mandate: MANDATE_KEY at the APPROVAL",
+   "source": "draft-deus-aar-04 (Changes from -03)"
+  },
+  {
+   "id": "V50",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "count tier message {ask_over 2, max 3}: the witness allowed the 3rd message (should be ESCALATE_COUNT): VERDICT_NOT_REPRODUCIBLE at the 3rd RECEIPT",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V51",
+   "class": "valid",
+   "kind": "verification",
+   "title": "count tier honest: allow, allow, defer ESCALATE_COUNT, deny COUNT_LIMIT, and after the window allow again",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V52",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "the witness allowed an action mapped by another tool map than the signed one: VERDICT_NOT_REPRODUCIBLE (re-evaluation gives TOOLMAP_CHANGED)",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V53",
+   "class": "valid",
+   "kind": "verification",
+   "title": "a pass decision is a RECEIPT (allow OK_PASS) and the gateway's accepted AAR is included under a checkpoint",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V54",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "a MANDATE whose ask_over names an unregistered class in `count`: MANDATE_MALFORMED at the entry",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V55",
+   "class": "valid",
+   "kind": "verification",
+   "title": "promise for seq 1 (t 100, mmd 600); an anchored checkpoint at t 600 covers it: kept",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V56",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "promise for seq 1 (deadline 700); the first anchored checkpoint covering it has t 900: PROMISE_LATE",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V57",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "tail rewrite: the witness promised entry `h2x` at seq 2, the anchored history has another entry at seq 2: PROMISE_BROKEN",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V58",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "tail deletion: promise for seq 4 (t 650, deadline 1250); the presented ledger ends at seq 3 and it is past the deadline: PROMISE_BROKEN",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V59",
+   "class": "valid",
+   "kind": "verification",
+   "title": "the same promise before its deadline (now 1000 <= 1250): pending, the ledger is valid",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V60",
+   "class": "valid",
+   "kind": "verification",
+   "title": "a promise signed by another key than the witness (an accuser's forgery) is not evidence: PROMISE_SIG, the ledger stays valid",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V61",
+   "class": "valid",
+   "kind": "verification",
+   "title": "a promise with mmd 7200 (> 3600) is non-conforming and not evidence: PROMISE_MALFORMED (its holder MUST refuse it on receipt)",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  },
+  {
+   "id": "V62",
+   "class": "invalid",
+   "kind": "verification",
+   "title": "the entry is in the ledger and a checkpoint covers it in time, but that checkpoint was never anchored, and the deadline has passed: PROMISE_LATE",
+   "source": "draft-deus-aar-05 (Changes from -04)"
+  }
+ ],
+ "changes_in_01": {
+  "all D/S/V (89 files)": "mechanical: mandates gain v and currency, monetary actions gain currency, authorize ops and abstract RECEIPT bodies state ttl (AMBIGUITY-6/11/30); expectations unchanged",
+  "D02 D08 D14": "expectation unchanged (RECIPIENT); -01 5.6/6.4 now states the order: disclosure with protected data is evaluated under its own permission first (AMBIGUITY-1)",
+  "D30 D46": "expectation unchanged (IRREVERSIBLE_DELETE); code now registered, step 9 no longer overrides it (AMBIGUITY-2)",
+  "D45 D47 D48 D50 D53 D54": "expectation unchanged; syntax/codes/CDDL for delete and publish now normative (AMBIGUITY-2)",
+  "V11": "unchanged since 4.1 (NO_INCLUSION)",
+  "C01-C14": "REGENERATED: kid is the 32-byte RFC 9679 thumbprint (AMBIGUITY-24); chain.prev renamed chain.entry (25); tool vectors C08-C12 carry an inclusion proof (26) and are produced by a real witness ledger; C07 reason 'not COSE_Sign1' -> MALFORMED (8); mandates in C13/C14 are full CDDL mandates (11)",
+  "C03-C07": "reason codes SIGNATURE_INVALID/KID_UNKNOWN/ALG_MISMATCH/TYP_MISMATCH/MALFORMED are now registered codes (AMBIGUITY-8)",
+  "C08": "-00/4.1: accept without inclusion path; -01: accept ONLY with a valid inclusion proof (check 8 applies to every AAR)",
+  "C15-C25": "REGENERATED: kid, CEILING payload = {v,id,principal,amount,currency,window_s}, APPROVAL payload = {v,t,receipt,mandate,action,approved} (AMBIGUITY-9/27)",
+  "D55-D65 S19-S22 V19-V22": "NEW in -01 (traversal, bare *, currency, empty domains, 10^15 boundary, revocation, refusal, replay, RELEASE causes, entry-major order, seq 0)",
+  "C26-C41": "NEW byte vectors (tag 18 mandatory, truncated, duplicate key, non-CDE, alg unprotected, detached, high-S, old kid, now==expires, independence none, bad side label, replay, malleated ES256, honest revocation/refusal ledger, ledger-id transplant, RELEASE cause)"
+ },
+ "changes_in_02": {
+  "S11 S21": "ceiling op now carries the complete map (id, amount, currency, window_s); expectations unchanged (C-2)",
+  "V01-V22": "every entry has `t` (C-13); every RECEIPT body has `reason` and (except deny NO_MANDATE) `audience` (C-14); expectations unchanged",
+  "C15 C17 C39 C40 C41": "bytes unchanged. Their mandates omit `budget`: well formed under -02 6.1 (optional members, absent = null); the expectation now follows from the text (C-1)",
+  "C01-C41 (cose-ledger)": "the `require_cose` member is removed; byte-level ledger verification is always real mode (C-17)",
+  "D66-D81 S23-S30 V23-V30": "NEW: optional members, invalid recipient, which permission step 8 reads, circle scope, amount, principal_present, ceiling malformed, only purchase reserves, approval timeout, approved AAR counts as allow, simultaneous expiry, step 7(a) first, reason/audience, CHECKPOINT body",
+  "C42+": "NEW byte vectors, see aar_ref/OTCHET-v4.3-2026-10-18.md: unknown kid before alg (C-3), replay key (iss, chain.ledger, sub) (C-15), approved AAR (C-6), inclusion errors (C-12/C-20), batch checkpoint (C-21), entry/principal-object encoding codes (C-16), no cose (C-17), CEILING_MALFORMED (C-2)"
+ },
+ "changes_in_03": {
+  "D82 S31-S36 V31-V41": "NEW: recipients unspecified (C2-6), null optional members (C2-1), register_ceiling convention (C2-7), DUPLICATE_RECEIPT_ID (C2-3), APPROVAL state at the verifier (C2-4), one currency per ledger (C2-10), tool_report `ignored` (convention 7), RECEIPT must record allow or defer+APPROVAL (C2-11), CHECKPOINT seq < own seq",
+  "C61+": "NEW byte vectors, see aar_ref/OTCHET-v4.4-2026-10-18.md: forged allow over a refusal (C2-11), deny AAR reported accepted, allow over defer, approved AAR over a refusal, CEILING without cose (C2-2), entry shape (C2-5), principal and currency (C2-10), null members (C2-1), trailing bytes",
+  "-02 vectors": "no vector of -02 changed its bytes or its expectation"
+ },
+ "changes_in_04": {
+  "S37 S38 V42-V49": "NEW: entry `t` not less than the previous (C3-1: V42 V43 V44 V45), a CEILING before the first MANDATE (C3-2: V46 S37), approval proof for an allow ignored (C3-5: V47), entry without `t` is MALFORMED before 7(a) (C3-7: V48), no approval after revocation (C3-9: V49 S38)",
+  "C72+": "NEW byte vectors, see aar_ref/OTCHET-v4.5-2026-10-18.md: back-dated entry (C3-1), CEILING first (C3-2), order of faults in step 9 (C3-3, C3-4), approval proof for an allow ignored (C3-5), AAR that does not verify (C3-6), position of an entry with an unreadable `seq` (C3-8), approval after revocation (C3-9)",
+  "-03 vectors": "no vector of -03 changed its bytes or its expectation"
+ },
+ "errata_04": {
+  "D83-D91": "NEW (ERRATA-04 E1, review R-01): a recipient of message/file/disclosure is exactly one mailbox; list/quote/second-@ forms are invalid -> deny RECIPIENT"
+ },
+ "changes_in_05": {
+  "D92-D98 S42": "NEW (-05 6.9): ask_over.amount / ask_over.committed for purchase and refund: up to X allow, above X defer ESCALATE_MONEY, above max_per_action/budget deny",
+  "D99-D105 S40 V50 V51": "NEW (-05 6.9, 7.3): counter tiers ask_over.count{class: {ask_over, max}}: n = allow/defer RECEIPTs of the mandate and class in the window; defer ESCALATE_COUNT / deny COUNT_LIMIT; combination order D, K (step 13)",
+  "D106-D112 V52": "NEW (-05 6.4 step 4a): toolmap_sha256 in the signed mandate; action hash (absent = null) must equal it: deny TOOLMAP_CHANGED; unmapped calls are class `unmapped` -> CLASS_UNKNOWN",
+  "D113-D117 S41 V53": "NEW (-05 5.6, 8.6): class `pass` with a receipt: allow OK_PASS only under a signed tool map, protected data DATA_FORBIDDEN, counters apply",
+  "S39 V54": "NEW (-05 6.1): CDDL of ask_over and toolmap_sha256 (MANDATE_MALFORMED)",
+  "V55-V62": "NEW (-05 9.5, 10 step 11): inclusion promise with maximum merge delay: kept / pending / PROMISE_LATE / PROMISE_BROKEN; PROMISE_SIG and PROMISE_MALFORMED are not evidence",
+  "D83-D91": "unchanged; ERRATA-04 E1 is now the text of -05 Section 5.4 step 4",
+  "all vectors of -04": "bytes and expectations unchanged"
+ },
+ "errata_05": {
+  "text": "spec/ERRATA-05.md",
+  "byte_vectors": "cose/C83-C97 (generator aar_ref/make_cose_vectors_v46.py); 97 byte vectors in all",
+  "examples": "errata05/E5-1a..f (decision), E5-3a..h (requirements), checked by aar_ref/make_errata05.py; not counted in total"
+ }
+}

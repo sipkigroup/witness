@@ -1,0 +1,168 @@
+{
+ "id": "V11",
+ "class": "invalid",
+ "kind": "verification",
+ "title": "Receipt issued off-log by colluding witness: refused without an inclusion path (v4.1)",
+ "source": "Section 8.4(9) / 12.6",
+ "input": {
+  "witness_key": "pk-witness",
+  "operator_keys": [
+   "pk-operator"
+  ],
+  "pinned_principal_key": "pk-principal",
+  "entries": [
+   {
+    "seq": 0,
+    "type": "MANDATE",
+    "t": 0,
+    "body": {
+     "mandate": {
+      "id": "m1",
+      "principal": "pk-principal",
+      "agent": "agent-1",
+      "nbf": 0,
+      "exp": 86400,
+      "key_attestation": "software",
+      "permissions": {
+       "purchase": {
+        "max_per_action": 15000,
+        "budget": 37500
+       },
+       "message": {
+        "to": [
+         "buh@firma1.example"
+        ]
+       }
+      },
+      "forbidden_data": [],
+      "budget_window_s": 86400,
+      "named_circle": false,
+      "v": "deus-aar-0.1",
+      "currency": "USD"
+     },
+     "signed_by": "pk-principal"
+    },
+    "prev": null,
+    "hash": "h0"
+   },
+   {
+    "seq": 1,
+    "type": "RECEIPT",
+    "t": 100,
+    "body": {
+     "id": "r0",
+     "mandate": "m1",
+     "action": {
+      "class": "purchase",
+      "agent": "agent-1",
+      "t": 100,
+      "amount": 12000,
+      "recipient": "",
+      "data": [],
+      "currency": "USD"
+     },
+     "verdict": "allow",
+     "ttl": 300,
+     "reason": "OK",
+     "audience": "tool-A"
+    },
+    "prev": "h0",
+    "hash": "h1"
+   },
+   {
+    "seq": 2,
+    "type": "CONSUME",
+    "t": 100,
+    "body": {
+     "receipt": "r0"
+    },
+    "prev": "h1",
+    "hash": "h2"
+   },
+   {
+    "seq": 3,
+    "type": "RECEIPT",
+    "t": 100,
+    "body": {
+     "id": "r1",
+     "mandate": "m1",
+     "action": {
+      "class": "purchase",
+      "agent": "agent-1",
+      "t": 100,
+      "amount": 12000,
+      "recipient": "",
+      "data": [],
+      "currency": "USD"
+     },
+     "verdict": "allow",
+     "ttl": 300,
+     "reason": "OK",
+     "audience": "tool-A"
+    },
+    "prev": "h2",
+    "hash": "h3"
+   },
+   {
+    "seq": 4,
+    "type": "CONSUME",
+    "t": 100,
+    "body": {
+     "receipt": "r1"
+    },
+    "prev": "h3",
+    "hash": "h4"
+   },
+   {
+    "seq": 5,
+    "type": "RECEIPT",
+    "t": 100,
+    "body": {
+     "id": "r2",
+     "mandate": "m1",
+     "action": {
+      "class": "purchase",
+      "agent": "agent-1",
+      "t": 100,
+      "amount": 12000,
+      "recipient": "",
+      "data": [],
+      "currency": "USD"
+     },
+     "verdict": "allow",
+     "ttl": 300,
+     "reason": "OK",
+     "audience": "tool-A"
+    },
+    "prev": "h4",
+    "hash": "h5"
+   },
+   {
+    "seq": 6,
+    "type": "CONSUME",
+    "t": 100,
+    "body": {
+     "receipt": "r2"
+    },
+    "prev": "h5",
+    "hash": "h6"
+   }
+  ],
+  "checkpoint": {
+   "seq": 6,
+   "head": "h6"
+  },
+  "presented": [
+   {
+    "id": "r3",
+    "inclusion": null
+   }
+  ]
+ },
+ "expected": {
+  "result": "invalid",
+  "reason": "NO_INCLUSION",
+  "receipt": "r3"
+ },
+ "note": "A 4th receipt was issued to a tool without being logged. A tool or verifier now accepts a receipt only with an inclusion path into a signed checkpoint; r3 has none. (-00 expected 'valid': known limitation, closed in v4.1.)"
+}

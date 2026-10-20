@@ -1,0 +1,44 @@
+{
+ "id": "D82",
+ "class": "valid",
+ "kind": "decision",
+ "title": "Disclosure permission with `data` but no `to`/`domains`: the recipients are unspecified (OK_UNSPECIFIED in step 10), then ESCALATE_DATA in step 12",
+ "source": "draft-deus-aar-03 (Changes from -02)",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "disclosure": {
+     "data": [
+      "address"
+     ]
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "disclosure",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "anyone@x.example",
+   "data": [
+    "address"
+   ]
+  }
+ },
+ "expected": {
+  "verdict": "defer",
+  "reason": "ESCALATE_DATA"
+ },
+ "note": "-03 6.4 step 10 (C2-6): `recipients unspecified`, not `permission unspecified`"
+}

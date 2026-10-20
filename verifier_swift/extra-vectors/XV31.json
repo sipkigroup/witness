@@ -1,0 +1,81 @@
+{
+ "id": "XV31",
+ "class": "invalid",
+ "kind": "verification",
+ "title": "MANDATE whose principal is not the ledger's (signed by the pinned key)",
+ "basis": "-03 6.1 consistency ('principal of every MANDATE MUST be the principal identifier ... in an abstract vector, the pinned principal key'), 10 step 4",
+ "input": {
+  "witness_key": "pk-witness",
+  "operator_keys": [
+   "pk-operator"
+  ],
+  "pinned_principal_key": "pk-principal",
+  "entries": [
+   {
+    "seq": 0,
+    "type": "MANDATE",
+    "t": 0,
+    "body": {
+     "mandate": {
+      "id": "m1",
+      "principal": "pk-other",
+      "agent": "agent-1",
+      "nbf": 0,
+      "exp": 86400,
+      "key_attestation": "software",
+      "permissions": {
+       "message": {
+        "to": [
+         "buh@firma3.example",
+         "partner@firma3.example"
+        ]
+       },
+       "file": {
+        "to": [
+         "buh@firma3.example",
+         "partner@firma3.example"
+        ]
+       },
+       "disclosure": {
+        "to": [
+         "buh@firma3.example",
+         "partner@firma3.example"
+        ],
+        "data": []
+       },
+       "purchase": {
+        "max_per_action": 25000,
+        "budget": 62500
+       },
+       "sale": {
+        "min_price": 0
+       },
+       "meeting": true,
+       "refund": true,
+       "delete": {
+        "targets": [
+         "repo:tmp/*",
+         "doc:draft-1"
+        ],
+        "allow_irreversible": false
+       }
+      },
+      "forbidden_data": [],
+      "budget_window_s": 86400,
+      "named_circle": false,
+      "v": "deus-aar-0.1",
+      "currency": "USD"
+     },
+     "signed_by": "pk-principal"
+    },
+    "prev": null,
+    "hash": "h0"
+   }
+  ]
+ },
+ "expected": {
+  "result": "invalid",
+  "reason": "MANDATE_MALFORMED",
+  "at": 0
+ }
+}

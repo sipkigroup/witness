@@ -1,0 +1,18 @@
+{
+  "name": "verifier_js",
+  "version": "1.0.0",
+  "description": "Independent clean-room verifier for draft-deus-aar-00 (verifier B)",
+  "main": "index.js",
+  "scripts": {
+    "test": "node run.mjs",
+    "gen": "node gen-extra.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "cbor2": "^2.4.0"
+  },
+  "private": true
+}

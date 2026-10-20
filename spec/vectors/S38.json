@@ -1,0 +1,80 @@
+{
+ "id": "S38",
+ "class": "invalid",
+ "kind": "sequence",
+ "title": "C3-9: the witness refuses to approve a deferral after its mandate was revoked: NOT_DEFERRED",
+ "source": "draft-deus-aar-04 (Changes from -03)",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "message": {
+       "to": [
+        "buh@firma1.example"
+       ]
+      }
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "named_circle": false,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "authorize",
+    "id": "r0",
+    "mandate": "m1",
+    "action": {
+     "class": "file",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 0,
+     "recipient": "buh@firma1.example",
+     "data": [],
+     "currency": "USD"
+    },
+    "ttl": 300
+   },
+   {
+    "op": "revoke",
+    "mandate": "m1",
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "approve",
+    "receipt": "r0",
+    "signed_by": "pk-principal"
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "accept"
+   },
+   {
+    "verdict": "defer",
+    "reason": "ESCALATE_FILE"
+   },
+   {
+    "result": "accept"
+   },
+   {
+    "result": "reject",
+    "reason": "NOT_DEFERRED"
+   }
+  ]
+ },
+ "note": "-04 6.6, 6.7 (C3-9)"
+}

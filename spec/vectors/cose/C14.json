@@ -1,0 +1,37 @@
+{
+ "id": "C14",
+ "class": "invalid",
+ "kind": "cose-mandate",
+ "title": "mandate signed by an attacker key under the same principal id",
+ "keys": {
+  "25d8ac30ce5eb2c364e0f8e5bd4d001793f01658b9c0552df06f6667816965d9": {
+   "alg": "EdDSA",
+   "pub": "ca93ac1705187071d67b83c7ff0efe8108e8ec4530575d7726879333dbdabe7c"
+  }
+ },
+ "mandate": {
+  "v": "deus-aar-0.1",
+  "id": "m1",
+  "principal": "p1",
+  "agent": "agent-1",
+  "nbf": 0,
+  "exp": 1000000000,
+  "currency": "USD",
+  "budget_window_s": 86400,
+  "key_attestation": "software",
+  "forbidden_data": [],
+  "named_circle": false,
+  "permissions": {
+   "message": {
+    "to": [
+     "buh@firma1.example"
+    ]
+   }
+  }
+ },
+ "cose_hex": "d2845845a3012704582072d16fafc7e5497618246178631d650fef01a4aca770c965dd8b551760bad6dc10781c6170706c69636174696f6e2f6161722d6d616e646174652b63626f72a058c5ac61766c646575732d6161722d302e31626964626d31636578701a3b9aca00636e626600656167656e74676167656e742d316863757272656e637963555344697072696e636970616c6270316b7065726d697373696f6e73a1676d657373616765a162746f8172627568406669726d61312e6578616d706c656c6e616d65645f636972636c65f46e666f7262696464656e5f64617461806f6275646765745f77696e646f775f731a000151806f6b65795f6174746573746174696f6e68736f667477617265584002e6f6cb4b4191c1f050f53e3c1a940110f354382ea70466bfec8431f0eb4fe4336a11888d67f9c9909064307cfc13067cc89dd9e9401f168f6b5de58c383e0c",
+ "expected": {
+  "result": "reject",
+  "reason": "KEY_MISMATCH"
+ }
+}

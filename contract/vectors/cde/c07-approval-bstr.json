@@ -1,0 +1,17 @@
+{
+ "id": "c07-approval-bstr",
+ "json": {
+  "v": "deus-aar-0.1",
+  "t": "approval",
+  "receipt": "r_AAAA",
+  "mandate": {
+   "$bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "action": {
+   "$bytes": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "approved": true
+ },
+ "cde_hex": "a6617468617070726f76616c61766c646575732d6161722d302e3166616374696f6e5820ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff676d616e6461746558200000000000000000000000000000000000000000000000000000000000000000677265636569707466725f4141414168617070726f766564f5",
+ "note": "approval map with bstr"
+}

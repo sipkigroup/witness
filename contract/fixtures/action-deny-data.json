@@ -1,0 +1,20 @@
+{
+ "rid": "r_UX6SRQYLYXYR346I6FVVDB5Q4Q",
+ "verdict": "deny",
+ "reason": "DATA_FORBIDDEN",
+ "status": "denied",
+ "action": {
+  "agent": "ag_b4339a7c440e",
+  "class": "message",
+  "args_sha256": "c457047113f9a0209cc0820c97e2a3ef1bf3c8ca65625e9acdfcd279485d2935",
+  "recipient": "bob@acme.example",
+  "data": [
+   "home_address"
+  ]
+ },
+ "expires": 1792351137,
+ "aar_b64": null,
+ "proof": null,
+ "approval_url": null,
+ "promise_b64": null
+}

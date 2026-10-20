@@ -1,0 +1,33 @@
+{
+ "id": "E5-3d",
+ "kind": "requirements",
+ "title": "E5-3: refund true is unbounded: `money_over` fires (its bound can only come from ask_over.amount, which does not enter the function, Section 6.9)",
+ "source": "ERRATA-05 / PROFILE-webauthn-01 Section 6",
+ "tiers": [
+  {
+   "if": "money",
+   "role": "budget",
+   "k": 1
+  },
+  {
+   "if": "money_over",
+   "amount": 50000,
+   "role": "budget",
+   "k": 2
+  },
+  {
+   "if": "access",
+   "role": "access",
+   "k": 1
+  }
+ ],
+ "mandate_permissions": {
+  "refund": true
+ },
+ "expected": [
+  [
+   "budget",
+   2
+  ]
+ ]
+}

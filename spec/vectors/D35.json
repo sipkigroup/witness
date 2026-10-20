@@ -1,0 +1,22 @@
+{
+ "id": "D35",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "No mandate at all",
+ "source": "svidetel v0",
+ "input": {
+  "mandate": null,
+  "action": {
+   "class": "message",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "buh@firma1.example",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "deny",
+  "reason": "NO_MANDATE"
+ }
+}

@@ -1,0 +1,77 @@
+{
+ "id": "S28",
+ "class": "invalid",
+ "kind": "sequence",
+ "title": "Approval after the deferral timeout is NOT_DEFERRED (the receipt expired)",
+ "source": "draft-deus-aar-02 (Changes from -01)",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "purchase": {
+       "max_per_action": 500
+      }
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "named_circle": false,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "authorize",
+    "id": "d0",
+    "mandate": "m1",
+    "action": {
+     "class": "purchase",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 100,
+     "recipient": "",
+     "data": [],
+     "currency": "USD"
+    },
+    "ttl": 300
+   },
+   {
+    "op": "clock",
+    "t": 1000
+   },
+   {
+    "op": "approve",
+    "receipt": "d0",
+    "signed_by": "pk-principal"
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "accept"
+   },
+   {
+    "verdict": "defer",
+    "reason": "ESCALATE_MONEY"
+   },
+   {
+    "result": "ok"
+   },
+   {
+    "result": "reject",
+    "reason": "NOT_DEFERRED"
+   }
+  ]
+ },
+ "note": "-02 6.6 (C-23)"
+}

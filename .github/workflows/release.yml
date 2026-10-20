@@ -1,0 +1,58 @@
+name: release
+
+# Manual run (workflow_dispatch, only=npm) or a tag vX.Y.Z  ->  tests -> npm (OIDC Trusted Publishing + provenance) of @deus-witness/sdk.
+# No long-lived token is stored anywhere. PyPI and MCP Registry publishing returns with the thin client 0.2.16 (disabled below).
+# Replace sipkigroup in this repository's files by the GitHub organization (scripts/set-org.sh <org>).
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:            # manual run publishes ONLY the npm SDK (first publish validates npm Trusted Publishing)
+    inputs:
+      only:
+        description: "what to publish by hand"
+        type: choice
+        options: [npm]
+        default: npm
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  npm:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@deus-witness/sdk
+    permissions:
+      contents: read
+      id-token: write      # npm Trusted Publishing (OIDC) + provenance
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Tag must equal the SDK version
+        if: github.event_name == 'push'
+        run: bash scripts/check-version.sh "${GITHUB_REF_NAME}"
+      - name: npm >= 11.5.1 is required for trusted publishing
+        run: npm install -g npm@^11.5.1 && npm --version
+      - name: "Build and publish (no NODE_AUTH_TOKEN, OIDC)"
+        working-directory: sdk-ts
+        run: |
+          v="$(node -p "require('./package.json').version")"
+          if npm view "@deus-witness/sdk@${v}" version >/dev/null 2>&1; then
+            echo "@deus-witness/sdk@${v} is already on npm - skipping (re-run of a tag)"; exit 0
+          fi
+          npm install
+          npm run build
+          npm publish --provenance --access public
+
+# pypi and mcp-registry jobs are disabled: they come back with the thin client 0.2.16.
+#
+#  pypi:        (environment pypi, pypa/gh-action-pypi-publish)   - needs the Python package, not in this repository
+#  mcp-registry: (environment mcp-registry, mcp-publisher)        - needs server.json, not in this repository

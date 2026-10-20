@@ -1,0 +1,11 @@
+{
+ "id": "c06-action-file",
+ "json": {
+  "agent": "ag",
+  "class": "file",
+  "recipient": "/tmp/sandbox/a.txt",
+  "data": []
+ },
+ "cde_hex": "a4646461746180656167656e7462616765636c6173736466696c6569726563697069656e74722f746d702f73616e64626f782f612e747874",
+ "note": "action of class file"
+}

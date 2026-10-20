@@ -1,0 +1,42 @@
+{
+ "id": "E5-3g",
+ "kind": "requirements",
+ "title": "E5-3: purchase {} plus message to a list: money (budget 1) and access (access 1), no money_over",
+ "source": "ERRATA-05 / PROFILE-webauthn-01 Section 6",
+ "tiers": [
+  {
+   "if": "money",
+   "role": "budget",
+   "k": 1
+  },
+  {
+   "if": "money_over",
+   "amount": 50000,
+   "role": "budget",
+   "k": 2
+  },
+  {
+   "if": "access",
+   "role": "access",
+   "k": 1
+  }
+ ],
+ "mandate_permissions": {
+  "purchase": {},
+  "message": {
+   "to": [
+    "a@x.example"
+   ]
+  }
+ },
+ "expected": [
+  [
+   "access",
+   1
+  ],
+  [
+   "budget",
+   1
+  ]
+ ]
+}

@@ -1,0 +1,23 @@
+{
+ "rid": "r_OE4PDX4AWHOZXHYWWCOO46BEOE",
+ "verdict": "allow",
+ "reason": "OK",
+ "status": "allowed",
+ "action": {
+  "agent": "ag_b4339a7c440e",
+  "class": "message",
+  "args_sha256": "8367fd4b8269e4e7ab26ac1546aa3ce8502d149309a2ba07f1919aa1e1c67a95",
+  "recipient": "bob@acme.example",
+  "data": []
+ },
+ "expires": 1792351137,
+ "aar_b64": "oWRzdHVibmFhciBub3Qgc2lnbmVk",
+ "proof": {
+  "entry_b64": "c3R1Yi1lbnRyeQ",
+  "path_b64": [],
+  "checkpoint_b64": "c3R1Yi1jaGVja3BvaW50",
+  "approval": null
+ },
+ "approval_url": null,
+ "promise_b64": null
+}

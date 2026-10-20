@@ -1,0 +1,78 @@
+{
+ "id": "S15",
+ "class": "valid",
+ "kind": "sequence",
+ "title": "Deferred purchase approved by principal-key signature",
+ "source": "svidetel v3 ODOBRENIE",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "purchase": {
+       "max_per_action": 15000,
+       "budget": null
+      }
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "named_circle": false,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "authorize",
+    "id": "r0",
+    "mandate": "m1",
+    "instance": "A",
+    "action": {
+     "class": "purchase",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 5000,
+     "recipient": "",
+     "data": [],
+     "currency": "USD"
+    },
+    "ttl": 300
+   },
+   {
+    "op": "approve",
+    "receipt": "r0",
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "tool_present",
+    "receipt": "r0"
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "accept"
+   },
+   {
+    "verdict": "defer",
+    "reason": "ESCALATE_MONEY"
+   },
+   {
+    "result": "accept",
+    "verdict": "allow"
+   },
+   {
+    "result": "accept"
+   }
+  ]
+ }
+}

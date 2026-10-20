@@ -1,0 +1,14 @@
+{
+ "id": "c08-key-lengths",
+ "json": {
+  "a": 1,
+  "bb": 2,
+  "ccc": 3,
+  "aa": 4,
+  "b": 5,
+  "zzzzzzzzzzzzzzzzzzzzzzzz": 6,
+  "aaaaaaaaaaaaaaaaaaaaaaaaa": 7
+ },
+ "cde_hex": "a76161016162056261610462626202636363630378187a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a0678196161616161616161616161616161616161616161616161616107",
+ "note": "length-first key order"
+}

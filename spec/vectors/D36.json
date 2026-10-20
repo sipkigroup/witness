@@ -1,0 +1,37 @@
+{
+ "id": "D36",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "Class explicitly denied by principal",
+ "source": "svidetel v3 language",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "file": false
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "file",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "a@b.example",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "deny",
+  "reason": "CLASS_DENIED"
+ }
+}

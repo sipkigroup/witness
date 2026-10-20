@@ -1,0 +1,91 @@
+{
+ "id": "V37",
+ "class": "invalid",
+ "kind": "verification",
+ "title": "A tool reports as accepted a receipt whose RECEIPT entry records defer, with no approving APPROVAL: NO_INCLUSION",
+ "source": "draft-deus-aar-03 (Changes from -02)",
+ "input": {
+  "witness_key": "pk-witness",
+  "operator_keys": [
+   "pk-operator"
+  ],
+  "pinned_principal_key": "pk-principal",
+  "entries": [
+   {
+    "seq": 0,
+    "type": "MANDATE",
+    "t": 0,
+    "body": {
+     "mandate": {
+      "id": "m1",
+      "principal": "pk-principal",
+      "agent": "agent-1",
+      "nbf": 0,
+      "exp": 86400,
+      "key_attestation": "software",
+      "permissions": {
+       "purchase": {
+        "max_per_action": 15000
+       },
+       "message": {
+        "to": [
+         "buh@firma1.example"
+        ]
+       }
+      },
+      "forbidden_data": [],
+      "budget_window_s": 86400,
+      "named_circle": false,
+      "v": "deus-aar-0.1",
+      "currency": "USD"
+     },
+     "signed_by": "pk-principal"
+    },
+    "prev": null,
+    "hash": "h0"
+   },
+   {
+    "seq": 1,
+    "type": "RECEIPT",
+    "t": 100,
+    "body": {
+     "id": "r0",
+     "mandate": "m1",
+     "action": {
+      "class": "purchase",
+      "agent": "agent-1",
+      "t": 100,
+      "amount": 12000,
+      "recipient": "",
+      "data": [],
+      "currency": "USD"
+     },
+     "verdict": "defer",
+     "reason": "ESCALATE_MONEY",
+     "audience": "tool-A",
+     "ttl": 300
+    },
+    "prev": "h0",
+    "hash": "h1"
+   }
+  ],
+  "checkpoint": {
+   "seq": 1,
+   "head": "h1"
+  },
+  "presented": [
+   {
+    "id": "r0",
+    "inclusion": {
+     "seq": 1
+    }
+   }
+  ]
+ },
+ "expected": {
+  "result": "invalid",
+  "reason": "NO_INCLUSION",
+  "receipt": "r0"
+ },
+ "note": "-03 10 step 9 (C2-8, C2-11)"
+}

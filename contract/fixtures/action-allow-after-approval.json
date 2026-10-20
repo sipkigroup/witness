@@ -1,0 +1,26 @@
+{
+ "rid": "r_4SIJKSOOHOVLZ6VK42ILDDJ2GM",
+ "verdict": "allow",
+ "reason": "OK_APPROVED",
+ "status": "approved",
+ "action": {
+  "agent": "ag_b4339a7c440e",
+  "class": "publish",
+  "args_sha256": "0c7605eaee9c8734048bd84284f6e2a8d1efad24b4da0b98fffc128793f953fc",
+  "recipient": "blog",
+  "data": []
+ },
+ "expires": 1792351137,
+ "aar_b64": "oWRzdHVibmFhciBub3Qgc2lnbmVk",
+ "proof": {
+  "entry_b64": "c3R1Yi1lbnRyeQ",
+  "path_b64": [],
+  "checkpoint_b64": "c3R1Yi1jaGVja3BvaW50",
+  "approval": {
+   "approved": true,
+   "envelope_b64": "p2F2b2RldXMtYWFyLXdhLTAuMWNraWRYIH-I6oR2TFGg4StlF8Pnn1B5NAoYHkXg71fz5GWP2wMlY3NpZ1hAxocuYnLleGZqaTSr2VF6hoEUyw5QgSC8slyIe4D7WMEs1U32_p99T-lY3Q4FqNprYP6r6Q2889WC2JR3PycKD2N0eXB4HWFwcGxpY2F0aW9uL2Fhci1hcHByb3ZhbCtjYm9yZ3BheWxvYWRYnqZhdGhhcHByb3ZhbGF2bGRldXMtYWFyLTAuMWZhY3Rpb25YIOYhL9u78avwomzSGbZ8B5QyNQXdpkI6epEJyL3jf93lZ21hbmRhdGVYIFcofoKb_OrL2BKJIXbgf9gUuLtMwjL_csWxzTAeX2-xZ3JlY2VpcHR4HHJfNFNJSktTT09IT1ZMWjZWSzQySUxEREoyR01oYXBwcm92ZWT1aGF1dGhEYXRhWCVJlg3liA6MaHQ0Fw9kdmBbj-SuuaKGMseZXPO6gx2XYwUAAAAAbmNsaWVudERhdGFKU09OWHJ7InR5cGUiOiJ3ZWJhdXRobi5nZXQiLCJjaGFsbGVuZ2UiOiJPN2NsVlRManhyVUFVZ3RBYjFSRjF0NGNRc2QxUUJjYzZ6QWV1R3NLUU5RIiwib3JpZ2luIjoiaHR0cDovL2xvY2FsaG9zdDo4ODk5In0"
+  }
+ },
+ "approval_url": null,
+ "promise_b64": null
+}

@@ -1,0 +1,13 @@
+{
+ "id": "c02-action-message",
+ "json": {
+  "agent": "ag",
+  "class": "message",
+  "recipient": "x@acme.example",
+  "data": [
+   "phone"
+  ]
+ },
+ "cde_hex": "a46464617461816570686f6e65656167656e7462616765636c617373676d65737361676569726563697069656e746e784061636d652e6578616d706c65",
+ "note": "action of class message"
+}

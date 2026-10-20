@@ -1,0 +1,10 @@
+{
+ "flow_id": "5330c920f11367da",
+ "options": {
+  "challenge": "uvjJGVKBOsy7muHVIqrwVoUziSGQ3CPBVBsSOSsxbd0",
+  "rpId": "localhost",
+  "userVerification": "required",
+  "allowCredentials": [],
+  "timeout": 300000
+ }
+}

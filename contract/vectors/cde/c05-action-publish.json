@@ -1,0 +1,11 @@
+{
+ "id": "c05-action-publish",
+ "json": {
+  "agent": "ag",
+  "class": "publish",
+  "recipient": "blog",
+  "data": []
+ },
+ "cde_hex": "a4646461746180656167656e7462616765636c617373677075626c69736869726563697069656e7464626c6f67",
+ "note": "action of class publish"
+}

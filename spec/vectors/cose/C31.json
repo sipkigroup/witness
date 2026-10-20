@@ -1,0 +1,18 @@
+{
+ "id": "C31",
+ "class": "invalid",
+ "kind": "cose-verify",
+ "title": "Detached payload (nil)",
+ "keys": {
+  "dd2fb4e18b5e1ce30c4633aaa5f681da79c3b32998cc5aa21b1149c37231a6ac": {
+   "alg": "EdDSA",
+   "pub": "8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+  }
+ },
+ "expected": {
+  "result": "reject",
+  "reason": "MALFORMED"
+ },
+ "typ": "application/aar-receipt+cbor",
+ "cose_hex": "d2845859a40127045820dd2fb4e18b5e1ce30c4633aaa5f681da79c3b32998cc5aa21b1149c37231a6ac0fa301697769746e6573732d310262723006186410781c6170706c69636174696f6e2f6161722d726563656970742b63626f72a0f6584028749c0bbbdca1a088a9dca19f65eb76b31221ae668f160ec35b8309d36f9afb7a39d2db9b987d5eadd938fc63d8d3ee23fc50eac0d215ce257d175df238db09"
+}

@@ -1,0 +1,9 @@
+{
+ "id": "r01-comma",
+ "recipient": "thief@attacker.example, colleague@acme.example",
+ "mandate_domains": [
+  "acme.example"
+ ],
+ "expect": "deny RECIPIENT",
+ "note": "ERRATA-04 E1 (review R-01)"
+}

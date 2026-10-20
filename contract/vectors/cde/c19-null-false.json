@@ -1,0 +1,10 @@
+{
+ "id": "c19-null-false",
+ "json": {
+  "a": null,
+  "b": false,
+  "c": true
+ },
+ "cde_hex": "a36161f66162f46163f5",
+ "note": "null/false/true"
+}

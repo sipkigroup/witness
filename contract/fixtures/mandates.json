@@ -1,0 +1,40 @@
+[
+ {
+  "id": "1611033ab8aa471f7cad225065c55114",
+  "agent_id": "ag_b4339a7c440e",
+  "status": "active",
+  "mandate": {
+   "v": "deus-aar-0.1",
+   "id": "1611033ab8aa471f7cad225065c55114",
+   "principal": "dw:fe04fe34d8d9f2b541d6fd4e1de5cb8a",
+   "agent": "ag_b4339a7c440e",
+   "nbf": 1792350237,
+   "exp": 1794942237,
+   "currency": "USD",
+   "budget_window_s": 86400,
+   "permissions": {
+    "purchase": {
+     "max_per_action": 10000,
+     "budget": 20000
+    },
+    "message": {
+     "domains": [
+      "acme.example"
+     ],
+     "to": [
+      "bob@partner.example"
+     ]
+    }
+   },
+   "forbidden_data": [
+    "home_address",
+    "phone"
+   ],
+   "named_circle": false,
+   "key_attestation": "passkey",
+   "pin_source": "webauthn-registration:localhost:2026-10-18T19:03:57Z:registry-log#1"
+  },
+  "ledger_seq": 0,
+  "created_at": 1792350237
+ }
+]

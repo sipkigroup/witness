@@ -1,0 +1,23 @@
+{
+ "currency": "USD",
+ "valid_days": 30,
+ "purchase": {
+  "enabled": true,
+  "budget": 20000,
+  "max_per_action": 10000
+ },
+ "message": {
+  "domains": [
+   "acme.example"
+  ],
+  "to": [
+   "bob@partner.example"
+  ]
+ },
+ "forbidden_data": [
+  "home_address",
+  "phone"
+ ],
+ "delete": null,
+ "publish": null
+}

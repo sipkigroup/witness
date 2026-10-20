@@ -1,0 +1,95 @@
+{
+ "id": "S17",
+ "class": "invalid",
+ "kind": "sequence",
+ "title": "Receipt presented to a different tool (audience)",
+ "source": "TZ v0.1: replay on another tool not tested",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "message": {
+       "to": [
+        "buh@firma1.example",
+        "partner@firma1.example"
+       ]
+      },
+      "file": {
+       "to": [
+        "buh@firma1.example",
+        "partner@firma1.example"
+       ]
+      },
+      "disclosure": {
+       "to": [
+        "buh@firma1.example",
+        "partner@firma1.example"
+       ],
+       "data": []
+      },
+      "purchase": {
+       "max_per_action": 15000,
+       "budget": 37500
+      },
+      "sale": {
+       "min_price": 0
+      },
+      "meeting": true,
+      "refund": true
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "named_circle": false,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "authorize",
+    "id": "r0",
+    "mandate": "m1",
+    "instance": "A",
+    "action": {
+     "class": "purchase",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 5000,
+     "recipient": "",
+     "data": [],
+     "currency": "USD"
+    },
+    "ttl": 300
+   },
+   {
+    "op": "tool_present",
+    "receipt": "r0",
+    "audience_mismatch": true
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "accept"
+   },
+   {
+    "verdict": "allow",
+    "reason": "OK"
+   },
+   {
+    "result": "reject",
+    "reason": "AUDIENCE"
+   }
+  ]
+ }
+}
