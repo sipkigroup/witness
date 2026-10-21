@@ -1,15 +1,20 @@
+<!-- mcp-name: io.github.sipkigroup/witness -->
 # deus-witness
 
 MCP proxy and SDK for Deus Witness: every tool call of your agent is checked by an independent witness
 before it runs, and you get a signed receipt for it.
 
-## One line in your MCP client config
-```json
-{"mcpServers": {"fs-witnessed": {"command": "deus-witness-mcp",
-  "args": ["--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp/sandbox"],
-  "env": {"DEUS_WITNESS_KEY": "dwk_...", "DEUS_WITNESS_URL": "https://witness.sipkigroup.com"}}}}
+## Install
 ```
-Install: `pipx install https://witness.sipkigroup.com/dl/deus_witness-0.2.16-py3-none-any.whl`
+pip install deus-witness
+```
+(or `pipx install deus-witness`). Then one entry in your MCP client config (the example of the quickstart and of the dashboard; the bundled demo tools, nothing real happens; after `--` put the command of the MCP server you want witnessed):
+```json
+{"mcpServers": {"witnessed": {"command": "deus-witness-mcp",
+  "args": ["--", "deus-witness-demo-tools"],
+  "env": {"DEUS_WITNESS_KEY": "dwk_YOUR_KEY", "DEUS_WITNESS_URL": "https://witness.sipkigroup.com", "DEUS_DEMO_OUT": "/Users/you/dw-demo"}}}}
+```
+Fallback: a wheel is also served at `https://witness.sipkigroup.com/dl/` .
 
 Behaviour per `tools/call`: `pass` -> forwarded; `allow` -> receipt verified (witness key pinned at first use in
 `~/.config/deus-witness/witness.json`), then `present`, then the tool runs, then `report`; `deny` -> the tool is NOT called,
