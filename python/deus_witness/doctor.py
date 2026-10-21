@@ -232,6 +232,9 @@ def render(r: dict) -> str:
     return "\n".join(lines)
 
 
+SUBCOMMANDS = ("doctor",)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="deus-witness")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -246,6 +249,13 @@ def main(argv=None) -> int:
 
 
 def cli() -> None:
+    argv = sys.argv[1:]
+    # `uvx deus-witness -- <upstream...>` (MCP Registry launch form): same as `deus-witness-mcp -- <upstream...>`.
+    # Only when "--" is present and the first argument is not a known subcommand; without "--" the doctor is unchanged.
+    if "--" in argv and argv[0] not in SUBCOMMANDS:
+        from .proxy import main as proxy_main
+        proxy_main(argv)
+        return
     sys.exit(main())
 
 

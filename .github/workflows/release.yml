@@ -1,17 +1,18 @@
 name: release
 
-# Manual run (workflow_dispatch, only=npm|pypi) or a tag vX.Y.Z  ->  tests -> npm @deus-witness/sdk and PyPI deus-witness
-# (OIDC Trusted Publishing + provenance/attestations). No long-lived token is stored anywhere. MCP Registry: disabled below.
+# Manual run (workflow_dispatch, only=npm|pypi|mcp-registry) or a tag vX.Y.Z  ->  tests -> npm @deus-witness/sdk and PyPI deus-witness
+# -> (after PyPI) MCP Registry entry from server.json. OIDC everywhere (Trusted Publishing + provenance/attestations; `mcp-publisher login
+# github-oidc`). No long-lived token is stored anywhere. By hand, only=mcp-registry publishes server.json alone (PyPI version must exist).
 # Replace sipkigroup in this repository's files by the GitHub organization (scripts/set-org.sh <org>).
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
-  workflow_dispatch:            # manual run publishes ONE package (npm SDK or the PyPI thin client)
+  workflow_dispatch:            # manual run publishes ONE thing (npm SDK, the PyPI thin client, or the MCP Registry entry)
     inputs:
       only:
         description: "what to publish by hand"
         type: choice
-        options: [npm, pypi]
+        options: [npm, pypi, mcp-registry]
         default: npm
 
 permissions:
@@ -85,6 +86,42 @@ jobs:
           packages-dir: python/dist
           skip-existing: true
 
-# mcp-registry job is disabled (needs server.json).
-#
-#  mcp-registry: (environment mcp-registry, mcp-publisher)        - needs server.json, not in this repository
+  # MCP Registry (https://registry.modelcontextprotocol.io). On a tag: after the pypi job. By hand (only=mcp-registry): alone, pypi is skipped.
+  # Needs `contents: read` + `id-token: write`; the name io.github.sipkigroup/... must belong to the owner of this repository.
+  mcp-registry:
+    needs: [test, pypi]
+    if: ${{ always() && needs.test.result == 'success' && ((github.event_name == 'push' && needs.pypi.result == 'success') || (github.event_name == 'workflow_dispatch' && inputs.only == 'mcp-registry')) }}
+    runs-on: ubuntu-latest
+    environment:
+      name: mcp-registry
+      url: https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.sipkigroup/witness
+    permissions:
+      contents: read
+      id-token: write      # GitHub OIDC login to the registry (no secret)
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc   # mcp-publisher_linux_amd64.tar.gz of v1.8.1
+    steps:
+      - uses: actions/checkout@v5
+      - name: server.json is consistent with python/ (version, name, limits)
+        run: bash scripts/check-server-json.sh
+      - name: Install mcp-publisher (pinned release, checksum)
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xz -f mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher --help | head -3
+      - name: Validate server.json (no login)
+        run: ./mcp-publisher validate
+      - name: The PyPI release this entry points to must exist (up to 5 minutes)
+        run: |
+          v="$(python3 -c "import json;print(json.load(open('server.json'))['version'])")"
+          for i in $(seq 1 15); do
+            if curl -fsS "https://pypi.org/pypi/deus-witness/${v}/json" >/dev/null; then echo "deus-witness==${v} is on PyPI"; exit 0; fi
+            echo "deus-witness==${v} not on PyPI yet (try ${i}/15)"; sleep 20
+          done
+          echo "deus-witness==${v} did not appear on PyPI within 5 minutes" >&2; exit 1
+      - name: Authenticate to the MCP Registry (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json to the MCP Registry
+        run: ./mcp-publisher publish

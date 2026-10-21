@@ -14,6 +14,7 @@ pip install deus-witness
   "args": ["--", "deus-witness-demo-tools"],
   "env": {"DEUS_WITNESS_KEY": "dwk_YOUR_KEY", "DEUS_WITNESS_URL": "https://witness.sipkigroup.com", "DEUS_DEMO_OUT": "/Users/you/dw-demo"}}}}
 ```
+Without installing: `uvx deus-witness -- <upstream MCP server command...>` (e.g. `uvx deus-witness -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox`) runs the same proxy as `deus-witness-mcp -- <upstream...>` (this is the launch form of the MCP Registry entry). `DEUS_WITNESS_KEY` must be set in the environment.
 Fallback: a wheel is also served at `https://witness.sipkigroup.com/dl/` .
 
 Behaviour per `tools/call`: `pass` -> forwarded; `allow` -> receipt verified (witness key pinned at first use in

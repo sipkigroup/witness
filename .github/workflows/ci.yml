@@ -65,3 +65,13 @@ jobs:
           npm install
           npm run build
           npm pack --dry-run
+
+  mcp-registry-entry:
+    name: server.json (MCP Registry entry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: JSON, registry limits, version == python/pyproject.toml, name == mcp-name of python/README.md
+        run: |
+          python3 -c "import json;json.load(open('server.json'))"
+          bash scripts/check-server-json.sh
