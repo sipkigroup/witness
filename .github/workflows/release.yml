@@ -1,17 +1,17 @@
 name: release
 
-# Manual run (workflow_dispatch, only=npm) or a tag vX.Y.Z  ->  tests -> npm (OIDC Trusted Publishing + provenance) of @deus-witness/sdk.
-# No long-lived token is stored anywhere. PyPI and MCP Registry publishing returns with the thin client 0.2.16 (disabled below).
+# Manual run (workflow_dispatch, only=npm|pypi) or a tag vX.Y.Z  ->  tests -> npm @deus-witness/sdk and PyPI deus-witness
+# (OIDC Trusted Publishing + provenance/attestations). No long-lived token is stored anywhere. MCP Registry: disabled below.
 # Replace sipkigroup in this repository's files by the GitHub organization (scripts/set-org.sh <org>).
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
-  workflow_dispatch:            # manual run publishes ONLY the npm SDK (first publish validates npm Trusted Publishing)
+  workflow_dispatch:            # manual run publishes ONE package (npm SDK or the PyPI thin client)
     inputs:
       only:
         description: "what to publish by hand"
         type: choice
-        options: [npm]
+        options: [npm, pypi]
         default: npm
 
 permissions:
@@ -23,6 +23,7 @@ jobs:
 
   npm:
     needs: test
+    if: github.event_name == 'push' || inputs.only == 'npm'
     runs-on: ubuntu-latest
     environment:
       name: npm
@@ -52,7 +53,38 @@ jobs:
           npm run build
           npm publish --provenance --access public
 
-# pypi and mcp-registry jobs are disabled: they come back with the thin client 0.2.16.
+  pypi:
+    needs: test
+    if: github.event_name == 'push' || inputs.only == 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/deus-witness/
+    permissions:
+      contents: read
+      id-token: write      # PyPI Trusted Publishing (OIDC) + attestations
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build the thin client
+        working-directory: python
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+          ls -la dist
+      - name: Smoke test (install + import + entry points)
+        run: |
+          python -m pip install python/dist/*.whl
+          python -c "import deus_witness, deus_witness.client, deus_witness.proxy, deus_witness.hook.main; print('import ok')"
+          deus-witness-hook --print-form >/dev/null && echo "hook ok"
+      - name: Publish (no token, OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist
+          skip-existing: true
+
+# mcp-registry job is disabled (needs server.json).
 #
-#  pypi:        (environment pypi, pypa/gh-action-pypi-publish)   - needs the Python package, not in this repository
 #  mcp-registry: (environment mcp-registry, mcp-publisher)        - needs server.json, not in this repository
