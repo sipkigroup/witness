@@ -33,7 +33,7 @@ jobs:
       contents: read
       id-token: write      # npm Trusted Publishing (OIDC) + provenance
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -65,7 +65,7 @@ jobs:
       contents: read
       id-token: write      # PyPI Trusted Publishing (OIDC) + attestations
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -102,7 +102,7 @@ jobs:
       MCP_PUBLISHER_VERSION: v1.8.1
       MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc   # mcp-publisher_linux_amd64.tar.gz of v1.8.1
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: server.json is consistent with python/ (version, name, limits)
         run: bash scripts/check-server-json.sh
       - name: Install mcp-publisher (pinned release, checksum)

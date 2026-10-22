@@ -18,7 +18,7 @@ jobs:
     name: spec vectors (reference model)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
@@ -29,7 +29,7 @@ jobs:
   js-verifier:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -42,7 +42,7 @@ jobs:
   swift-verifier:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Build and run the clean-room Swift verifier
         working-directory: verifier_swift
         run: |
@@ -53,7 +53,7 @@ jobs:
     name: sdk-ts build and pack
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v5
         with:
           node-version: "24"
@@ -86,7 +86,7 @@ jobs:
       run:
         shell: pwsh          # the same steps run on all three systems; no bash-only syntax below
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
@@ -102,7 +102,7 @@ jobs:
     name: server.json (MCP Registry entry)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: JSON, registry limits, version == python/pyproject.toml, name == mcp-name of python/README.md
         run: |
           python3 -c "import json;json.load(open('server.json'))"
