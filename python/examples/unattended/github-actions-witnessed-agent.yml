@@ -1,0 +1,55 @@
+# Example (not published): a Claude Code agent in GitHub Actions, every tool call judged by Deus Witness.
+# Copy to .github/workflows/witnessed-agent.yml of YOUR repository and copy settings.unattended.json to .claude/settings.json there.
+# Repository secrets: ANTHROPIC_API_KEY (Claude Code), DEUS_WITNESS_KEY (the agent key dwk_... from the Witness dashboard, preset claude-code).
+# What it does: the job stops before the agent starts if the hook is not fail-closed (--doctor); a call the mandate does not allow waits
+# up to 10 min for you (Telegram / Slack / e-mail link -> approve with your passkey), then it is refused and the agent goes on or stops.
+name: witnessed-agent
+on:
+  schedule:
+    - cron: "17 3 * * 1-5"          # 03:17 UTC on weekdays
+  workflow_dispatch: {}
+permissions:
+  contents: read                   # the agent cannot push with the job token; give it more only knowingly
+concurrency:
+  group: witnessed-agent
+  cancel-in-progress: false
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DEUS_WITNESS_KEY: ${{ secrets.DEUS_WITNESS_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DEUS_WITNESS_URL: https://witness.sipkigroup.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # no git token left on disk for the agent to read
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Claude Code and the witness client
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          python -m pip install --upgrade deus-witness
+      - name: The hook must be fail-closed, or the agent does not start
+        run: |
+          test -f .claude/settings.json || { echo "copy examples/unattended/settings.unattended.json to .claude/settings.json"; exit 1; }
+          deus-witness-hook --doctor "$PWD" | tee doctor.txt
+          grep -q "OK: fail-closed" doctor.txt
+      - name: Run the agent (print mode)
+        run: |
+          claude -p "Run the test suite, fix what fails, and write a short summary to SUMMARY.md. Do not push." \
+            --output-format json > result.json
+      - name: Keep the result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-result
+          path: |
+            result.json
+            SUMMARY.md
+          if-no-files-found: ignore

@@ -1,0 +1,13 @@
+{"hooks": {
+  "SessionStart": [{"hooks": [{"type": "command", "command": "deus-witness-hook --session-start", "timeout": 15}]}],
+  "PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
+    "hooks": [{"type": "command", "command": "deus-witness-hook || exit 2", "timeout": 620, "onFailure": "block"}]}]},
+ "env": {"DEUS_WITNESS_URL": "https://witness.sipkigroup.com", "DEUS_WITNESS_HOOK_TIMEOUT": "610", "DEUS_WITNESS_HOOK_WAIT": "600",
+         "DEUS_WITNESS_HOOK_ON_DEFER": "deny"},
+ "permissions": {"deny": [
+  "Bash(curl *)", "Bash(wget *)", "Bash(nc *)", "Bash(ncat *)", "Bash(telnet *)", "Bash(ssh *)", "Bash(scp *)", "Bash(sftp *)", "Bash(rsync *)",
+  "WebFetch(domain:gist.github.com)", "WebFetch(domain:gist.githubusercontent.com)", "WebFetch(domain:raw.githubusercontent.com)",
+  "WebFetch(domain:pastebin.com)", "WebFetch(domain:transfer.sh)", "WebFetch(domain:webhook.site)",
+  "Read(.env)", "Read(.env.*)", "Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.gnupg/**)",
+  "Edit(.claude/**)", "Edit(~/.claude/**)", "Edit(.mcp.json)", "Edit(~/.claude.json)"
+ ]}}
