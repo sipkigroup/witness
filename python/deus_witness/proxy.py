@@ -3,7 +3,11 @@
   deus-witness-mcp [--url U] [--no-verify-aar] -- <upstream MCP server command...>
 
 Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_WAIT (seconds per long poll, default 25),
-DEUS_WITNESS_POLLS (number of long polls on defer, default 2), DEUS_WITNESS_VERIFY=0 (same as --no-verify-aar).
+DEUS_WITNESS_POLLS (number of long polls on defer, default 2), DEUS_WITNESS_HOLD_MAX_S (how long one tools/call may wait for the owner;
+default WAIT x POLLS = 50 s; for Claude Code it can be raised, see README "Waiting for approval / timeouts"),
+DEUS_WITNESS_VERIFY=0 (same as --no-verify-aar).
+0.2.22: notifications/cancelled from the client ends the wait and the held action is never run later (no ghost execution);
+a tools/call with _meta.progressToken gets notifications/progress every ~12 s while it waits; the Held text says "NOT executed".
 Fail closed: if the witness cannot be reached, the call is blocked. The log (stderr) has only tool, rid, verdict - never arguments.
 0.2: once the client has initialized, the proxy asks the upstream for tools/list itself (a private id; the
 answer is not forwarded), sends POST /v1/catalog, runs the light doctor (configs only, no network probes) and sends POST /v1/coverage.
@@ -22,6 +26,8 @@ MAX_LINE = 64 * 1024 * 1024
 STARTUP_WAIT = 60        # s a tools/call waits for the start-up catalog/coverage
 LIST_WAIT = 30           # s for the upstream to answer the private tools/list
 CATALOG_ID = "deus-witness-catalog-%d"
+PROGRESS_EVERY = 12.0    # s between notifications/progress while a call waits for the owner (only if the client sent a progressToken)
+HOLD_CAP = 3600          # s, upper bound of DEUS_WITNESS_HOLD_MAX_S (the server keeps an action 900 s or longer anyway)
 
 
 def log(msg: str) -> None:
@@ -47,9 +53,40 @@ def _text_error(req_id, text: str) -> dict:
     return {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": text}], "isError": True}}
 
 
+class CallCancelled(Exception):
+    """The MCP client cancelled this tools/call (notifications/cancelled) before it was forwarded."""
+
+
+class CallState:
+    """What the proxy knows about one tools/call that is being judged."""
+    def __init__(self, token=None):
+        self.cancel = asyncio.Event()
+        self.token = token          # params._meta.progressToken or None
+        self.forwarded = False      # True once the line went to the upstream: a later cancel is the upstream's business
+        self.rid = None
+        self.n = 0                  # progress counter
+
+
+def held_text(url: str, rid: str) -> str:
+    return ("Action NOT executed: waiting for the owner's approval.\n"
+            "Receipt (rid): %s\n"
+            "The owner can approve it at: %s\n"
+            "After the owner has approved, retry the exact same call (same tool, same arguments). Do not change the arguments.") % (rid, url)
+
+
+def advisor_text(url: str, rid: str) -> str:
+    return ("Held by advisor for owner review at %s. Action NOT executed.\n"
+            "Receipt (rid): %s\n"
+            "After the review, retry the exact same call (same tool, same arguments). Do not change the arguments.") % (url, rid)
+
+
 class Proxy:
-    def __init__(self, witness: Witness, cmd: list, wait_s: int = 25, polls: int = 2):
+    def __init__(self, witness: Witness, cmd: list, wait_s: int = 25, polls: int = 2, hold_max_s=None, progress_every: float = PROGRESS_EVERY):
         self.w, self.cmd, self.wait_s, self.polls = witness, cmd, wait_s, polls
+        self.hold_s = max(0, min(HOLD_CAP, int(hold_max_s if hold_max_s is not None else wait_s * polls)))   # 0.2.22: default = the old WAIT x POLLS
+        self.max_polls = polls if hold_max_s is None else None      # without HOLD_MAX_S: exactly the old rule (POLLS long polls of WAIT s)
+        self.progress_every = progress_every
+        self.calls = {}      # json id -> CallState of a tools/call that is still being judged or was forwarded
         self.up = None
         self.out_lock = asyncio.Lock()
         self.inflight = {}   # json id -> rid of an allowed call that has been forwarded (report after the response)
@@ -70,23 +107,68 @@ class Proxy:
         await self.up.stdin.drain()
 
     # ---- decision for one tools/call ----
-    async def decide(self, name: str, args: dict):
-        """-> ("forward", rid or None) | ("block", text)."""
+    async def _thread(self, st: CallState, fn, *a, interruptible: bool = True):
+        """Runs a blocking witness call in a thread. While it runs: progress notifications (if the client asked for them) and the
+        cancellation of the client. A cancelled interruptible call is abandoned (its thread ends by itself, the result is dropped)."""
+        if st.cancel.is_set():
+            raise CallCancelled()
+        fut = asyncio.ensure_future(asyncio.to_thread(fn, *a))
+        if not interruptible:
+            res = await fut
+            if st.cancel.is_set():
+                raise CallCancelled()
+            return res
+        fut.add_done_callback(lambda f: f.cancelled() or f.exception())     # an abandoned result is never awaited: no "never retrieved" noise
+        cw = asyncio.ensure_future(st.cancel.wait())
+        try:
+            while True:
+                done, _ = await asyncio.wait({fut, cw}, timeout=self.progress_every if st.token is not None else None,
+                                             return_when=asyncio.FIRST_COMPLETED)
+                if fut in done:
+                    return fut.result()
+                if cw in done:
+                    raise CallCancelled()
+                await self.progress(st)
+        finally:
+            cw.cancel()
+
+    async def progress(self, st: CallState) -> None:
+        st.n += 1
+        await self.send_client({"jsonrpc": "2.0", "method": "notifications/progress",
+                                "params": {"progressToken": st.token, "progress": st.n, "message": "waiting for owner approval"}})
+
+    async def _poll_wait(self, st: CallState, res, deadline: float):
+        """Long-polls until the action leaves pending_approval/held or the hold time (deadline, monotonic) is used up."""
+        loop = asyncio.get_running_loop()
+        pause, n = 0.5, 0
+        while (self.max_polls is None or n < self.max_polls) and (res.status == "held" or (res.verdict == "defer" and res.status == "pending_approval")) and loop.time() < deadline:
+            n += 1
+            left = deadline - loop.time()
+            t0 = loop.time()
+            res = await self._thread(st, self.w.get, res.rid, max(1, min(self.wait_s, int(-(-left // 1)))))
+            st.rid = res.rid
+            if self.max_polls is None and (res.status == "held" or res.status == "pending_approval") and loop.time() - t0 < 0.5:   # answered at once: do not spin
+                try:
+                    await asyncio.wait_for(st.cancel.wait(), min(pause, max(0.0, deadline - loop.time())))
+                    raise CallCancelled()
+                except asyncio.TimeoutError:
+                    pass
+                pause = min(pause * 2, 8.0)
+        return res
+
+    async def decide(self, name: str, args: dict, st: CallState = None):
+        """-> ("forward", rid or None) | ("block", text). Raises CallCancelled if the client cancelled meanwhile (nothing was forwarded)."""
         w = self.w
+        st = st or CallState()
         res = None
         sent_hash = args_sha256(name, args)       # R-09: the receipt must be for THIS call
         try:
-            res = await asyncio.to_thread(w.act, name, args, {"name": "deus-witness-mcp", "version": __version__}, False)
-            polls = 0
-            while res.verdict == "defer" and res.status == "pending_approval" and polls < self.polls:
-                polls += 1
-                res = await asyncio.to_thread(w.get, res.rid, self.wait_s)
-            while res.status == "held" and polls < self.polls:       # 0.2: held by the advisor (4.2), waits like defer
-                polls += 1
-                res = await asyncio.to_thread(w.get, res.rid, self.wait_s)
+            res = await self._thread(st, w.act, name, args, {"name": "deus-witness-mcp", "version": __version__}, False)
+            st.rid = res.rid
+            res = await self._poll_wait(st, res, asyncio.get_running_loop().time() + self.hold_s)     # defer, and 0.2 held by the advisor (4.2)
             log("tool=%s rid=%s verdict=%s status=%s" % (name, res.rid, res.verdict, res.status))
             if res.status == "held":
-                return "block", "Held by advisor for owner review at %s. Retry the same call after review." % (res.approval_url or w.url)
+                return "block", advisor_text(res.approval_url or w.url, res.rid)
             if res.verdict == "pass":
                 return "forward", None
             if res.verdict == "allow" and res.status in ("allowed", "approved"):
@@ -94,14 +176,14 @@ class Proxy:
                     log("tool=%s rid=%s REQUEST_MISMATCH" % (name, res.rid))
                     return "block", "Blocked by Deus Witness: REQUEST_MISMATCH (receipt %s)" % res.rid
                 if w.verify:
-                    await asyncio.to_thread(w.check, res)
-                pr = await asyncio.to_thread(w.present, res.rid)   # CONSUME in the ledger BEFORE the tool runs
+                    await self._thread(st, w.check, res, interruptible=False)
+                pr = await self._thread(st, w.present, res.rid, interruptible=False)   # CONSUME in the ledger BEFORE the tool runs
                 if pr.get("result") != "accept":
                     log("tool=%s rid=%s present=%s" % (name, res.rid, pr.get("reason")))
                     return "block", "Blocked by Deus Witness: %s (receipt %s)" % (pr.get("reason", "NOT_ACCEPTED"), res.rid)
                 return "forward", res.rid
             if res.verdict == "defer" and res.status == "pending_approval":
-                return "block", "Held for owner approval at %s. Retry the same call after approval." % res.approval_url
+                return "block", held_text(res.approval_url or w.url, res.rid)
             reason = res.reason if res.verdict == "deny" else {"refused": "APPROVAL_REFUSED", "expired": "RECEIPT_EXPIRED"}.get(res.status, res.reason or res.status)
             return "block", "Blocked by Deus Witness: %s (receipt %s)" % (reason, res.rid)
         except AARError as e:
@@ -114,7 +196,30 @@ class Proxy:
             log("tool=%s witness error %s %s" % (name, e.status, e.code))
             return "block", witness_error_text(e)
 
-    async def handle_call(self, line: bytes, msg: dict) -> None:
+    async def handle_call(self, line: bytes, msg: dict, st: CallState = None) -> None:
+        st = st or CallState()
+        key = json.dumps(msg.get("id"))
+        try:
+            await self._handle_call(line, msg, st)
+        except CallCancelled:
+            # 0.2.22: the client gave up (notifications/cancelled). Nothing was forwarded and nothing will be: the approval that may still
+            # come is for a call nobody waits for. No response is sent (MCP: the receiver SHOULD NOT answer a cancelled request).
+            log("tool=%s rid=%s cancelled by the client, not executed" % (self._name(msg), st.rid or "none"))
+            if st.rid:
+                try:
+                    await asyncio.to_thread(self.w.report, st.rid, False)    # release the receipt if it was already consumed; "ignored" if still pending
+                except Exception as e:      # noqa: BLE001  best effort, the action is not forwarded in any case
+                    log("cancel report failed rid=%s %s" % (st.rid, getattr(e, "code", type(e).__name__)))
+        finally:
+            if self.calls.get(key) is st:
+                self.calls.pop(key, None)
+
+    @staticmethod
+    def _name(msg: dict) -> str:
+        p = msg.get("params")
+        return p.get("name") if isinstance(p, dict) and isinstance(p.get("name"), str) else "?"
+
+    async def _handle_call(self, line: bytes, msg: dict, st: CallState) -> None:
         p = msg.get("params")
         p = {} if p is None else p
         name = p.get("name") if isinstance(p, dict) else None
@@ -133,7 +238,9 @@ class Proxy:
             await self.send_client(_text_error(msg["id"], self.startup_block))
             return
         try:
-            kind, val = await self.decide(name, args)
+            kind, val = await self.decide(name, args, st)
+        except CallCancelled:
+            raise
         except Exception as e:      # noqa: BLE001  N-10b: whatever goes wrong while judging, the client gets an answer and nothing runs
             log("tool=%s cannot be judged (%s)" % (name, type(e).__name__))
             await self.send_client({"jsonrpc": "2.0", "id": msg.get("id"), "error": {"code": -32602, "message": "Blocked by Deus Witness: MALFORMED_CALL"}})
@@ -141,11 +248,14 @@ class Proxy:
         if kind == "block":
             await self.send_client(_text_error(msg["id"], val))
             return
+        if st.cancel.is_set():          # cancelled while the last step ran: the receipt (if consumed) is released by handle_call, the tool does not run
+            raise CallCancelled()
         if val is not None:
             self.inflight[json.dumps(msg["id"])] = val
         if kind == "forward":
             # N-07: forward EXACTLY what was judged (the parsed message re-serialised), not the raw line: a duplicate key could mean another thing upstream
             line = (json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8", "surrogatepass")
+        st.forwarded = True             # no await between the check above and this line: a cancel can no longer stop it, the upstream gets the notification
         await self.send_up(line)
 
     # ---- start-up: catalog + light doctor -> coverage (once per run) ----
@@ -211,6 +321,16 @@ class Proxy:
             self.ready.set()
 
     # ---- pumps ----
+    def _cancel_pending(self, msg: dict) -> bool:
+        """notifications/cancelled for a tools/call that is still being judged (not forwarded): stop its wait. True = consumed here."""
+        p = msg.get("params")
+        rid = p.get("requestId") if isinstance(p, dict) else None
+        st = self.calls.get(json.dumps(rid)) if rid is not None else None
+        if st is None or st.forwarded:
+            return False
+        st.cancel.set()
+        return True
+
     async def client_to_up(self) -> None:
         reader = await _compat.open_stdin_reader(MAX_LINE)     # POSIX: the loop watches the pipe; Windows: a reader thread
         while True:
@@ -236,9 +356,15 @@ class Proxy:
                 if "id" not in msg:                           # a tools/call without id is not answerable and must not run
                     log("tools/call without id dropped")
                     continue
-                t = asyncio.create_task(self.handle_call(line, msg))
+                meta = (msg.get("params") or {}).get("_meta") if isinstance(msg.get("params"), dict) else None
+                tok = meta.get("progressToken") if isinstance(meta, dict) else None
+                st = CallState(tok if isinstance(tok, (str, int)) and not isinstance(tok, bool) else None)
+                self.calls[json.dumps(msg["id"])] = st
+                t = asyncio.create_task(self.handle_call(line, msg, st))
                 self.tasks.add(t)
                 t.add_done_callback(self.tasks.discard)
+            elif isinstance(msg, dict) and msg.get("method") == "notifications/cancelled" and self._cancel_pending(msg):
+                continue                   # 0.2.22: a call that was never forwarded: the upstream does not know it, nothing to tell it
             else:
                 await self.send_up(line)
                 if isinstance(msg, dict) and msg.get("method") == "notifications/initialized" and not self.started:
@@ -320,9 +446,15 @@ def main(argv=None) -> None:
     w = Witness(o.url, key, verify=verify)
     wait_s = int(os.environ.get("DEUS_WITNESS_WAIT", "25"))
     polls = int(os.environ.get("DEUS_WITNESS_POLLS", "2"))
+    hold = os.environ.get("DEUS_WITNESS_HOLD_MAX_S")
+    try:
+        hold_s = int(hold) if hold not in (None, "") else None
+    except ValueError:
+        sys.stderr.write("deus-witness-mcp: DEUS_WITNESS_HOLD_MAX_S must be a whole number of seconds (got %r)\n" % hold)
+        sys.exit(2)
     log("url=%s verify_aar=%s upstream=%s" % (w.url, verify, cmd[0]))
     try:
-        rc = asyncio.run(Proxy(w, cmd, wait_s, polls).run())
+        rc = asyncio.run(Proxy(w, cmd, wait_s, polls, hold_s, float(os.environ.get("DEUS_WITNESS_PROGRESS_S", PROGRESS_EVERY))).run())
     except KeyboardInterrupt:
         rc = 130
     except OSError as e:

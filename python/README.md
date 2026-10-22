@@ -21,20 +21,52 @@ Fallback: a wheel is also served at `https://witness.sipkigroup.com/dl/` .
 
 Behaviour per `tools/call`: `pass` -> forwarded; `allow` -> receipt verified (witness key pinned at first use in
 `~/.config/deus-witness/witness.json`), then `present`, then the tool runs, then `report`; `deny` -> the tool is NOT called,
-the agent gets `Blocked by Deus Witness: <reason> (receipt <rid>)`; `defer` -> waits up to ~50 s for the owner, then
-`Held for owner approval at <url>. Retry the same call after approval.` If the witness is unreachable the call is blocked
-(fail closed). `tools/list`, resources, prompts and notifications pass through untouched. The proxy log (stderr) holds only tool, rid, verdict.
+the agent gets `Blocked by Deus Witness: <reason> (receipt <rid>)`; `defer` -> waits up to ~50 s for the owner, then the agent gets an error result that says
+`Action NOT executed: waiting for the owner's approval.`, the receipt id (`rid`) and how to retry (see "Waiting for approval / timeouts"
+below). If the witness is unreachable the call is blocked (fail closed). `tools/list`, resources, prompts and notifications pass through untouched. The proxy log (stderr) holds only tool, rid, verdict.
 
 0.2: `status: held` (held by the advisor for owner review) is waited for like `defer`, then the agent gets
-`Held by advisor for owner review at <url>. Retry the same call after review.`
+`Held by advisor for owner review at <url>. Action NOT executed.` (with the rid and the same retry instruction).
 
 At start (after the client's `initialized`) the proxy asks the upstream for `tools/list` itself (the answer is not shown to
 the client), sends it as `POST /v1/catalog` (the server suggests a strict toolmap from it), runs the light doctor (configs
 only, no network) and sends `POST /v1/coverage`; once per run, before the first call is judged. If the witness cannot be
 reached at that moment, every call of the run is blocked (fail closed). An HTTP error there (e.g. a 0.1 server) is only logged.
 
-Env: `DEUS_WITNESS_KEY` (required), `DEUS_WITNESS_URL`, `DEUS_WITNESS_WAIT` (s per long poll, 25), `DEUS_WITNESS_POLLS` (2),
+Env: `DEUS_WITNESS_KEY` (required), `DEUS_WITNESS_URL`, `DEUS_WITNESS_WAIT` (s per long poll, 25), `DEUS_WITNESS_POLLS` (2), `DEUS_WITNESS_HOLD_MAX_S` (how long one call may wait for the owner; default 50 = WAIT x POLLS; 0.2.22),
 `DEUS_WITNESS_VERIFY=0` or `--no-verify-aar` (testing against a stub that does not sign).
+
+## Waiting for approval / timeouts
+When the witness holds an action for the owner, the proxy does **not** run it. What the agent sees (an ordinary tool result with `isError: true`, not a protocol error):
+```
+Action NOT executed: waiting for the owner's approval.
+Receipt (rid): r_...
+The owner can approve it at: https://witness.sipkigroup.com/approve.html?rid=r_...
+After the owner has approved, retry the exact same call (same tool, same arguments). Do not change the arguments.
+```
+After the owner approved, the repeated call (same tool and arguments) gets the same receipt and runs at once, exactly once. The proxy waits up to
+`DEUS_WITNESS_HOLD_MAX_S` seconds (default 50, as before) inside one call; the witness keeps the held action for 15 minutes or more.
+
+**Cancel (0.2.22).** If the MCP client cancels the call (`notifications/cancelled`, e.g. because its own tool timeout ran out, or you stopped the task), the proxy stops
+waiting, tells the witness `report executed=false` and never forwards that call: an approval that arrives later does not run anything behind the agent's back.
+The cancelled request gets no answer, as the MCP specification says. The repeated call is judged afresh; if the owner approved meanwhile, it runs once.
+
+**Progress (0.2.22).** If the call carries `_meta.progressToken`, the proxy sends `notifications/progress` (no percentage, message `waiting for owner approval`) about every 12 s
+while it waits. Clients that restart their timeout on progress (the MCP specification allows it, it does not require it) then wait longer.
+
+| Client | Tool timeout | What to do |
+|---|---|---|
+| Claude Code (CLI) | `timeout` per server in `.mcp.json` (ms), else `MCP_TOOL_TIMEOUT`; unset = about 28 h. Idle (no response, no progress): 30 min for stdio (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). A main-conversation call still running after 2 min moves to a background task | May wait long: `DEUS_WITNESS_HOLD_MAX_S=600` in `env` and, if you set a timeout, `"timeout": 700000` in the server entry (more than the hold time) |
+| Cursor | about 60 s for stdio, not configurable, progress does not extend it (user reports, no official statement) | Leave the default 50 s (margin); when the agent gets the "NOT executed" text, approve and let it repeat the call. Do not raise `HOLD_MAX_S` |
+| Claude Desktop | about 60 s, the `timeout` of the config is not honoured (user reports) | Same as Cursor |
+
+Claude Code, from https://code.claude.com/docs/en/mcp (checked 22.10.2026): "Set a per-server tool execution timeout by adding a `timeout` field in milliseconds to that server's `.mcp.json` entry, for example `"timeout": 600000` for ten minutes. This overrides the `MCP_TOOL_TIMEOUT` environment variable for that server only." and "The per-server timeout is a hard wall-clock limit per tool call, and progress notifications from the server don't extend it."
+```json
+{"mcpServers": {"witnessed": {"command": "deus-witness-mcp", "args": ["--", "your-mcp-server"], "timeout": 700000,
+  "env": {"DEUS_WITNESS_KEY": "dwk_YOUR_KEY", "DEUS_WITNESS_HOLD_MAX_S": "600"}}}}
+```
+`HOLD_MAX_S` is capped at 3600; the witness' own limit for a held action (15 minutes by default) also applies: after it the call ends with `RECEIPT_EXPIRED`.
+The Cursor and Desktop figures are reports of other users, not measured here. The Claude Code hook (`deus-witness-hook`) has its own waits (`DEUS_WITNESS_HOOK_WAIT`, below).
 
 Windows: the proxy reads stdin in a thread and finds `npx` as `npx.cmd`; this is new in 0.2.21 and was tested on macOS/Linux and in CI only. If something fails on Windows, please report it.
 
