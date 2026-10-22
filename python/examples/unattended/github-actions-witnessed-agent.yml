@@ -44,6 +44,9 @@ jobs:
         run: |
           claude -p "Run the test suite, fix what fails, and write a short summary to SUMMARY.md. Do not push." \
             --output-format json > result.json
+          # claude -p exits 0 even when calls were refused: make the job red so you see it
+          N=$(python3 -c 'import json; print(len(json.load(open("result.json")).get("permission_denials") or []))')
+          if [ "$N" != 0 ]; then echo "::error::$N call(s) refused by the witness or Claude Code (see the agent-result artifact)"; exit 3; fi
       - name: Keep the result
         if: always()
         uses: actions/upload-artifact@v4

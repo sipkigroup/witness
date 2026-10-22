@@ -20,4 +20,7 @@ deus-witness-hook --doctor "$PWD" | tee /dev/stderr | grep -q "OK: fail-closed"
 STAMP=$(date +%Y%m%d-%H%M)
 claude -p "Run the test suite, fix what fails, and write a short summary to SUMMARY.md. Do not push." \
   --output-format json > "$HOME/witnessed-agent-$STAMP.json"
+# 3. claude -p exits 0 even when the witness refused calls: count them and fail loudly, so cron mail / your monitor sees it
+N=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("permission_denials") or []))' "$HOME/witnessed-agent-$STAMP.json")
+if [ "$N" != 0 ]; then echo "BLOCKED $STAMP: $N call(s) refused by the witness or Claude Code, see witnessed-agent-$STAMP.json"; exit 3; fi
 echo "done $STAMP"

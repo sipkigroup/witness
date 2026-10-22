@@ -1,6 +1,6 @@
 # Agents without a person at the keyboard (GitHub Actions, cron, `claude -p`)
 
-> Status (22.10.2026): these examples are checked by tests against the server; a live GitHub Actions or cron run has **not** been done yet.
+> Status (22.10.2026): a live run of real `claude -p` with the hook from PyPI against a local Witness server passed five scenarios (safe task, blocked send, approved while waiting, timeout, auto-freeze). A run from a real GitHub Actions schedule against the hosted service has **not** been done yet.
 
 A background agent is where a witness matters most: nobody watches the terminal, and a call that should not run would run at 3 a.m.
 With Deus Witness every tool call of the agent is judged against the mandate you signed with your passkey; what the mandate does not
@@ -34,6 +34,11 @@ Files (copy them, nothing here is installed for you):
 ## 3. cron with `claude -p`
 `cron-claude-p.sh /path/to/project` reads both keys from files only you can read (`chmod 600`), checks the hook with `--doctor`, runs one
 `claude -p` and keeps the JSON answer. Put it into `crontab -e` (example line in the script).
+
+### Things we learned in the live run
+- `claude -p --output-format json` exits 0 even when calls were refused. Both templates count `permission_denials` and fail (exit 3), so cron mail or the red job tells you.
+- To test the barrier, give the agent a neutral task. A prompt that openly asks to leak a secret is often refused by the model itself before the hook sees anything; that proves nothing about the witness.
+- A call that waited for you and got no answer stays pending for 15 minutes, also into the next run. Several of those in a row count as a flood (section 5).
 
 ## 4. What happens to a call that needs you
 - The hook waits up to `DEUS_WITNESS_HOOK_WAIT` = 600 s for your answer (the hook's own timeout 610 s, Claude Code's `timeout` 620 s,
