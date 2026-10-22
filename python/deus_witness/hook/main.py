@@ -12,7 +12,7 @@ Fail-closed, three layers (see failsafe.py): the hook answers `deny` on every er
 Witness verdict -> Claude Code decision
   allow (receipt verified, consumed in the ledger)  -> allow   (0.2.10: also OK_ALLOWANCE, an owner-signed project allowance)
   pass  (class pass: not witnessed)                 -> no decision: Claude Code's own permission rules apply
-  defer (owner approval pending)                    -> ask (default) | deny | defer   (DEUS_WITNESS_HOOK_ON_DEFER)
+  defer (owner approval pending)                    -> deny (default) | ask | defer   (DEUS_WITNESS_HOOK_ON_DEFER)
   deny / refused / expired / any error / timeout    -> deny with the reason
 
 Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_HOME (key pin dir),
@@ -20,8 +20,10 @@ Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_HOME (key pin d
                                 `timeout` in settings.json: a hook that Claude Code cancels for time gives no decision),
      DEUS_WITNESS_HOOK_WAIT     seconds to wait for the owner on defer before answering, default 0, cut to TIMEOUT - 5
                                 (to wait the whole approval window: WAIT 600, TIMEOUT 610, settings `timeout` 620),
-     DEUS_WITNESS_HOOK_ON_DEFER ask | deny | defer, default ask (defer: print mode / Agent SDK only - interactive Claude Code
-                                ignores it),
+     DEUS_WITNESS_HOOK_ON_DEFER deny | ask | defer, default deny (0.2.22; was ask). A held call waits for the OWNER in Witness (phone);
+                                the person at the terminal must not approve in the owner's place. `ask` shows a yes/no prompt in
+                                the terminal - yes runs the call WITHOUT a witness receipt - so it is an explicit choice only.
+                                defer: print mode / Agent SDK only - interactive Claude Code ignores it. Anything else: deny,
      DEUS_WITNESS_HOOK_ALLOW    allow | neutral, default allow (neutral: a witnessed allow still goes through Claude Code's prompts),
      DEUS_WITNESS_VERIFY=0      do not check receipts (not recommended).
 The log (stderr) carries the tool, rid and verdict only - never arguments.
@@ -124,7 +126,8 @@ class Settings:
         self.timeout = _num(e.get("DEUS_WITNESS_HOOK_TIMEOUT"), 20.0, 1.0, 900.0)
         # the answer must be printed before our own deadline: a wait that eats the whole timeout ends as WITNESS_TIMEOUT
         self.wait = min(_num(e.get("DEUS_WITNESS_HOOK_WAIT"), 0.0, 0.0, 900.0), max(0.0, self.timeout - failsafe.MARGIN_S))
-        self.on_defer = e.get("DEUS_WITNESS_HOOK_ON_DEFER", "ask") if e.get("DEUS_WITNESS_HOOK_ON_DEFER", "ask") in ("ask", "deny", "defer") else "deny"
+        v = e.get("DEUS_WITNESS_HOOK_ON_DEFER", "deny")
+        self.on_defer = v if v in ("ask", "deny", "defer") else "deny"       # 0.2.22: deny by default; ask only when set explicitly
         self.allow = "neutral" if e.get("DEUS_WITNESS_HOOK_ALLOW") == "neutral" else "allow"
         self.verify = e.get("DEUS_WITNESS_VERIFY") != "0"
         self.key = e.get("DEUS_WITNESS_KEY")
@@ -285,7 +288,7 @@ class Facts:
         if isinstance(lst, dict) and tool_name in (lst.get("prescan_tools") or ()):
             spec = fingerprint.Spec(lst)
             rep = fingerprint.scan(self.root, spec)
-            self.exec = dict(rep, rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
+            self.exec = dict(fingerprint.with_sizes(rep, self.root), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
 
     def body(self, ev, part=None):
         return {"v": 1, "event": {k: ev.get(k) for k in ("tool_name", "tool_input", "cwd") if k in ev},
@@ -316,7 +319,7 @@ class Facts:
                 raise Fail("HOOK_ERROR", "(the witness asked for another directory)")
             spec = fingerprint.Spec(w.scan_list(need.get("scan_rev")))
             rep = fingerprint.scan(self.root, spec)
-            self.exec = dict(rep, rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
+            self.exec = dict(fingerprint.with_sizes(rep, self.root), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
 
 
 class Part:
@@ -442,6 +445,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             if s.on_defer == "ask":
                 return decision("ask", msg + " Answering yes here runs it WITHOUT a witness receipt; the safe answer is No: "
                                 "approve in Witness, then retry.")
+            if s.on_defer == "deny":                      # 0.2.22: the default; the owner decides in Witness, not the person at the terminal
+                msg += " Do not try to reach the same effect another way."
             return decision(s.on_defer, msg)
         allowed = [(m, res) for m, res in results if res.verdict == "allow"]
         for m, res in allowed:                            # check every receipt BEFORE consuming any

@@ -4,7 +4,7 @@ The hook does not know why a file is on the list: the list carries file shapes o
 a few executable names to look up in a project's bin directories, and bounds. The witness asks for a walk of the project root when it
 needs one (`need.scan`); the report goes back as a fact. Nothing in the list is executed: names are compared, one regular expression
 (a line filter for one file name) is matched against file bytes.
-Report: {"root", "files": {relative path: sha256 hex | "unreadable"}, "git": {absolute path: digest}, "truncated": bool, "rev"}."""
+Report: {"root", "files": {relative path: sha256 hex | "unreadable"}, "sizes": {relative path: bytes} (optional, 0.2.22), "git": {absolute path: digest}, "truncated": bool, "rev"}."""
 from __future__ import annotations
 
 import hashlib
@@ -201,6 +201,21 @@ def git_files(root, spec):
             if not n.endswith(".sample") and os.path.isfile(p):
                 out[p] = file_digest(p, spec)
     return dict(sorted(out.items()))
+
+
+def with_sizes(rep, root):
+    """0.2.22: `rep` + the optional field "sizes" = {relative path: bytes} for the same files (the approval page shows "N bytes" next to the
+    digest). A separate step on purpose: `scan` stays the reference walk of the server (a test keeps them equal); an older witness ignores
+    the field. A file that cannot be stat'ed has no size. Nothing but integers leaves the machine."""
+    if not isinstance(rep, dict) or not isinstance(rep.get("files"), dict):
+        return rep
+    sizes = {}
+    for rel in rep["files"]:
+        try:
+            sizes[rel] = int(os.stat(os.path.join(root, rel)).st_size)
+        except (OSError, ValueError):
+            pass
+    return dict(rep, sizes=dict(sorted(sizes.items()))) if sizes else rep
 
 
 def scan(root, spec: Spec):

