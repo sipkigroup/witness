@@ -38,13 +38,18 @@ against the pinned key and matches the call; a part list that was cut, reordered
 parents, and paths built from the words of the tool_input; any other question is a deny.
 
   deus-witness-hook --print-form PROJECT_DIR    the recommended mandate form (default rules) as JSON; paste it into the Mandate page
-                                                ("Import from JSON"), which shows what will be signed
+                                                ("Import from JSON"), which shows what will be signed. The default form has
+                                                delete.allow_irreversible = true: that is what lets Write / Edit and shell
+                                                redirections work INSIDE the project and the temp dir (the witness judges a write as an
+                                                irreversible delete of its path). Add --no-irreversible for a read-only mandate: then
+                                                every Write / Edit is refused.
   deus-witness-hook --doctor [PROJECT_DIR]      is the hook fail-closed here? (Claude Code version, settings.json); exit 1 if not
   deus-witness-hook --session-start             for a SessionStart hook: a loud warning when the hook can be bypassed
 """
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import posixpath
 import re
@@ -53,7 +58,7 @@ import sys
 import threading
 import time
 
-from .. import __version__
+from .. import __version__, _compat
 from . import failsafe, fingerprint
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, args_sha256, request_sha256
 from .form import default_form
@@ -178,27 +183,59 @@ def _strings(x, out):
     return out
 
 
-def _under(p, base):
+# 0.2.21: paths of this platform. POSIX: exactly as before. Windows: drive paths, both separators, case-insensitive compare.
+# `windows` is a parameter only so that tests can run the Windows rules on any OS.
+def _flavour(windows):
+    return ntpath if (_compat.IS_WINDOWS if windows is None else windows) else posixpath
+
+
+def _norm(p, windows=None):
+    f = _flavour(windows)
+    n = f.normpath(p)
+    return f.normcase(n).replace("\\", "/") if f is ntpath else n
+
+
+def _under(p, base, windows=None):
+    if _flavour(windows) is ntpath:
+        p, base = _norm(p, True), _norm(base, True)
     return p == base or p.startswith(base.rstrip("/") + "/")
+
+
+def _rest(q, b, windows=None):
+    """The path components of `q` below `b`, or None when q is not under b. Windows: both separators, case-insensitive, case kept in the result."""
+    if _flavour(windows) is ntpath:
+        qq, bb = ntpath.normpath(q).replace("\\", "/"), ntpath.normpath(b).replace("\\", "/").rstrip("/")
+        if qq.lower() == bb.lower():
+            return []
+        if qq.lower().startswith(bb.lower() + "/"):
+            return [c for c in qq[len(bb) + 1:].split("/") if c]
+        return None
+    if not _under(q, b, False):
+        return None
+    return [c for c in q[len(b):].split("/") if c]
+
+
+def _is_abs(p, windows=None):
+    return _compat.is_abs_path(p, windows)
 
 
 class Facts:
     def __init__(self, ev, env):
         self.proc_cwd = os.getcwd()
-        self.home = os.path.expanduser("~")
+        self.home = _compat.home()
         self.env = {k: env[k] for k in ENV_KEYS if isinstance(env.get(k), str)}
         self.fs = {"realpath": {}, "isdir": {}, "exists": {}}
         self.exec = "off" if self.env.get("DEUS_WITNESS_EXEC_SCAN") == "0" else None
         self.nonce = secrets.token_urlsafe(24)        # R9-01: 192 bits, fresh for every call (and for a re-judge)
-        cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and os.path.isabs(ev.get("cwd")) else self.proc_cwd
+        cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and _is_abs(ev.get("cwd")) else self.proc_cwd
         p = self.env.get("CLAUDE_PROJECT_DIR")
-        self.root = _realpath(p if isinstance(p, str) and os.path.isabs(p) else cwd)    # the only directory the hook ever fingerprints
-        for x in (cwd, p if isinstance(p, str) and os.path.isabs(p) else None, self.env.get("HOME") or self.home):
+        self.root = _realpath(p if isinstance(p, str) and _is_abs(p) else cwd)    # the only directory the hook ever fingerprints
+        for x in (cwd, p if isinstance(p, str) and _is_abs(p) else None, self.env.get("HOME") or self.home):
             if x:                                     # asked for every event: sent at once
                 self.fs["realpath"][x] = _realpath(x)
         # R9-05: what this call may be asked about
-        self.bases = {b for b in (cwd, self.proc_cwd, p if isinstance(p, str) and os.path.isabs(p) else None, self.home,
-                                  self.env.get("HOME"), self.root) if isinstance(b, str) and b.startswith("/")}
+        self.bases = {b for b in (cwd, self.proc_cwd, p if isinstance(p, str) and _is_abs(p) else None, self.home,
+                                  self.env.get("HOME"), self.root) if isinstance(b, str) and _is_abs(b)}
         self.bases |= {v for v in self.fs["realpath"].values() if isinstance(v, str)}
         self.words = set()
         inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
@@ -208,28 +245,32 @@ class Facts:
             for v in (t, _UNQUOTE.sub("", t), _UNQUOTE.sub("", _VAR.sub("", t))):
                 self.words.update(w for w in _WORD_SPLIT.split(v) if w)
 
-    def related(self, p) -> bool:
+    def related(self, p, windows=None) -> bool:
         """R9-05: is `p` a path of THIS call? Inside the project root; a session directory or one of its parents; or one of those plus
         names that all occur as words of the tool_input (or that the classifier derives itself, `_DERIVED`)."""
-        if not isinstance(p, str) or not p.startswith("/"):
+        if not isinstance(p, str) or not _is_abs(p, windows):
             return False
-        n = posixpath.normpath(p)
-        if (self.root and _under(n, self.root)) or any(_under(n, d) for d in _CLASSIFIER_DIRS):
+        f = _flavour(windows)
+        nt = f is ntpath
+        n = f.normpath(p)
+        if (self.root and _under(n, self.root, windows)) or any(_under(n, d, windows) for d in _CLASSIFIER_DIRS):
             return True
         for b in self.bases:
-            if _under(b, n):                          # a parent of a session directory (the classifier walks up from cwd)
+            if _under(b, n, windows):                 # a parent of a session directory (the classifier walks up from cwd)
                 return True
-        prefixes = {"/"}
-        for b in self.bases:                          # a session directory or a parent of one (npx looks upwards from cwd)
+        prefixes = {f.splitdrive(b)[0] + "\\" for b in self.bases} if nt else {"/"}
+        for b in list(self.bases):                    # a session directory or a parent of one (npx looks upwards from cwd)
             while b not in prefixes:
                 prefixes.add(b)
-                b = posixpath.dirname(b)
+                nb = f.dirname(b)
+                if nb == b:
+                    break
+                b = nb
         for b in prefixes:
             for q in (p, n):
-                if _under(q, b):
-                    rest = [c for c in q[len(b):].split("/") if c]
-                    if all(c in _DERIVED or all(x in self.words for x in _WORD_SPLIT.split(c) if x) for c in rest):
-                        return True                   # (a quoted word may hold blanks: `eval 'cd /etc'` asks about "<cwd>/cd /etc")
+                rest = _rest(q, b, windows)
+                if rest is not None and all(c in _DERIVED or all(x in self.words for x in _WORD_SPLIT.split(c) if x) for c in rest):
+                    return True                       # (a quoted word may hold blanks: `eval 'cd /etc'` asks about "<cwd>/cd /etc")
         return False
 
     def prescan(self, w, tool_name):
@@ -346,7 +387,7 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         log("refused before the witness: %s" % e.code)
         return deny(e.code)
     if not s.key and witness is None:
-        return deny("WITNESS_NOT_CONFIGURED", detail="(set DEUS_WITNESS_KEY)")
+        return deny("WITNESS_NOT_CONFIGURED", detail="(set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
     own = witness is None
     w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()))
     texts = {}
@@ -429,6 +470,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         return deny("WITNESS_KEY_CHANGED")
     except WitnessError as e:
         log("witness error %s %s" % (e.status, e.code))
+        if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
+            return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key)")
         return deny("WITNESS_UNAVAILABLE", detail=e.code)
     except Exception as e:      # noqa: BLE001  whatever goes wrong while judging, the call does not run
         log("cannot judge (%s)" % type(e).__name__)
@@ -475,10 +518,22 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
     return out["r"]
 
 
+def _out(text: str) -> None:
+    """stdout as UTF-8 bytes with plain \\n: the same JSON line on every OS (Windows text mode would write cp1252 and CRLF)."""
+    try:
+        sys.stdout.buffer.write(text.encode("utf-8", "replace"))
+    except AttributeError:      # a stdout without .buffer (tests that replace sys.stdout)
+        sys.stdout.write(text)
+
+
 def main(argv=None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["--print-form"]:
-        print(json.dumps(default_form(argv[1] if len(argv) > 1 else os.getcwd()), indent=1))
+        rest = [a for a in argv[1:] if a != "--no-irreversible"]
+        form = default_form(rest[0] if rest else os.getcwd())
+        if "--no-irreversible" in argv:
+            form["delete"]["allow_irreversible"] = False      # read-only mandate: Write/Edit/redirections are refused everywhere
+        print(json.dumps(form, indent=1))
         return
     if argv[:1] == ["--doctor"]:
         r = failsafe.check(argv[1] if len(argv) > 1 else os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
@@ -492,7 +547,7 @@ def main(argv=None) -> None:
             d = (ev.get("cwd") if isinstance(ev, dict) else None) or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
             out = failsafe.session_start_output(failsafe.check(os.environ.get("CLAUDE_PROJECT_DIR") or d))
             if out:
-                sys.stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
+                _out(json.dumps(out, ensure_ascii=False) + "\n")
                 log(out["systemMessage"])
         except Exception as e:   # noqa: BLE001
             log("session-start check failed (%s)" % type(e).__name__)
@@ -504,7 +559,7 @@ def main(argv=None) -> None:
     try:
         r = run(sys.stdin.buffer.read(MAX_EVENT + 1))
         if r is not None:
-            sys.stdout.write(json.dumps(r, ensure_ascii=False) + "\n")
+            _out((json.dumps(r, ensure_ascii=False) + "\n"))
         sys.stdout.flush()
     except BaseException as e:   # noqa: BLE001  exit 2 is the one non-zero code Claude Code treats as "block"
         try:

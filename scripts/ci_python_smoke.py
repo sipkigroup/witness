@@ -59,6 +59,7 @@ def main():
     check("coverage:" in r.stdout and r.returncode == 2, "deus-witness doctor --no-network (C0, rc 2)", r.stdout + r.stderr + str(r.returncode))
     r = run([exe("deus-witness"), "--help"], env=env)
     check(r.returncode == 0 and "doctor" in r.stdout, "deus-witness --help")
+    check("-- <upstream MCP server command...>" in r.stdout, "deus-witness --help shows the `deus-witness -- <upstream>` form")
 
     # 3. hook --print-form
     r = run([exe("deus-witness-hook"), "--print-form", home], env=env)

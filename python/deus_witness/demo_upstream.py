@@ -11,7 +11,7 @@ mcp = FastMCP("deus-demo-tools")
 def _effect(tool: str, args: dict) -> None:
     out = os.environ.get("DEUS_DEMO_OUT") or os.getcwd()
     os.makedirs(out, exist_ok=True)
-    with open(os.path.join(out, "effects.jsonl"), "a") as f:
+    with open(os.path.join(out, "effects.jsonl"), "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps({"t": time.time(), "tool": tool, "args": args}, ensure_ascii=False) + "\n")
 
 

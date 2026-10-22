@@ -14,7 +14,7 @@ import json
 import os
 import sys
 
-from . import __version__
+from . import __version__, _compat
 from .client import AARError, Witness, WitnessError, WitnessKeyChanged, args_sha256
 from .doctor import coverage_body, diagnose
 
@@ -27,6 +27,20 @@ CATALOG_ID = "deus-witness-catalog-%d"
 def log(msg: str) -> None:
     sys.stderr.write("[deus-witness] %s\n" % msg)
     sys.stderr.flush()
+
+
+KEY_HELP = ("the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com "
+            "and use its key (dwk_...)")
+NO_KEY_HELP = ("set DEUS_WITNESS_KEY (dwk_...). The key is shown once when you create an agent on the Agents page of "
+               "https://witness.sipkigroup.com (quickstart step 2: https://witness.sipkigroup.com/dl/docs/quickstart.html)")
+
+
+def witness_error_text(e: WitnessError) -> str:
+    """The text for the agent when the witness answered with an error. The call is blocked in every case (fail closed); only the words
+    differ: a refused key is not an unreachable witness."""
+    if e.status == 401 or e.code == "BAD_KEY":
+        return "Blocked by Deus Witness: BAD_KEY (receipt none): %s" % KEY_HELP
+    return "Blocked by Deus Witness: WITNESS_UNAVAILABLE %s (receipt none)" % e.code
 
 
 def _text_error(req_id, text: str) -> dict:
@@ -98,7 +112,7 @@ class Proxy:
             return "block", "Blocked by Deus Witness: WITNESS_KEY_CHANGED (receipt none)"
         except WitnessError as e:
             log("tool=%s witness error %s %s" % (name, e.status, e.code))
-            return "block", "Blocked by Deus Witness: WITNESS_UNAVAILABLE %s (receipt none)" % e.code
+            return "block", witness_error_text(e)
 
     async def handle_call(self, line: bytes, msg: dict) -> None:
         p = msg.get("params")
@@ -192,15 +206,13 @@ class Proxy:
                 log("coverage: witness answered %s %s (not stored)" % (e.status, e.code))
         except WitnessError as e:
             log("start-up: witness unreachable (%s), every call of this run is blocked" % e.code)
-            self.startup_block = "Blocked by Deus Witness: WITNESS_UNAVAILABLE %s (receipt none)" % e.code
+            self.startup_block = witness_error_text(e)
         finally:
             self.ready.set()
 
     # ---- pumps ----
     async def client_to_up(self) -> None:
-        loop = asyncio.get_running_loop()
-        reader = asyncio.StreamReader(limit=MAX_LINE)
-        await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+        reader = await _compat.open_stdin_reader(MAX_LINE)     # POSIX: the loop watches the pipe; Windows: a reader thread
         while True:
             try:
                 line = await reader.readline()
@@ -266,7 +278,7 @@ class Proxy:
             await self.send_client(line.decode("utf-8", "replace").rstrip("\n"))
 
     async def run(self) -> int:
-        self.up = await asyncio.create_subprocess_exec(*self.cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        self.up = await asyncio.create_subprocess_exec(*_compat.resolve_command(self.cmd), stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                                                        stderr=None, limit=MAX_LINE)
         a = asyncio.create_task(self.client_to_up())
         b = asyncio.create_task(self.up_to_client())
@@ -302,7 +314,7 @@ def main(argv=None) -> None:
         sys.exit(2)
     key = os.environ.get("DEUS_WITNESS_KEY")
     if not key:
-        sys.stderr.write("deus-witness-mcp: set DEUS_WITNESS_KEY (dwk_...)\n")
+        sys.stderr.write("deus-witness-mcp: %s\n" % NO_KEY_HELP)
         sys.exit(2)
     verify = not (o.no_verify_aar or os.environ.get("DEUS_WITNESS_VERIFY") == "0")
     w = Witness(o.url, key, verify=verify)
@@ -313,6 +325,12 @@ def main(argv=None) -> None:
         rc = asyncio.run(Proxy(w, cmd, wait_s, polls).run())
     except KeyboardInterrupt:
         rc = 130
+    except OSError as e:
+        sys.stderr.write("deus-witness-mcp: cannot start the upstream command %r (%s). Is it installed and on PATH? (On Windows `npx` is found as npx.cmd.)\n"
+                         % (cmd[0], type(e).__name__))
+        rc = 127
+    if _compat.READER_THREAD_STARTED:
+        _compat.exit_now(rc)
     sys.exit(rc)
 
 

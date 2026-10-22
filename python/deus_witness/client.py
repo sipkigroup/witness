@@ -17,6 +17,8 @@ import httpx
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
+from . import _compat
+
 DEFAULT_URL = "https://witness.sipkigroup.com"
 TYP_AAR = "application/aar-receipt+cbor"
 ALG_EDDSA = -8
@@ -203,7 +205,7 @@ def request_sha256(body: dict) -> str:
 
 
 def _default_pin_path() -> str:
-    base = os.environ.get("DEUS_WITNESS_HOME") or os.path.join(os.path.expanduser("~"), ".config", "deus-witness")
+    base = os.environ.get("DEUS_WITNESS_HOME") or os.path.join(_compat.home(), ".config", "deus-witness")
     return os.path.join(base, "witness.json")
 
 
@@ -274,7 +276,7 @@ class Witness:
     def _pin_candidates(self) -> list:
         """Primary pin path, then fallbacks: DEUS_WITNESS_HOME, XDG_CONFIG_HOME, ~/.deus-witness, a temp dir."""
         c = [self.pin_path]
-        home = os.path.expanduser("~")
+        home = _compat.home()
         for base in (os.environ.get("DEUS_WITNESS_HOME"),
                      os.path.join(os.environ["XDG_CONFIG_HOME"], "deus-witness") if os.environ.get("XDG_CONFIG_HOME") else None,
                      os.path.join(home, ".deus-witness"),
@@ -306,7 +308,7 @@ class Witness:
             if not self._pin_file_ok(p):
                 continue
             try:
-                with open(p) as f:
+                with open(p, encoding="utf-8") as f:
                     d = json.load(f)
                 if isinstance(d, dict):
                     return d
@@ -322,9 +324,7 @@ class Witness:
                 if hasattr(os, "getuid") and os.stat(os.path.dirname(p)).st_uid != os.getuid():
                     raise OSError("directory belongs to another user")
                 tmp = p + ".tmp%d" % os.getpid()
-                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "w") as f:
-                    json.dump(d, f, indent=1)
+                _compat.write_private_text(tmp, json.dumps(d, indent=1))
                 os.replace(tmp, p)
             except OSError as e:
                 last = e
@@ -423,7 +423,7 @@ class Witness:
         lst = None
         try:
             if self._pin_file_ok(cache):
-                with open(cache) as f:
+                with open(cache, encoding="utf-8") as f:
                     c = json.load(f).get(self.url)
                 if isinstance(c, dict) and (rev is None or c.get("rev") == rev):
                     lst = self._scan_list_of(c)
@@ -437,7 +437,7 @@ class Witness:
             try:
                 d = {}
                 try:
-                    with open(cache) as f:
+                    with open(cache, encoding="utf-8") as f:
                         d = json.load(f) if self._pin_file_ok(cache) else {}
                 except (OSError, ValueError):
                     d = {}
@@ -445,9 +445,7 @@ class Witness:
                 d[self.url] = {"rev": lst["rev"], "cose_b64": c.get("cose_b64")}
                 os.makedirs(os.path.dirname(cache), mode=0o700, exist_ok=True)
                 tmp = cache + ".tmp%d" % os.getpid()
-                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "w") as f:
-                    json.dump(d, f)
+                _compat.write_private_text(tmp, json.dumps(d))
                 os.replace(tmp, cache)
             except OSError:
                 pass                                      # no cache: the list is fetched again next time

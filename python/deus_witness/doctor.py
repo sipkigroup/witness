@@ -13,6 +13,8 @@ import os
 import socket
 import sys
 
+from . import _compat
+
 TOOL = "doctor-0.2"
 PROXY_CMD = "deus-witness-mcp"
 BUILTINS = ("Bash", "Write", "Edit", "WebFetch")          # Claude Code built-in executing tools (5.1, 5.3)
@@ -22,7 +24,16 @@ HOW_DENY = 'add "%s" to permissions.deny in ~/.claude/settings.json (or the proj
 
 
 def _home() -> str:
-    return os.environ.get("HOME") or os.path.expanduser("~")
+    return _compat.home()
+
+
+def shell_present(windows=None, exists=None, env=None) -> tuple:
+    """-> (present, name). POSIX: /bin/sh. Windows has no /bin/sh but always has a command interpreter (%COMSPEC%, cmd.exe), so a
+    shell counts as present there: C3 ("no shell") is never claimed from this machine's files on Windows."""
+    if (_compat.IS_WINDOWS if windows is None else windows):
+        e = os.environ if env is None else env
+        return True, e.get("COMSPEC") or "cmd.exe"
+    return (exists or os.path.exists)("/bin/sh"), "/bin/sh"
 
 
 def desktop_paths(home: str) -> list:
@@ -181,9 +192,9 @@ def diagnose(home: str = None, project: str = None, network: bool = True, pass_n
     else:
         level = "C2"
     c3 = []
-    shell = os.path.exists("/bin/sh")
+    shell, shell_name = shell_present()
     if shell:
-        c3.append({"what": "shell /bin/sh present", "how": "run the agent in the sandbox image without a shell (deploy/sandbox)"})
+        c3.append({"what": "shell %s present" % shell_name, "how": "run the agent in the sandbox image without a shell (deploy/sandbox)"})
     egress = None
     if network:
         egress = probe_egress()
@@ -233,10 +244,19 @@ def render(r: dict) -> str:
 
 
 SUBCOMMANDS = ("doctor",)
+USAGE = ("deus-witness doctor [--json] [--no-network] [--project DIR]\n"
+         "       deus-witness [--url U] [--no-verify-aar] -- <upstream MCP server command...>")
+EPILOG = """commands:
+  doctor    where can the agent go around the witness (reads client configs, changes nothing)
+  --        run the MCP proxy in front of an upstream MCP server (same as deus-witness-mcp --):
+              uvx deus-witness -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox
+            needs DEUS_WITNESS_KEY in the environment (the agent key, shown once on the Agents page of https://witness.sipkigroup.com)
+Claude Code hook (built-in Bash / Edit / Write):  uvx --from deus-witness deus-witness-hook --help
+Setup: https://witness.sipkigroup.com/dl/docs/quickstart.html"""
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="deus-witness")
+    ap = argparse.ArgumentParser(prog="deus-witness", formatter_class=argparse.RawDescriptionHelpFormatter, usage=USAGE, epilog=EPILOG)
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor", help="where can the agent go around the witness (reads configs, changes nothing)")
     d.add_argument("--json", action="store_true")

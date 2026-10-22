@@ -3,7 +3,7 @@
   "name": "io.github.sipkigroup/witness",
   "title": "Deus Witness",
   "description": "Checks every MCP tool call of your agent with an independent witness and gives signed receipts.",
-  "version": "0.2.20",
+  "version": "0.2.21",
   "repository": {
     "url": "https://github.com/sipkigroup/witness",
     "source": "github"
@@ -13,7 +13,7 @@
     {
       "registryType": "pypi",
       "identifier": "deus-witness",
-      "version": "0.2.20",
+      "version": "0.2.21",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "packageArguments": [

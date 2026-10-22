@@ -5,7 +5,7 @@ checks the call against a mandate you signed, and answers `allow`, `deny` or `de
 append-only, independently verifiable receipt - so "what did the agent do, and who allowed it" has an answer you do not have to take on trust.
 
 - Hosted service: <https://witness.sipkigroup.com> - live demo: <https://witness.sipkigroup.com/demo>
-- This repository: the open parts - the receipt specification, two independent verifiers, the TypeScript client and the HTTP API contract (OpenAPI, data only).
+- This repository: the open parts - the receipt specification, two independent verifiers, the TypeScript client, the Python client and the HTTP API contract (OpenAPI, data only).
 
 > **Status: early (0.x).** The specification is an unpublished individual draft (not an IETF standard, not submitted anywhere).
 > The evidence so far is our own simulations and independent implementations written inside one project; there are no external audits or deployments yet.
@@ -19,6 +19,7 @@ append-only, independently verifiable receipt - so "what did the agent do, and w
 | `verifier_js/` | Independent clean-room verifier in JavaScript | Apache-2.0 |
 | `verifier_swift/` | Independent clean-room verifier in Swift (source; build with `./build.sh`) | Apache-2.0 |
 | `sdk-ts/` | `@deus-witness/sdk` (npm): TypeScript client, no dependencies | Apache-2.0 |
+| `python/` | `deus-witness` (PyPI): Python thin client - MCP proxy, Claude Code hook, doctor, SDK. Registry name `io.github.sipkigroup/witness` | Apache-2.0 |
 | `contract/` | HTTP API contract (OpenAPI), WebAuthn signing profile, contract stub | Apache-2.0 |
 | `integrations/` | Examples: Vercel AI SDK, curl | Apache-2.0 |
 | `docs/` | Teams, recovery, anchors, verifying receipts | Apache-2.0 |
@@ -28,7 +29,7 @@ Terms of Use published on the website (not part of this license).
 You can implement your own witness from `spec/` and `contract/`.
 
 ## Use it
-The hosted service is at <https://witness.sipkigroup.com>. From TypeScript: `npm install @deus-witness/sdk` (see [`sdk-ts/README.md`](sdk-ts/README.md)).
+The hosted service is at <https://witness.sipkigroup.com>. From TypeScript: `npm install @deus-witness/sdk` (see [`sdk-ts/README.md`](sdk-ts/README.md)). From Python, or to put any MCP server behind the witness: `pip install deus-witness` or, with no install, `uvx deus-witness -- <your MCP server command>` (MCP Registry: `io.github.sipkigroup/witness`; see [`python/README.md`](python/README.md); setup: <https://witness.sipkigroup.com/dl/docs/quickstart.html>).
 Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.yaml) and [`integrations/`](integrations/).
 
 ## Honest limits

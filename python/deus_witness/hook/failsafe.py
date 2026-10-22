@@ -18,6 +18,8 @@ import os
 import re
 import subprocess
 
+from .. import _compat
+
 MIN_CC = (2, 1, 295)                       # first Claude Code with "onFailure": "block" for command hooks
 MARGIN_S = 5.0                             # our own decision must be printed this long before Claude Code cancels the hook
 DEFAULT_CC_TIMEOUT_S = 600.0               # Claude Code's timeout for a command hook without "timeout"
@@ -65,7 +67,7 @@ def _num(v, default):
 
 def settings_files(project_dir: str | None, env=None):
     e = os.environ if env is None else env
-    home = e.get("HOME") or os.path.expanduser("~")
+    home = _compat.home(e)
     out = []
     if project_dir:
         out += [os.path.join(project_dir, ".claude", "settings.json"), os.path.join(project_dir, ".claude", "settings.local.json")]
