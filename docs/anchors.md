@@ -3,7 +3,7 @@
 The ledger of each organisation is append-only and signed by the witness; checkpoints are collected into an hourly **batch** and the
 Merkle root of the batch is anchored outside. An anchor proves one thing: **this root (and so every checkpoint under it) existed no
 later than time T.** It does not prove that the actions were good, that the witness was honest about what it was asked, or anything
-about calls that never reached the witness.
+about calls that never reached the witness (see the coverage page).
 
 ## 1. Bitcoin through OpenTimestamps (since 0.1)
 - What: the batch root is submitted to OpenTimestamps calendars; after the calendar's transaction is mined (hours), the `.ots` proof
