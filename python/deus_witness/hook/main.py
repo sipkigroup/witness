@@ -142,6 +142,13 @@ def _num(v, default, lo, hi):
 
 
 # ---------------------------------------------------------------- raw facts
+# 0.2.29: members of a tool_input that Claude Code only SHOWS and never runs. The model writes the Bash `description` anew in every run
+# ("Sort lines of notes.txt" one night, "Sort lines of notes.txt and print the result" the next: measured in the live run of 0.2.29), so
+# with it in the judged call no run ever made "the same call" again and an approval for later runs could never apply. The hook leaves
+# these members out of what it sends; the receipt binds the command and everything that changes what runs.
+COSMETIC = {"Bash": ("description",)}
+
+
 def _envelope(ev):
     """The shape every event must have before anything is sent (the witness checks everything else)."""
     if not isinstance(ev, dict):
@@ -152,7 +159,13 @@ def _envelope(ev):
         raise Fail("EVENT_MALFORMED")
     if RESERVED in inp:
         raise Fail("RESERVED_KEY")
-    return tool, json.loads(json.dumps(inp))          # a plain JSON copy: exactly what is sent and compared with the judged call
+    inp = json.loads(json.dumps(inp))                 # a plain JSON copy: exactly what is sent and compared with the judged call
+    if any(k in inp for k in COSMETIC.get(tool, ())):
+        for k in COSMETIC[tool]:
+            if isinstance(inp.get(k), str):          # only a text label; any other value is sent as it is (the witness judges it)
+                del inp[k]
+        ev["tool_input"] = inp                        # the event sent to the witness is this same copy
+    return tool, inp
 
 
 def _realpath(p):
