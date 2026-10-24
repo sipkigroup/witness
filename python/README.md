@@ -8,10 +8,10 @@ before it runs, and you get a signed receipt for it.
 ```
 pip install deus-witness
 ```
-Fastest start for Claude Code (0.2.28, no sign-up form): `deus-witness try` in your project. It prints what the hook sends, saves a trial
+Fastest start for Claude Code (0.2.28+, no sign-up form): `deus-witness try` in your project. It prints what the hook sends, saves a trial
 agent key to `~/.config/deus-witness/agent-key.json` (mode 600; the hook and the Claude Code plugin use it when `DEUS_WITNESS_KEY` is not
-set) and opens a page in your browser: when the agent first needs you, that page asks for ONE passkey (Touch ID / Windows Hello / phone),
-which becomes your account's key and signs the recommended rules. Nothing is allowed before that touch. Unkept, the trial account is erased
+set) and opens a page in your browser: when the agent first needs you, that page asks for two passkey touches (Touch ID / Windows Hello / phone):
+one makes your account's key, one signs the recommended rules. Nothing is allowed before that touch. Unkept, the trial account is erased
 after 7 days.
 (or `pipx install deus-witness`). Then one entry in your MCP client config (the example of the quickstart and of the dashboard; the bundled demo tools, nothing real happens; after `--` put the command of the MCP server you want witnessed):
 ```json

@@ -10,6 +10,7 @@ LOCAL = {
     "WITNESS_UNAVAILABLE": ("deny", "the witness cannot be reached; the call does not run without it"),
     "WITNESS_TIMEOUT": ("deny", "the witness did not answer in time; the call does not run without it"),
     "WITNESS_KEY_CHANGED": ("deny", "the witness key is not the one pinned on this machine"),
+    "TRIAL_REPLACED": ("deny", "a newer `deus-witness try` replaced the trial account this call was waiting in (that account is gone, nothing ran): retry the same call, it goes to the new trial account"),     # 0.2.29
     "REQUEST_MISMATCH": ("deny", "the receipt is for a different call than the one being run"),
     "HOOK_ERROR": ("deny", "the hook failed; the call does not run (fail-closed)"),
 }

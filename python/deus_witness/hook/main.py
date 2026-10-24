@@ -100,6 +100,22 @@ def _trial_open(url, env) -> None:
         pass
 
 
+REPLACED_TEXT = ("(`deus-witness try` was run again: this call belonged to the previous trial account, which no longer exists. Nothing ran. "
+                 "Retry the SAME call: it now goes to the new trial account, and its page asks for the passkey)")
+
+
+def _replaced(s) -> bool:
+    """0.2.29: the key this hook uses came from the key file and the file now holds another key (a newer `deus-witness try`)."""
+    if not getattr(s, "key_from_file", False):
+        return False
+    try:
+        from ..trial import load_key
+        d = load_key(s.env)
+        return d is not None and d.get("key") != s.key
+    except Exception:      # noqa: BLE001
+        return False
+
+
 class Fail(Exception):
     """-> deny(code, detail)"""
 
@@ -156,11 +172,13 @@ class Settings:
         self.verify = e.get("DEUS_WITNESS_VERIFY") != "0"
         self.key = e.get("DEUS_WITNESS_KEY")
         self.url = e.get("DEUS_WITNESS_URL")
+        self.key_from_file = False
         if not self.key:                                  # 0.2.28: the key `deus-witness try` saved (agent-key.json, mode 600)
             from ..trial import load_key
             d = load_key(e)
             if d is not None:
                 self.key = d["key"]
+                self.key_from_file = True
                 self.url = self.url or (d.get("url") if isinstance(d.get("url"), str) else None)
 
 
@@ -458,7 +476,9 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 end = min(deadline - 1.0, time.monotonic() + s.wait)
                 rid = res.rid
                 while res.status == "pending_approval" and time.monotonic() < end:
-                    res = w.get(rid, wait=int(max(1, min(25, end - time.monotonic()))))
+                    if res.reason == TRIAL_REASON and _replaced(s):
+                        return deny("TRIAL_REPLACED", res.rid, detail=REPLACED_TEXT)
+                    res = w.get(rid, wait=int(max(1, min(25 if res.reason != TRIAL_REASON else 10, end - time.monotonic()))))
                     if res.rid != rid:
                         raise Fail("REQUEST_MISMATCH", "(an answer about another receipt)")
                 if res.status != "covered" or not isinstance(m.i, int) or rejudged >= 2 or time.monotonic() >= deadline - 2.0:
@@ -526,6 +546,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         log("witness error %s %s" % (e.status, e.code))
         if e.status == 401 and e.code == "TRIAL_EXPIRED":
             return deny("BAD_KEY", detail="(the trial account expired and is being erased: run `deus-witness try` for a new one, or sign up at https://witness.sipkigroup.com)")
+        if e.status in (401, 404) and _replaced(s):       # 0.2.29: a newer `deus-witness try` replaced this trial account (its key is gone)
+            return deny("TRIAL_REPLACED", detail=REPLACED_TEXT)
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
             return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `deus-witness try`)")
         return deny("WITNESS_UNAVAILABLE", detail=e.code)

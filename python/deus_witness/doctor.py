@@ -244,11 +244,12 @@ def render(r: dict) -> str:
 
 
 SUBCOMMANDS = ("doctor", "try")
-USAGE = ("deus-witness try [--project DIR] [--no-browser]\n"
+USAGE = ("deus-witness try [--project DIR] [--no-browser] [--force]\n"
          "       deus-witness doctor [--json] [--no-network] [--project DIR]\n"
          "       deus-witness [--url U] [--no-verify-aar] -- <upstream MCP server command...>")
 EPILOG = """commands:
-  try       a trial account in one command: agent key saved locally, one passkey touch in the browser when the agent first needs you
+  try       a trial account in one command: agent key saved locally, two passkey touches in the browser when the agent first needs you;
+            run again, it replaces the previous trial while that has no passkey; --force: replace any saved key (see: deus-witness try --help)
   doctor    where can the agent go around the witness (reads client configs, changes nothing)
   --        run the MCP proxy in front of an upstream MCP server (same as deus-witness-mcp --):
               uvx deus-witness -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox
