@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Deus Witness plugin for Claude Code: runs the PyPI client `deus-witness-hook` (>= 0.2.28) for the plugin's hooks.
+# Deus Witness plugin for Claude Code: runs the PyPI client `deus-witness-hook` (>= 0.2.29) for the plugin's hooks.
 #
 #   deus-witness-hook.sh             PreToolUse: the witness decides the call (stdin = the event, stdout = the decision)
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.28")
-#   2. `uvx --from "deus-witness>=0.2.28" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.29")
+#   2. `uvx --from "deus-witness>=0.2.29" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
 # (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json; the client reads it itself).
 # Not configured (no key anywhere) = calls are not witnessed yet, and the plugin SAYS so: at session start, and once per session on
-# the first tool call ("run /deus-witness:try": a trial account, one passkey touch, no sign-up form). With the plugin option
+# the first tool call ("run /deus-witness:try": a trial account, two passkey touches, no sign-up form). With the plugin option
 # `strict` on, every matched call is denied until a key is set.
 # Configured (a key is set) = fail-closed: a missing client, a crash or a timeout blocks the call
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness>=0.2.28"
+SPEC="deus-witness>=0.2.29"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
 TRY="/deus-witness:try (or in your terminal: uvx --from \"$SPEC\" deus-witness try)"
 
@@ -59,7 +59,7 @@ if [ "$mode" = "--session-start" ]; then
     if [ "$STRICT" = "true" ]; then
       say_session "DEUS WITNESS plugin: no agent key - every matched tool call is DENIED (strict). Set up in 2 minutes: $TRY . Have an account? /plugin -> deus-witness -> Configure (agent_key), or export DEUS_WITNESS_KEY."
     else
-      say_session "DEUS WITNESS plugin is installed but NOT set up: tool calls are NOT witnessed yet. Set up in 2 minutes, no sign-up form: $TRY - then ONE passkey touch (Touch ID / Windows Hello / phone) in the page it opens. Have an account? /plugin -> deus-witness -> Configure (agent_key)."
+      say_session "DEUS WITNESS plugin is installed but NOT set up: tool calls are NOT witnessed yet. Set up in 2 minutes, no sign-up form: $TRY - then two passkey touches (Touch ID / Windows Hello / phone) in the page it opens. Have an account? /plugin -> deus-witness -> Configure (agent_key)."
     fi
     exit 0
   fi
