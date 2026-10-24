@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Deus Witness plugin for Claude Code: runs the PyPI client `deus-witness-hook` (>= 0.2.27) for the plugin's hooks.
+# Deus Witness plugin for Claude Code: runs the PyPI client `deus-witness-hook` (>= 0.2.28) for the plugin's hooks.
 #
 #   deus-witness-hook.sh             PreToolUse: the witness decides the call (stdin = the event, stdout = the decision)
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.27")
-#   2. `uvx --from "deus-witness>=0.2.27" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.28")
+#   2. `uvx --from "deus-witness>=0.2.28" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
-# Not configured (no agent key) = the plugin does nothing and says so at session start: tool calls run as without the
-# plugin (fail-open), unless the plugin option `strict` is on - then every matched call is denied until the key is set.
+# The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
+# (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json; the client reads it itself).
+# Not configured (no key anywhere) = calls are not witnessed yet, and the plugin SAYS so: at session start, and once per session on
+# the first tool call ("run /deus-witness:try": a trial account, one passkey touch, no sign-up form). With the plugin option
+# `strict` on, every matched call is denied until a key is set.
 # Configured (a key is set) = fail-closed: a missing client, a crash or a timeout blocks the call
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness>=0.2.27"
+SPEC="deus-witness>=0.2.28"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
+TRY="/deus-witness:try (or in your terminal: uvx --from \"$SPEC\" deus-witness try)"
 
 # Plugin options (userConfig) arrive as CLAUDE_PLUGIN_OPTION_<KEY>; a variable already set in the environment wins.
 export DEUS_WITNESS_KEY="${DEUS_WITNESS_KEY:-${CLAUDE_PLUGIN_OPTION_AGENT_KEY:-}}"
@@ -25,6 +29,9 @@ export DEUS_WITNESS_HOOK_WAIT="${DEUS_WITNESS_HOOK_WAIT:-600}"         # wait fo
 export DEUS_WITNESS_HOOK_ON_DEFER="${DEUS_WITNESS_HOOK_ON_DEFER:-deny}"
 STRICT="${CLAUDE_PLUGIN_OPTION_STRICT:-false}"
 [ -n "$DEUS_WITNESS_KEY" ] || unset DEUS_WITNESS_KEY
+KEYFILE="${DEUS_WITNESS_KEY_FILE:-${DEUS_WITNESS_HOME:-$HOME/.config/deus-witness}/agent-key.json}"
+configured=""
+if [ -n "${DEUS_WITNESS_KEY:-}" ] || [ -s "$KEYFILE" ]; then configured=1; fi
 
 mode="${1:-pretool}"
 
@@ -48,11 +55,11 @@ deny() {          # $1 = reason; a PreToolUse deny on stdout, exit 0
 
 if [ "$mode" = "--session-start" ]; then
   cat >/dev/null
-  if [ -z "${DEUS_WITNESS_KEY:-}" ]; then
+  if [ -z "$configured" ]; then
     if [ "$STRICT" = "true" ]; then
-      say_session "DEUS WITNESS plugin: no agent key - every matched tool call is DENIED (strict). Set the key: /plugin -> deus-witness -> Configure (agent_key), or export DEUS_WITNESS_KEY. Get one: $SIGNUP"
+      say_session "DEUS WITNESS plugin: no agent key - every matched tool call is DENIED (strict). Set up in 2 minutes: $TRY . Have an account? /plugin -> deus-witness -> Configure (agent_key), or export DEUS_WITNESS_KEY."
     else
-      say_session "DEUS WITNESS plugin is installed but NOT configured: tool calls are NOT witnessed (fail-open). Set the agent key: /plugin -> deus-witness -> Configure (agent_key), or export DEUS_WITNESS_KEY. Get one: $SIGNUP . Check: uvx --from \"$SPEC\" deus-witness-hook --doctor"
+      say_session "DEUS WITNESS plugin is installed but NOT set up: tool calls are NOT witnessed yet. Set up in 2 minutes, no sign-up form: $TRY - then ONE passkey touch (Touch ID / Windows Hello / phone) in the page it opens. Have an account? /plugin -> deus-witness -> Configure (agent_key)."
     fi
     exit 0
   fi
@@ -64,13 +71,25 @@ if [ "$mode" = "--session-start" ]; then
 fi
 
 # PreToolUse
-if [ -z "${DEUS_WITNESS_KEY:-}" ]; then
+if [ -z "$configured" ]; then
   if [ "$STRICT" = "true" ]; then
     cat >/dev/null
-    deny "Blocked by Deus Witness (strict, no agent key). Set agent_key in /plugin -> deus-witness -> Configure, or DEUS_WITNESS_KEY. Get one: $SIGNUP"
+    deny "Blocked by Deus Witness (strict, no agent key). Set up: $TRY, or set agent_key in /plugin -> deus-witness -> Configure, or DEUS_WITNESS_KEY."
   fi
-  cat >/dev/null
-  echo "[deus-witness] not configured (no agent key): call not witnessed" >&2
+  # not set up: the call runs as without the plugin, but the person is told once per session (not silently fail-open)
+  python3 -c '
+import json, os, re, sys, tempfile
+try:
+    ev = json.loads(sys.stdin.read(1 << 20) or "{}")
+except ValueError:
+    ev = {}
+sid = re.sub(r"[^A-Za-z0-9_-]", "", str(ev.get("session_id") or "nosession"))[:80] or "nosession"
+mark = os.path.join(tempfile.gettempdir(), "deus-witness-unset-%s-%d" % (sid, os.getuid() if hasattr(os, "getuid") else 0))
+if not os.path.exists(mark):
+    open(mark, "w").close()
+    print(json.dumps({"systemMessage": "Deus Witness is installed but not set up: this and the following tool calls are NOT witnessed. Set up in 2 minutes: " + sys.argv[1]}))
+' "$TRY" 2>/dev/null || cat >/dev/null
+  echo "[deus-witness] not set up (no agent key): call not witnessed" >&2
   exit 0
 fi
 if [ ${#runner[@]} -eq 0 ]; then

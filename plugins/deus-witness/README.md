@@ -16,15 +16,24 @@ From the shell: `claude plugin marketplace add sipkigroup/witness && claude plug
 
 ## Requirements (read this)
 
-The plugin is a thin wrapper. The hook itself is the Python client `deus-witness` (PyPI, Apache-2.0, >= 0.2.27). The plugin finds it:
+The plugin is a thin wrapper. The hook itself is the Python client `deus-witness` (PyPI, Apache-2.0, >= 0.2.28). The plugin finds it:
 
-1. `deus-witness-hook` on your PATH - `pip install "deus-witness>=0.2.27"`, or
-2. [uv](https://docs.astral.sh/uv/) - then the plugin runs `uvx --from "deus-witness>=0.2.27" deus-witness-hook`
+1. `deus-witness-hook` on your PATH - `pip install "deus-witness>=0.2.28"`, or
+2. [uv](https://docs.astral.sh/uv/) - then the plugin runs `uvx --from "deus-witness>=0.2.28" deus-witness-hook`
    (first call downloads the client into the uv cache, about 30 packages).
 
 Also: Claude Code 2.1.295+ (it honours `"onFailure": "block"`), `python3` and `bash` (macOS, Linux, WSL).
 
-## Configure
+## Set up in 2 minutes (trial, no sign-up form)
+
+In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness>=0.2.28" deus-witness try`).
+It prints what the hook sends to the witness, saves a trial agent key to `~/.config/deus-witness/agent-key.json` (mode 600; the plugin
+picks it up at once) and opens a page in your browser. The first call of the agent that needs you waits; on that page ONE button makes
+your passkey (Touch ID / Windows Hello / phone) and signs the recommended rules for the project with it, and the waiting call is decided.
+Nothing is allowed before that touch and the agent cannot make it. The trial account is erased after 7 days unless you press
+"Keep this account" on that page.
+
+## Configure (an existing account)
 
 1. Sign up at <https://witness.sipkigroup.com/signup.html>, create an agent with the **claude-code** preset, copy the key (shown once).
 2. In Claude Code: `/plugin` -> deus-witness -> Configure -> `agent_key` (stored in the system keychain, not in settings.json).
@@ -32,7 +41,7 @@ Also: Claude Code 2.1.295+ (it honours `"onFailure": "block"`), `python3` and `b
 
 | Option | Default | What |
 |---|---|---|
-| `agent_key` | empty | Your agent key. Empty = not configured |
+| `agent_key` | empty | Your agent key. Empty = the key saved by `/deus-witness:try`, if any; none = not set up |
 | `witness_url` | `https://witness.sipkigroup.com` | Witness server |
 | `strict` | `false` | `true`: while no key is set, every matched call is denied |
 
@@ -40,12 +49,12 @@ Also: Claude Code 2.1.295+ (it honours `"onFailure": "block"`), `python3` and `b
 
 | State | Tool calls | You see |
 |---|---|---|
-| No key, `strict` off | Run as without the plugin (**not witnessed**, fail-open) | Session start: "installed but NOT configured" |
+| No key, `strict` off | Run as without the plugin (**not witnessed**) | Session start and the first call of each session: "not set up ... run /deus-witness:try" |
 | No key, `strict` on | Denied | Session start + the deny reason |
 | Key set | Decided by the witness; witness unreachable, client missing, crash or timeout = **blocked** (fail-closed) | The witness reason on every deny |
 | Owner approval pending (`defer`) | Waits up to 600 s for your approval in Witness, then denied | - |
 
-Check your setup: `uvx --from "deus-witness>=0.2.27" deus-witness-hook --doctor` - from a plain shell it does not see the plugin's hooks file and reports the hook as missing; inside Claude Code the session-start message is the authoritative check (it runs the same doctor with the plugin's hooks file).
+Check your setup: `uvx --from "deus-witness>=0.2.28" deus-witness-hook --doctor` - from a plain shell it does not see the plugin's hooks file and reports the hook as missing; inside Claude Code the session-start message is the authoritative check (it runs the same doctor with the plugin's hooks file).
 
 ## MCP servers
 

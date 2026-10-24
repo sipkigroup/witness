@@ -1,7 +1,7 @@
 {
   "name": "deus-witness",
   "displayName": "Deus Witness",
-  "version": "0.2.27",
+  "version": "0.2.28",
   "description": "An outside witness for your agent: every tool call (Bash, Edit, Write, Read, WebFetch, MCP...) is decided by Deus Witness before it runs, with a signed receipt you can check offline.",
   "author": {"name": "Sipki LLC", "url": "https://witness.sipkigroup.com"},
   "homepage": "https://witness.sipkigroup.com",
@@ -12,7 +12,7 @@
     "agent_key": {
       "type": "string",
       "title": "Deus Witness agent key",
-      "description": "Shown once when you create an agent (claude-code preset) at https://witness.sipkigroup.com. Empty = plugin not configured: calls are not witnessed.",
+      "description": "Shown once when you create an agent (claude-code preset) at https://witness.sipkigroup.com. Empty = the key saved by /deus-witness:try (deus-witness try) is used; none at all = calls are not witnessed (the plugin says so).",
       "sensitive": true
     },
     "witness_url": {
