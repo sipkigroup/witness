@@ -25,7 +25,8 @@ append-only, independently verifiable receipt - so "what did the agent do, and w
 | `integrations/` | Examples: Vercel AI SDK, curl | Apache-2.0 |
 | `docs/` | Teams, recovery, anchors, verifying receipts | Apache-2.0 |
 
-**Not here:** the Witness cloud service (server, web app, deployment). It is not open source. The hosted service is run by the author and is not covered by this license.
+**In this repo, all Apache-2.0 and run locally:** the complete MCP server (`deus-witness-mcp`, a stdio proxy you put in front of any MCP server), the Claude Code hook and plugin, the offline verifiers and the specs.
+**Not in this repo:** the hosted Witness API that the MCP server calls, like any API-backed MCP server calls its API (passkey approvals, the signed journal). It is run by the author and is not covered by this license; packs it issues are checked offline with the verifiers here, so you don't have to trust it.
 You can implement your own witness from `spec/` and `contract/`.
 
 ## Use it
