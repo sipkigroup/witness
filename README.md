@@ -21,6 +21,7 @@ append-only, independently verifiable receipt - so "what did the agent do, and w
 | `sdk-ts/` | `@deus-witness/sdk` (npm): TypeScript client, no dependencies | Apache-2.0 |
 | `python/` | `deus-witness` (PyPI): Python thin client - MCP proxy, Claude Code hook, doctor, SDK. Registry name `io.github.sipkigroup/witness` | Apache-2.0 |
 | `contract/` | HTTP API contract (OpenAPI), WebAuthn signing profile, contract stub | Apache-2.0 |
+| `plugins/deus-witness/` + `.claude-plugin/marketplace.json` | Claude Code plugin: the hook in one install command | Apache-2.0 |
 | `integrations/` | Examples: Vercel AI SDK, curl | Apache-2.0 |
 | `docs/` | Teams, recovery, anchors, verifying receipts | Apache-2.0 |
 
@@ -28,6 +29,8 @@ append-only, independently verifiable receipt - so "what did the agent do, and w
 You can implement your own witness from `spec/` and `contract/`.
 
 ## Use it
+Claude Code, one command: `/plugin install deus-witness --marketplace sipkigroup/witness` (or `/plugin marketplace add sipkigroup/witness`, then `/plugin install deus-witness@sipkigroup`); see [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md).
+
 The hosted service is at <https://witness.sipkigroup.com>. From TypeScript: `npm install @deus-witness/sdk` (see [`sdk-ts/README.md`](sdk-ts/README.md)). From Python, or to put any MCP server behind the witness: `pip install deus-witness` or, with no install, `uvx deus-witness -- <your MCP server command>` (MCP Registry: `io.github.sipkigroup/witness`; see [`python/README.md`](python/README.md); setup: <https://witness.sipkigroup.com/dl/docs/quickstart.html>).
 Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.yaml) and [`integrations/`](integrations/).
 

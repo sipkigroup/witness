@@ -1,0 +1,14 @@
+{
+  "description": "Deus Witness: every matched tool call goes through the witness before it runs",
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/deus-witness-hook.sh\" --session-start", "timeout": 60}]}
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
+        "hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/deus-witness-hook.sh\" || exit 2", "timeout": 620, "onFailure": "block"}]
+      }
+    ]
+  }
+}

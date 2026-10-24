@@ -72,6 +72,11 @@ def settings_files(project_dir: str | None, env=None):
     if project_dir:
         out += [os.path.join(project_dir, ".claude", "settings.json"), os.path.join(project_dir, ".claude", "settings.local.json")]
     out.append(os.path.join(home, ".claude", "settings.json"))
+    # 0.2.27: installed as a Claude Code plugin, the hook entry lives in the plugin's hooks/hooks.json, and Claude Code exports
+    # CLAUDE_PLUGIN_ROOT to the hook process. Read that file too, or --session-start reports a missing hook that is there.
+    root = e.get("CLAUDE_PLUGIN_ROOT")
+    if root:
+        out.append(os.path.join(root, "hooks", "hooks.json"))
     return out
 
 

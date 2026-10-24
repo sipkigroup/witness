@@ -1,0 +1,13 @@
+{
+  "name": "sipkigroup",
+  "description": "Deus Witness plugins for Claude Code",
+  "owner": {"name": "Sipki LLC", "url": "https://witness.sipkigroup.com"},
+  "plugins": [
+    {
+      "name": "deus-witness",
+      "source": "./plugins/deus-witness",
+      "description": "Every tool call decided by an outside witness before it runs; signed receipts.",
+      "category": "security"
+    }
+  ]
+}
