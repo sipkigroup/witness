@@ -74,6 +74,30 @@ MAX_ROUNDS = 8                 # fact rounds per call; the witness asks what its
 MAX_ASKED = 4096               # paths answered per round
 CLIENT = {"name": "deus-witness-hook", "version": VERSION}
 HINTS = {k: v[1] for k, v in LOCAL.items() if v[0] == "deny"}
+TRIAL_REASON = "ESCALATE_TRIAL_CLAIM"       # 0.2.28 (server 0.2.38): a trial account waits for its first touch
+TRIAL_OPEN_EVERY_S = 600
+
+
+def _trial_open(url, env) -> None:
+    """Open the trial page in the browser at most once per TRIAL_OPEN_EVERY_S (a marker file next to the key). The URL holds only the
+    receipt id; the claim is already in that browser (put there by `deus-witness try`). DEUS_WITNESS_OPEN_BROWSER=0: never."""
+    if not isinstance(url, str) or not url.startswith(("https://", "http://localhost", "http://127.0.0.1")) or (env or {}).get("DEUS_WITNESS_OPEN_BROWSER") == "0":
+        return
+    try:
+        from ..trial import home_dir
+        mark = os.path.join(home_dir(env), "trial-opened")
+        try:
+            if time.time() - os.path.getmtime(mark) < TRIAL_OPEN_EVERY_S:
+                return
+        except OSError:
+            pass
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
+        with open(mark, "w") as f:
+            f.write(str(int(time.time())))
+        import webbrowser
+        webbrowser.open(url, new=2)
+    except Exception:      # noqa: BLE001  the hook still waits; the person can open the page from the message
+        pass
 
 
 class Fail(Exception):
@@ -132,6 +156,12 @@ class Settings:
         self.verify = e.get("DEUS_WITNESS_VERIFY") != "0"
         self.key = e.get("DEUS_WITNESS_KEY")
         self.url = e.get("DEUS_WITNESS_URL")
+        if not self.key:                                  # 0.2.28: the key `deus-witness try` saved (agent-key.json, mode 600)
+            from ..trial import load_key
+            d = load_key(e)
+            if d is not None:
+                self.key = d["key"]
+                self.url = self.url or (d.get("url") if isinstance(d.get("url"), str) else None)
 
 
 def _num(v, default, lo, hi):
@@ -403,7 +433,7 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         log("refused before the witness: %s" % e.code)
         return deny(e.code)
     if not s.key and witness is None:
-        return deny("WITNESS_NOT_CONFIGURED", detail="(set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
+        return deny("WITNESS_NOT_CONFIGURED", detail="(run `deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
     own = witness is None
     w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()))
     texts = {}
@@ -421,24 +451,30 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         results = []
         for m in got:
             res = m.res
-            if res.verdict == "defer" and res.status == "pending_approval" and s.wait > 0:
+            rejudged = 0
+            while res.verdict == "defer" and res.status == "pending_approval" and s.wait > 0:
+                if res.reason == TRIAL_REASON:
+                    _trial_open(res.approval_url, s.env)          # 0.2.28: the trial page (the claim is in that browser, never here)
                 end = min(deadline - 1.0, time.monotonic() + s.wait)
                 rid = res.rid
                 while res.status == "pending_approval" and time.monotonic() < end:
                     res = w.get(rid, wait=int(max(1, min(25, end - time.monotonic()))))
                     if res.rid != rid:
                         raise Fail("REQUEST_MISMATCH", "(an answer about another receipt)")
-                if res.status == "covered" and isinstance(m.i, int):
-                    # 0.2.10: the owner answered with "allow in this project" (a signed allowance, not an approval of THIS receipt):
-                    # the same part is judged again once, under the allowance (a new receipt, OK_ALLOWANCE)
-                    facts.nonce = secrets.token_urlsafe(24)
-                    r2, body2 = _ask(w, ev, facts, part=m.i)
-                    if isinstance(r2.get("texts"), dict):
-                        texts.update(r2["texts"])
-                    if r2.get("refuse") or not isinstance(r2.get("parts"), list) or len(r2["parts"]) != 1:
-                        return deny(str(r2.get("refuse") or "HOOK_ERROR"), detail=str(r2.get("detail") or ""), texts=texts)
-                    m = _bound(w, r2, body2, m.i, r2["parts"], inp, tool_name, w.verify, tools)[0][0]
-                    res = m.res
+                if res.status != "covered" or not isinstance(m.i, int) or rejudged >= 2 or time.monotonic() >= deadline - 2.0:
+                    break
+                # 0.2.10: the owner answered with "allow in this project" (a signed allowance, not an approval of THIS receipt), or
+                # 0.2.28: a trial account's first touch signed its mandate: the same part is judged again (a new receipt) and, if it is a
+                # question now, waited for again within the same deadline
+                rejudged += 1
+                facts.nonce = secrets.token_urlsafe(24)
+                r2, body2 = _ask(w, ev, facts, part=m.i)
+                if isinstance(r2.get("texts"), dict):
+                    texts.update(r2["texts"])
+                if r2.get("refuse") or not isinstance(r2.get("parts"), list) or len(r2["parts"]) != 1:
+                    return deny(str(r2.get("refuse") or "HOOK_ERROR"), detail=str(r2.get("detail") or ""), texts=texts)
+                m = _bound(w, r2, body2, m.i, r2["parts"], inp, tool_name, w.verify, tools)[0][0]
+                res = m.res
             log("tool=%s rid=%s verdict=%s status=%s" % (m.tool, res.rid, res.verdict, res.status))
             results.append((m, res))
             if res.verdict == "deny" or res.status in ("refused", "expired"):
@@ -488,8 +524,10 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         return deny("WITNESS_KEY_CHANGED")
     except WitnessError as e:
         log("witness error %s %s" % (e.status, e.code))
+        if e.status == 401 and e.code == "TRIAL_EXPIRED":
+            return deny("BAD_KEY", detail="(the trial account expired and is being erased: run `deus-witness try` for a new one, or sign up at https://witness.sipkigroup.com)")
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
-            return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key)")
+            return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `deus-witness try`)")
         return deny("WITNESS_UNAVAILABLE", detail=e.code)
     except Exception as e:      # noqa: BLE001  whatever goes wrong while judging, the call does not run
         log("cannot judge (%s)" % type(e).__name__)

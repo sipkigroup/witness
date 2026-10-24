@@ -243,10 +243,12 @@ def render(r: dict) -> str:
     return "\n".join(lines)
 
 
-SUBCOMMANDS = ("doctor",)
-USAGE = ("deus-witness doctor [--json] [--no-network] [--project DIR]\n"
+SUBCOMMANDS = ("doctor", "try")
+USAGE = ("deus-witness try [--project DIR] [--no-browser]\n"
+         "       deus-witness doctor [--json] [--no-network] [--project DIR]\n"
          "       deus-witness [--url U] [--no-verify-aar] -- <upstream MCP server command...>")
 EPILOG = """commands:
+  try       a trial account in one command: agent key saved locally, one passkey touch in the browser when the agent first needs you
   doctor    where can the agent go around the witness (reads client configs, changes nothing)
   --        run the MCP proxy in front of an upstream MCP server (same as deus-witness-mcp --):
               uvx deus-witness -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox
@@ -270,6 +272,9 @@ def main(argv=None) -> int:
 
 def cli() -> None:
     argv = sys.argv[1:]
+    if argv[:1] == ["try"]:                   # 0.2.28: deus_witness/trial.py
+        from .trial import run as trial_run
+        sys.exit(trial_run(argv[1:]))
     # `uvx deus-witness -- <upstream...>` (MCP Registry launch form): same as `deus-witness-mcp -- <upstream...>`.
     # Only when "--" is present and the first argument is not a known subcommand; without "--" the doctor is unchanged.
     if "--" in argv and argv[0] not in SUBCOMMANDS:
