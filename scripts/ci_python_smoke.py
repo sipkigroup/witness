@@ -61,6 +61,13 @@ def main():
     check(r.returncode == 0 and "doctor" in r.stdout, "deus-witness --help")
     check("-- <upstream MCP server command...>" in r.stdout, "deus-witness --help shows the `deus-witness -- <upstream>` form")
 
+    # 2b. offline pack checker: a folder with no manifest is INVALID (last line RESULT: INVALID, rc 1); the module form imports too
+    with tempfile.TemporaryDirectory() as empty:
+        r = run([exe("deus-witness-verify-pack"), empty, "--offline"], env=env)
+        check(r.returncode == 1 and r.stdout.strip().splitlines()[-1:] == ["RESULT: INVALID"], "deus-witness-verify-pack on an empty folder: RESULT: INVALID", r.stdout + r.stderr)
+    r = run([sys.executable, "-c", "import deus_witness.verify_pack.cli"], env=env)
+    check(r.returncode == 0, "import deus_witness.verify_pack.cli", r.stdout + r.stderr)
+
     # 3. hook --print-form
     r = run([exe("deus-witness-hook"), "--print-form", home], env=env)
     try:

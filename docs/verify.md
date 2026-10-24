@@ -2,15 +2,19 @@
 
 The pack (`deus-witness-evidence-<account>-<time>.zip`) contains the ledger, signed checkpoints, receipts, the key registry log, anchor proofs, hashes of the page scripts, and a copy of the verifier.
 
-**Short version.** Unzip the pack, then run the checker from the source repository (`server/packtools/verify_pack.py`) with `python -I`; the last line must be `RESULT: VALID`. Quick look only: the pack carries a copy (`python -I verify/verify_pack.py . --offline` inside the unzipped folder), which proves the bytes are consistent but is run at your own risk, see below. The entries about 0.2.4 to 0.2.6 further down are for readers of older packs; skip them the first time.
+**Short version.** `pip install deus-witness` (Python 3.10+), then `deus-witness-verify-pack deus-witness-evidence-*.zip --offline` (or `python -m deus_witness.verify_pack <pack.zip> --offline`); the last line must be `RESULT: VALID`. This checker comes from the package (PyPI and the open repository, `python/deus_witness/verify_pack/`), not from the pack, so it does not depend on the pack's author. It checks the signatures, the hash chain, the Merkle roots, the key registry and the anchors; it does not replay the witness's allow/deny decisions against the mandate (the line `trust: verdicts ... NOT replayed` says so). The copy that sits in the pack (`python -I verify/verify_pack.py . --offline` inside the unzipped folder) does replay them, but it is only as honest as the pack: see below. The entries about 0.2.4 to 0.2.6 further down are for readers of older packs; skip them the first time.
 
 ## 1. Python verifier (offline)
 ```
+pip install deus-witness                  # the checker from the package, not from the pack; add "deus-witness[verify]" for RFC 3161 tokens and the online anchor check
+deus-witness-verify-pack deus-witness-evidence-*.zip --offline      # a .zip or an unzipped folder; same flags as below
+
+# the copy that sits in the pack (replays the decisions too; only as honest as the pack):
 unzip deus-witness-evidence-*.zip -d pack
 pip install cbor2 cryptography            # plus opentimestamps for the online anchor check
-python -I <repo>/cloud/server/packtools/verify_pack.py pack --offline   # verify_pack.py and its modules from a SOURCE YOU TRUST (source tree server/packtools, published file with SHA-256), NOT from the pack
+cd pack && python -I verify/verify_pack.py . --offline   # the checker and its modules sit in verify/ of the pack
 ```
-Do not run the copy inside the pack: a doctored pack can carry a doctored checker. It runs only with `--use-pack-code` (a warning is printed).
+The checker copy in the pack runs as it is: no flag is needed and no warning is printed. It imports its modules only from the folder it sits in (`verify/`); a `verify_pack.py` copied alone, without that folder, ends with `RESULT: INVALID` (ModuleNotFoundError). The flag `--use-pack-code` only adds the pack's own `verify/` folder to the front of the module search path and prints `WARNING: --use-pack-code ...`; with the copy that sits in the pack it changes nothing. Because a doctored pack can carry a doctored checker, a result from the pack's own copy is only as honest as the pack. To lower that trust: read the checker (its files are listed with SHA-256 in `manifest.json`), run it with `--witness-kid=<hex>` (the key id from `https://witness.sipkigroup.com/v1/witness` fetched by you). The JS and Swift verifiers in the repository check the spec vectors, not packs.
 The line `complete as of <UTC time> (seq N)` says up to which ledger entry the pack is complete (the manifest is signed by the witness key and the ledger must end with that checkpoint). `manifest: NOT SIGNED` or `INCOMPLETE` makes the result INVALID.
 Output lines: `ledger: valid (N entries)` or `ledger: invalid <CODE>@<seq>`; `receipts: K/K included`; `anchor <batch>: bitcoin block <h> (mempool.space=OK blockstream.info=OK)`, `pending` or `MISMATCH`; last line `RESULT: VALID` or `RESULT: INVALID` (exit code 0 / 1). Without `--offline` the anchor is checked against two block explorers.
 

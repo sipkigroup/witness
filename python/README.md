@@ -17,7 +17,7 @@ pip install deus-witness
 Without installing: `uvx deus-witness -- <upstream MCP server command...>` (e.g. `uvx deus-witness -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox`) runs the same proxy as `deus-witness-mcp -- <upstream...>` (this is the launch form of the MCP Registry entry). `DEUS_WITNESS_KEY` must be set in the environment.
 Where to get the key: sign up on https://witness.sipkigroup.com, then on the dashboard card **Agents** create an agent; the key `dwk_...` is shown once (quickstart step 2: https://witness.sipkigroup.com/dl/docs/quickstart.html). Without a key the proxy does not start (`deus-witness-mcp: set DEUS_WITNESS_KEY ...`); a key the witness refuses ends every call with `Blocked by Deus Witness: BAD_KEY ...` (create a new agent and use its key). In both cases nothing runs.
 
-Fallback: a wheel is also served at `https://witness.sipkigroup.com/dl/` .
+Fallback if PyPI is not reachable: the site serves the wheel too (quickstart step 4: https://witness.sipkigroup.com/dl/docs/quickstart.html).
 
 Behaviour per `tools/call`: `pass` -> forwarded; `allow` -> receipt verified (witness key pinned at first use in
 `~/.config/deus-witness/witness.json`), then `present`, then the tool runs, then `report`; `deny` -> the tool is NOT called,
@@ -90,7 +90,7 @@ The level is a claim of the operator made from local files, not a proof; the out
 judged by the witness before they run. Answers `allow` / `deny` / `ask`; fail closed. It is a thin client: it sends the call as Claude Code
 gave it (the command line, paths, cwd, `CLAUDE_PROJECT_DIR`), the realpath / existence of the paths the witness asks about and SHA-256
 fingerprints of project files from a list the witness signs; the witness classifies and decides, the hook verifies the signed receipts. What leaves the machine:
-https://witness.sipkigroup.com/dl/docs/coverage.html and the privacy notice on https://witness.sipkigroup.com.
+https://witness.sipkigroup.com/dl/docs/coverage.html.
 
 Set-up (full text: https://witness.sipkigroup.com/dl/docs/quickstart.html, section "Claude Code hook"):
 1. Create an agent with the `claude-code` preset on the Agents page and copy its key.
@@ -148,6 +148,16 @@ if r.verdict == "allow" and w.present(r.rid)["result"] == "accept":
 0.2: `w.catalog(tools)` sends a tools/list (`[{name, description, inputSchema}]`) as `POST /v1/catalog`; `w.coverage()` runs the
 light doctor here and sends `POST /v1/coverage` (or pass your own report: `w.coverage({"level": "C2", "unwitnessed": []})`).
 `verify_aar(aar_bytes, witness_pub, expect_request)` is a standalone receipt check.
+
+## Check an evidence pack offline (0.2.26)
+```
+deus-witness-verify-pack deus-witness-evidence-<account>-<time>.zip --offline     # or: python -m deus_witness.verify_pack <pack.zip> --offline
+```
+Last line `RESULT: VALID` (exit 0) or `RESULT: INVALID` (exit 1). The checker comes from this package, not from the pack, so a doctored pack cannot bring its own checker.
+It verifies signatures (COSE / EdDSA / ES256 / WebAuthn), the hash chain, Merkle roots and inclusion, the key registry, team policy and quorum, the manifest and the anchors
+(RFC 3161 tokens and the Bitcoin proof need `pip install "deus-witness[verify]"`; `--offline` skips the explorers). It does NOT replay the witness's allow/deny/defer decisions:
+the decision rules are not in this package, and the output says `trust: verdicts ... NOT replayed`. Pass `--witness-kid=<hex>` with the key id you fetched yourself from `https://<service>/v1/witness`.
+Full flags and output lines: `docs/verify.md`.
 
 ## Demo tools
 `deus-witness-demo-tools` is a stdio MCP server with `send_email`, `purchase`, `delete_resource`, `publish`, `read_file`;

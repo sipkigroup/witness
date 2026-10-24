@@ -161,7 +161,7 @@ class Proxy:
         w = self.w
         st = st or CallState()
         res = None
-        sent_hash = args_sha256(name, args)       # R-09: the receipt must be for THIS call
+        sent_hash = await self._thread(st, w.args_hash, name, args, interruptible=False)        # R-09: the receipt must be for THIS call
         try:
             res = await self._thread(st, w.act, name, args, {"name": "deus-witness-mcp", "version": __version__}, False)
             st.rid = res.rid

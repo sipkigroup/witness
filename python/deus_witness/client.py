@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import sys
@@ -23,7 +24,7 @@ DEFAULT_URL = "https://witness.sipkigroup.com"
 TYP_AAR = "application/aar-receipt+cbor"
 ALG_EDDSA = -8
 H_ALG, H_KID, H_TYP = 1, 4, 16
-AGENT_PATHS = ("/v1/actions", "/v1/catalog", "/v1/coverage", "/v1/hook/")     # paths that carry the agent key
+AGENT_PATHS = ("/v1/actions", "/v1/catalog", "/v1/coverage", "/v1/hook/", "/v1/salt")     # paths that carry the agent key
 
 
 class WitnessError(Exception):
@@ -194,9 +195,13 @@ def open_signed(data: bytes, witness_pub, typ: str) -> bytes:
     return payload
 
 
-def args_sha256(tool: str, args: Optional[dict]) -> str:
-    """The witness' binding of a call: SHA-256 of the canonical JSON of [tool, args] (server action.args_sha256)."""
-    return hashlib.sha256(json.dumps([tool, args or {}], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+def args_sha256(tool: str, args: Optional[dict], salt: Optional[bytes] = None) -> str:
+    """The witness' binding of a call: SHA-256 of the canonical JSON of [tool, args] (server action.args_sha256).
+    0.2.26: with the account salt the server sends (GET /v1/salt, DW_ARGS_SALT=transition|on) it is HMAC-SHA-256(salt, "dw-args1\\0" + canonical)."""
+    raw = json.dumps([tool, args or {}], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    if salt is not None:
+        return hmac.new(salt, b"dw-args1\0" + raw, hashlib.sha256).hexdigest()
+    return hashlib.sha256(raw).hexdigest()
 
 
 def request_sha256(body: dict) -> str:
@@ -221,6 +226,7 @@ class Witness:
         self.pin_path = pin_path or _default_pin_path()
         self._http = httpx.Client(base_url=self.url, timeout=timeout, transport=transport)
         self._pub: Optional[bytes] = None
+        self._salt: Any = False          # False = not asked yet; None = the server uses the bare SHA-256; bytes = the account salt
 
     def close(self):
         self._http.close()
@@ -233,7 +239,7 @@ class Witness:
 
     # ---- HTTP ----
     def _call(self, method: str, path: str, **kw) -> Any:
-        headers = {"Authorization": "Bearer " + self.key} if self.key and path.startswith(AGENT_PATHS) else {}
+        headers = {"Authorization": "Bearer " + self.key, "X-DW-Args-Salt": "1"} if self.key and path.startswith(AGENT_PATHS) else {}
         timeout = kw.pop("timeout", None)
         if timeout is not None:
             kw["timeout"] = timeout
@@ -257,6 +263,24 @@ class Witness:
             return r.json()
         except ValueError:
             raise WitnessError(r.status_code, "BAD_RESPONSE")
+
+    # ---- 0.2.26: salt of args_sha256 ----
+    def salt(self) -> Optional[bytes]:
+        """The account salt of args_sha256 (GET /v1/salt, asked once), or None when the server does not use one (mode off, or a server older than 0.2.35: 404)."""
+        if self._salt is False:
+            try:
+                j = self._call("GET", "/v1/salt")
+            except WitnessError as e:
+                if e.status not in (404, 405):
+                    raise
+                j = {}
+            s = j.get("salt") if isinstance(j, dict) else None
+            self._salt = b64u_dec(s) if isinstance(s, str) and s else None
+        return self._salt
+
+    def args_hash(self, tool: str, args: Optional[dict]) -> str:
+        """args_sha256 of a call the way THIS server computes it (salted or bare)."""
+        return args_sha256(tool, args, self.salt())
 
     # ---- witness key pinning ----
     def witness_info(self) -> dict:
@@ -343,8 +367,14 @@ class Witness:
         if self._pub is None:
             self.witness_info()
         verify_aar(res.aar, self._pub, res.action or {})
-        if sent is not None and (res.action or {}).get("args_sha256") != args_sha256(sent[0], sent[1]):
-            raise AARError("REQUEST_MISMATCH")
+        if sent is not None and (res.action or {}).get("args_sha256") != self.args_hash(sent[0], sent[1]):
+            self._salt = False                           # the server may have changed DW_ARGS_SALT since the salt was fetched: ask once more
+            try:
+                again = self.args_hash(sent[0], sent[1])
+            except WitnessError:
+                again = None
+            if (res.action or {}).get("args_sha256") != again:
+                raise AARError("REQUEST_MISMATCH")
         return res
 
     def act(self, tool: str, args: Optional[dict] = None, client: Optional[dict] = None, verify: Optional[bool] = None) -> ActionResult:

@@ -160,10 +160,27 @@ def check(project_dir=None, env=None, runner=subprocess.run):
 BANNER = "DEUS WITNESS: THIS HOOK CAN BE BYPASSED (fail-open)."
 
 
+QUICKSTART_HOOK = "https://witness.sipkigroup.com/dl/docs/quickstart.html#hook"
+SETTINGS_EXAMPLE = "https://github.com/sipkigroup/witness/blob/main/python/examples/unattended/settings.unattended.json"
+
+
+def next_steps(env=None):
+    """What to do after a fail-open report: the missing key (if it is missing) and where the working settings are."""
+    e = os.environ if env is None else env
+    out = [""]
+    if not e.get("DEUS_WITNESS_KEY"):
+        out.append("  DEUS_WITNESS_KEY not set -> sign up and create an agent with the claude-code preset: "
+                   "https://witness.sipkigroup.com/signup.html")
+    out.append("  Next: copy the settings from settings.unattended.json (%s) into <project>/.claude/settings.json" % SETTINGS_EXAMPLE)
+    out.append("  Guide (steps 1-3 of the hook section): " + QUICKSTART_HOOK)
+    return out
+
+
 def report_text(r) -> str:
     lines = ["Claude Code: %s (%s)" % (r["version"] or "unknown", r["version_source"])]
     if r["problems"]:
         lines += ["", "!" * 72, "!! " + BANNER, "!" * 72] + ["  - " + p for p in r["problems"]]
+        lines += next_steps()
     else:
         lines.append("OK: fail-closed (onFailure block, || exit 2, timeouts in order)")
     lines += ["  note: " + n for n in r["notes"]]

@@ -24,8 +24,7 @@ append-only, independently verifiable receipt - so "what did the agent do, and w
 | `integrations/` | Examples: Vercel AI SDK, curl | Apache-2.0 |
 | `docs/` | Teams, recovery, anchors, verifying receipts | Apache-2.0 |
 
-**Not here:** the Witness cloud service (server, web app, deployment). It is not open source. The hosted service is offered under separate
-Terms of Use published on the website (not part of this license).
+**Not here:** the Witness cloud service (server, web app, deployment). It is not open source. The hosted service is run by the author and is not covered by this license.
 You can implement your own witness from `spec/` and `contract/`.
 
 ## Use it

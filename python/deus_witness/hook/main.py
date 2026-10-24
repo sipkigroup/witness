@@ -384,7 +384,7 @@ def _bound(w, r, body, part, parts, inp, tool_name, verify, tools=None):
     for k, (j, m) in enumerate(zip(judged, got)):
         res = m.res
         if not isinstance(j, dict) or j.get("i") != want[k] or m.i != want[k] or not isinstance(j.get("i"), int) or j["i"] >= n \
-                or j.get("tool") != m.tool or names[j["i"]] != m.tool or j.get("args_sha256") != args_sha256(m.tool, m.args) \
+                or j.get("tool") != m.tool or names[j["i"]] != m.tool or j.get("args_sha256") != w.args_hash(m.tool, m.args) \
                 or (res.action or {}).get("args_sha256", j["args_sha256"]) != j["args_sha256"] or j.get("rid") != res.rid or j.get("verdict") != res.verdict \
                 or j.get("status") != res.status or j.get("reason") != res.reason:
             raise Fail("REQUEST_MISMATCH", "(a part does not match the witness' statement)")
@@ -465,7 +465,7 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         for m, res in allowed:                            # check every receipt BEFORE consuming any
             if res.status not in ("allowed", "approved"):
                 return deny(res.reason or res.status, res.rid, texts=texts)
-            if (res.action or {}).get("args_sha256") != args_sha256(m.tool, m.args):
+            if (res.action or {}).get("args_sha256") != w.args_hash(m.tool, m.args):
                 return deny("REQUEST_MISMATCH", res.rid, texts=texts)
             if w.verify:
                 w.check(res, sent=(m.tool, m.args))
