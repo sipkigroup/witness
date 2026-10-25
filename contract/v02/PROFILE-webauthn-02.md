@@ -1,7 +1,7 @@
 # Team Profile for WebAuthn-Signed Mandates: Quorum, Batch and Organisation Policy
 
 Document: PROFILE-webauthn-02 (appendix to draft-deus-aar-05; replaces PROFILE-webauthn-01, which is not changed; does not touch PROFILE-webauthn-00)
-Status: Internal draft, 2026-10-19. Changes from -01: Appendix A (closes ambiguities 1-6, 9, 10 of `verifier_swift/OTCHET-INTEROP-PACK-2026-10-19.md`; 7, 8 and the pack side of 9 are in `cloud/docs/verify.md` 0.2.6). Reference code: `cloud/contract/v02/wq_profile.py`. Vectors: `cloud/contract/v02/vectors/`.
+Status: draft, 2026-10-19. Reference implementation is not public.
 
 ## 1. Introduction
 
@@ -104,7 +104,7 @@ A human releases or rejects an action held by the local advisor with a `wa-sig` 
 
 ## Appendix A. Changes from -01
 
-Numbers 1-10 are those of `verifier_swift/OTCHET-INTEROP-PACK-2026-10-19.md` (PACK-1 ... PACK-10). Reference implementation A (`verify_pack.py`) and test packs: `cloud/server/tests_pack/test_interop_pack.py`; Swift implementation C was run on the same packs (`cloud/docs/` reports).
+Numbers 1-10 are the interoperability ambiguities PACK-1 ... PACK-10 found when more than one implementation (Python, Swift) was run on the same test packs. The implementations and the interoperability report are not part of this repository.
 
 **A.1 (PACK-1) Refusal under `money_over`.** Section 6 gains the "Refusal" rule: an APPROVAL with `approved = false` needs one signer who holds a role named by the approval requirements for the action (`any`: every member); with no requirement, any member. Why this and not the `revocation` rule: the refusal concerns one action of the class the approval rule governs, so the signer must be someone the policy trusts for that class (a member with only `access` cannot refuse a refund); stopping stays easy (k = 1, never the k of the tier). A refusal signed with a `wq` and with a `wa-sig` is treated alike; in a `wb` a refusal is not batched (the batch envelope is an approval, Section 5). Implementation A already behaves so; implementation C applied the `revocation` rule (any member) and differs only for a signer without a named role (packs `refusal-member-without-named-role`: A INVALID `WQ_QUORUM@2`).
 

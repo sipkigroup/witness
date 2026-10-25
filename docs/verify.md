@@ -54,7 +54,7 @@ Hourly the server commits a Merkle root over new checkpoints to OpenTimestamps c
 
 ## 0.2.5: when a promise is given, and what an unmet one looks like
 
-A promise (MMD 3600 s) is a signed commitment, so the server gives one **only when it can keep it**: `DW_ANCHOR=on`, the last anchor run succeeded and is recent. With `DW_ANCHOR=off` (the self-host default) there are **no promises**: the pack then has no `promises/` and nothing can be "late".
+A promise (MMD 3600 s) is a signed commitment, so the server gives one **only when it can keep it**: `DW_ANCHOR=on`, the last anchor run succeeded and is recent. With `DW_ANCHOR=off` (a server without anchoring) there are **no promises**: the pack then has no `promises/` and nothing can be "late".
 
 What if a promise was given and then the stamp failed (OpenTimestamps calendars down, server stopped for hours)? The checkpoint exists and the ledger is intact; the bound "anchored within an hour" is not met. A signed promise cannot be withdrawn, and an honest witness must not look like a broken one for ever, so:
 - the pack exports the **failed batch record** (`anchors/<batch>.json`, `"status": "failed"`, no `.ots`) next to the others;
