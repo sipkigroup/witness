@@ -1,0 +1,13 @@
+Deus Witness (open components)
+Copyright 2026 Sipki LLC
+
+This product includes software developed by Sipki LLC (https://witness.sipkigroup.com/).
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This repository contains the specification, the independent verifiers, the
+API contract and the TypeScript client. It does NOT contain the Deus Witness cloud service
+(witness.sipkigroup.com); the hosted service is offered under separate Terms of Use.
+
+Third-party dependencies keep their own licenses (cbor2, cryptography for Python;
+none at runtime for the TypeScript SDK).

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.sipkigroup/witness",
+  "title": "Deus Witness",
+  "description": "Checks every MCP tool call of your agent with an independent witness and gives signed receipts.",
+  "version": "0.2.30",
+  "repository": {
+    "url": "https://github.com/sipkigroup/witness",
+    "source": "github"
+  },
+  "websiteUrl": "https://witness.sipkigroup.com",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "deus-witness",
+      "version": "0.2.30",
+      "runtimeHint": "uvx",
+      "transport": { "type": "stdio" },
+      "packageArguments": [
+        { "type": "positional", "value": "--", "valueHint": "separator" },
+        { "type": "positional", "valueHint": "upstream_command", "description": "Command of the MCP server you want to put behind the witness, e.g. npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox", "isRequired": true, "isRepeated": true }
+      ],
+      "environmentVariables": [
+        { "name": "DEUS_WITNESS_KEY", "description": "Agent key (dwk_...) created in your Deus Witness account.", "isRequired": true, "isSecret": true },
+        { "name": "DEUS_WITNESS_URL", "description": "Witness service URL.", "default": "https://witness.sipkigroup.com", "isRequired": false }
+      ]
+    }
+  ]
+}
