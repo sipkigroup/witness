@@ -17,8 +17,9 @@ What it does, in this order:
 
 The link that claims the account is a one-time secret. It goes ONLY to the browser (in the part of the URL after #, which is not sent to any
 server) and is never printed, logged or saved by this command - an agent that reads this command's output or your files must not get it.
-No browser here (SSH, a container)? The link is written to your terminal (/dev/tty) only, never to stdout or stderr; with no terminal either,
-run `deus-witness try` yourself in a terminal, not through the agent.
+No browser here (SSH, a container)? The link is written to your terminal (/dev/tty) only, never to stdout or stderr; with no terminal either
+(0.2.34), nothing is saved, the trial account is withdrawn (POST /v1/trial/retire) and the exit code is 3: run `deus-witness try` yourself in
+a terminal, not through the agent.
 Unkept, the trial account and its journal are erased after 7 days (the page has a "Keep this account" button)."""
 from __future__ import annotations
 
@@ -133,6 +134,15 @@ def _retire(old, url, transport, force, path, out):
     return None                                # expired, unknown key, an older server (404): make the new one
 
 
+def _withdraw(key, url, transport) -> bool:
+    """0.2.34: POST /v1/trial/retire for a trial account nobody can claim. -> True when the witness erased it."""
+    try:
+        with httpx.Client(base_url=url.rstrip("/"), timeout=15.0, transport=transport) as h:
+            return h.post("/v1/trial/retire", json={}, headers={"Authorization": "Bearer " + key}).status_code == 200
+    except httpx.HTTPError:
+        return False                           # cannot ask: it expires by itself (7 days) and nothing holds its key
+
+
 def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
     e = dict(os.environ if env is None else env)
     out = out or sys.stdout
@@ -182,25 +192,34 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
                 print("deus-witness try: you can make the next trial account in %d min (at %s). A trial page already open in your browser "
                       "keeps working: press its button again." % ((ra + 59) // 60, time.strftime("%H:%M", time.localtime(time.time() + ra))), file=out)
         return 1
-    _save(path, {"key": j["api_key"], "url": url, "agent_id": j.get("agent_id"), "trial": True, "expires_at": j.get("expires_at"),
-                 "project": os.path.realpath(o.project), "created_at": int(time.time())})
     link = j["claim_url"]
-    shown = False if o.no_browser else _open_browser(link, opener)
-    if shown:
-        _mark_opened(e)                        # 0.2.39: the hook does not open a second tab for the same account right away
+    opened = shown = False if o.no_browser else _open_browser(link, opener)
     if not shown:
         shown = _to_tty("\nOpen this link in YOUR browser (do not paste it into the agent; it is shown once):\n  %s\n\n" % link)
     del link
     j.pop("claim", None)                       # nothing below may print it
+    if not shown:
+        # 0.2.34: nobody can see the link, so nobody can claim this account: do NOT keep its key (the hook would wait up to 600 s on every
+        # call for a touch that cannot come), delete a key file that is already there, and withdraw the account (its claim link dies with it)
+        _withdraw(j["api_key"], url, transport)
+        if old is not None and old.get("trial"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        print("No browser here, and no terminal to show the link in (the link claims the account: it is shown only to a person, never "
+              "to this output). Nothing was saved and the trial account was withdrawn, so your calls are not held. Run `deus-witness try` "
+              "yourself in a terminal (SSH is fine: the link is shown there, and you can open it on your phone or laptop).", file=out)
+        return 3
+    _save(path, {"key": j["api_key"], "url": url, "agent_id": j.get("agent_id"), "trial": True, "expires_at": j.get("expires_at"),
+                 "project": os.path.realpath(o.project), "created_at": int(time.time())})
+    if opened:
+        _mark_opened(e)                        # 0.2.39: the hook does not open a second tab for the same account right away
     print("Trial account ready (expires %s; %d calls a day)." % (time.strftime("%Y-%m-%d", time.gmtime(j.get("expires_at") or 0)), j.get("quota_per_day") or 0), file=out)
     print("Agent key saved to %s (mode 600). The Claude Code plugin and deus-witness-hook use it when DEUS_WITNESS_KEY is not set." % path, file=out)
-    if shown:
-        print("Next: use Claude Code as usual. The first call that needs you waits; the browser page that just opened asks for two passkey "
-              "touches (Touch ID / Windows Hello / phone): one makes the passkey, one signs the rules - nothing is allowed before that, and the agent cannot do it for you.", file=out)
-        return 0
-    print("No browser and no terminal here: the link that claims the account could not be shown safely. Run `deus-witness try` yourself "
-          "in a terminal on this computer (not through the agent).", file=out)
-    return 3
+    print("Next: use Claude Code as usual. The first call that needs you waits; the browser page that just opened asks for two passkey "
+          "touches (Touch ID / Windows Hello / phone): one makes the passkey, one signs the rules - nothing is allowed before that, and the agent cannot do it for you.", file=out)
+    return 0
 
 
 def main(argv=None) -> None:

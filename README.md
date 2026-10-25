@@ -11,7 +11,9 @@ append-only, independently verifiable receipt - so "what did the agent do, and w
 > The evidence so far is our own simulations and separate implementations written from the spec by one author; there are no external audits or deployments yet.
 > Treat it as something to test and attack, not as a certified security boundary. Reports of bypasses are the most valuable thing you can send us.
 
-## Try it (Claude Code, needs `uv` or `pip install deus-witness`)
+## Try it in Claude Code
+
+Needs Claude Code 2.1.295+ and uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); macOS, Linux, WSL.
 
 ```
 /plugin marketplace add sipkigroup/witness
@@ -42,7 +44,7 @@ You can implement your own witness from `spec/` and `contract/`.
 ## Use it
 Claude Code: the three commands above (the one-step form `/plugin install deus-witness --marketplace sipkigroup/witness` also exists in Claude Code 2.1.275 or later); see [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md).
 
-The hosted service is at <https://witness.sipkigroup.com>. From TypeScript: `npm install @deus-witness/sdk` (see [`sdk-ts/README.md`](sdk-ts/README.md)). From Python, or to put any MCP server behind the witness: `pip install deus-witness` or, with no install, `uvx deus-witness -- <your MCP server command>` (MCP Registry: `io.github.sipkigroup/witness`; see [`python/README.md`](python/README.md); setup: <https://witness.sipkigroup.com/dl/docs/quickstart.html>).
+The hosted service is at <https://witness.sipkigroup.com>. From TypeScript: `npm install @deus-witness/sdk` (see [`sdk-ts/README.md`](sdk-ts/README.md)). From Python, or to put any MCP server behind the witness: `pip install deus-witness` (Python 3.10+ in a venv) or, with no install, `uvx deus-witness -- <your MCP server command>` (MCP Registry: `io.github.sipkigroup/witness`; see [`python/README.md`](python/README.md); setup: <https://witness.sipkigroup.com/dl/docs/quickstart.html>).
 Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.yaml) and [`integrations/`](integrations/).
 
 ## Honest limits
