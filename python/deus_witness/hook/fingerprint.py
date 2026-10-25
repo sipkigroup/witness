@@ -225,110 +225,174 @@ def with_sizes(rep, root):
 
 
 _ESC = {"n": "\n", "t": "\t", "b": "\b", '"': '"', "\\": "\\"}
+_GSP = " \t\n\r"                                            # git's isspace (sane_ctype): not \f \v, not Unicode blanks
+
+
+def _galpha(c):
+    return ("a" <= c <= "z") or ("A" <= c <= "Z")          # ASCII only, as git (str.isalpha would take "é")
+
+
+def _gkey(c):
+    return _galpha(c) or ("0" <= c <= "9") or c == "-"
+
+
+def _gbytes(s):
+    """A string read with errors="surrogateescape" -> as git prints it (bytes joined first, then decoded with replace): a continuation
+    or an escape may join the halves of a UTF-8 sequence that a decode-first reader would turn into two U+FFFD."""
+    try:
+        return s.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+    except UnicodeEncodeError:
+        return s
 
 
 def parse_git_config(text: str) -> list:
-    """0.2.33: a git config file -> [[key, value], ...] in file order, named as `git config --list --no-includes` names them (section and
-    variable lower case; a quoted subsection as written; the old `[a.B]` form lower case; a variable without `=` -> "true"). git's rules
-    (config.c): a UTF-8 BOM is skipped, CRLF is LF, comments # ; outside quotes, quotes, escapes \\n \\t \\b \\" \\\\, a backslash before the
-    line end continues the line, blanks outside quotes are kept between words, dropped at both ends. Git is not run and includes
-    are not followed. Where git would refuse the file (it then runs nothing), this reader keeps going and reports what it can: more keys
-    only cost a question, a missed one would be a program run unseen."""
+    """0.2.33: a git config file -> [[key, value], ...] in file order, named as `git config --list --no-includes` names them. See
+    read_git_config (the same reader, with its "unsure" flag)."""
+    return read_git_config(text)[0]
+
+
+def read_git_config(text: str) -> tuple:
+    """0.2.33: -> (entries, bad). entries: [[key, value], ...] in file order as `git config --list --no-includes` prints them (section and
+    the old `[a.B]` form lower case, a quoted subsection as written, a variable without `=` -> "true"). git's rules (config.c
+    git_parse_source / get_base_var / get_extended_base_var / parse_value): a UTF-8 BOM at the start is skipped, CRLF is LF, blanks are
+    " \\t\\r\\n" only, keys and section names are ASCII, comments # ; outside quotes, quotes, escapes \\n \\t \\b \\" \\\\, a backslash
+    before the line end continues the line, blanks inside a value kept, dropped at both ends. Git is not run, includes are not followed.
+
+    bad (fail-closed, the caller sets gitcfg_cut and the witness asks): every line git calls fatal ("bad config line": a broken header or
+    one with junk after the subsection, a blank in a header without a quoted subsection, a line that is not `key [= value]`, a key not
+    starting with an ASCII letter, an unknown escape, a newline or the end of the file inside quotes), and, though git takes them, what
+    the witness's own reader is unsure of: a key before any section, an empty section name, a backslash at the very end of the file, a
+    NUL byte (git cuts the value there). After a bad line the reader keeps going from the next line: more keys only cost a question."""
     text = text.replace("\r\n", "\n")
-    if text.startswith("\ufeff"):
+    if text.startswith("﻿"):
         text = text[1:]
     out, sect, i, n = [], None, 0, len(text)
+    bad = "\0" in text
 
     def eol(k):
         while k < n and text[k] != "\n":
             k += 1
         return k
 
+    def header(j):
+        """text[j] follows "[" -> (section name, index after "]") or (None, None) where git refuses the header."""
+        name = []
+        while j < n:
+            c = text[j]
+            j += 1
+            if c == "]":
+                return "".join(name).lower(), j
+            if c == "\n":
+                return None, None
+            if c in _GSP:
+                while j < n and text[j] in _GSP and text[j] != "\n":
+                    j += 1
+                if j >= n or text[j] != '"':
+                    return None, None
+                j, sub = j + 1, []
+                while j < n:
+                    c = text[j]
+                    j += 1
+                    if c == "\n":
+                        return None, None
+                    if c == '"':
+                        if j < n and text[j] == "]":
+                            return ("".join(name).lower() + "." + "".join(sub) if name else ""), j + 1     # `[ "x"]`: unsure
+                        return None, None
+                    if c == "\\":
+                        if j >= n or text[j] == "\n":
+                            return None, None
+                        c = text[j]
+                        j += 1
+                    sub.append(c)
+                return None, None
+            if not (_gkey(c) or c == "."):
+                return None, None
+            name.append(c)
+        return None, None
+
+    def value(j):
+        """text[j] follows "=" -> (value, index, bad)."""
+        buf, ln, quote, space, comment, vbad = [], 0, False, "", False, False
+        while True:
+            if j >= n:
+                return "".join(buf), j, vbad or quote          # the end of the file inside quotes
+            c = text[j]
+            j += 1
+            if c == "\n":
+                return "".join(buf), j, vbad or quote          # a newline inside quotes
+            if comment:
+                continue
+            if c in _GSP and not quote:
+                if ln:
+                    space += c
+                continue
+            if not quote and c in "#;":
+                comment = True
+                continue
+            if space:
+                buf.append(space)
+                ln, space = ln + len(space), ""
+            if c == '"':
+                quote = not quote
+                continue
+            if c == "\\":
+                if j >= n:
+                    return "".join(buf), j, True               # git takes it (continuation into EOF); we are unsure
+                nx = text[j]
+                j += 1
+                if nx == "\n":
+                    continue
+                if nx not in _ESC:
+                    vbad = True                                # git: an unknown escape is fatal
+                buf.append(_ESC.get(nx, nx))
+                ln += 1
+                continue
+            buf.append(c)
+            ln += 1
+
     while i < n:
         c = text[i]
-        if c.isspace():
+        if c in _GSP:
             i += 1
         elif c in "#;":
             i = eol(i)
         elif c == "[":
-            j, name = i + 1, []
-            while j < n and (text[j].isalnum() or text[j] in "-."):
-                name.append(text[j])
-                j += 1
-            name, sub = "".join(name), None
-            if j < n and text[j] in " \t":
-                while j < n and text[j] in " \t":
-                    j += 1
-                if j < n and text[j] == '"':
-                    j, sub = j + 1, []
-                    while j < n and text[j] not in '"\n':
-                        if text[j] == "\\" and j + 1 < n and text[j + 1] != "\n":
-                            j += 1
-                        sub.append(text[j])
-                        j += 1
-                    sub = "".join(sub)
-                    j += 1 if j < n and text[j] == '"' else 0
-            k = j
-            while k < n and text[k] not in "]\n":
-                k += 1
-            if k >= n or text[k] != "]" or not name:
-                sect, i = None, eol(i)                      # a broken header: nothing below it is attributed to a section
+            name, j = header(i + 1)
+            if not name:
+                bad, sect = True, None                        # a broken header: nothing below it is attributed to a section
+                i = eol(i) if j is None else j
                 continue
-            sect = name.lower() + ("." + sub if sub is not None else "")
-            i = k + 1
+            sect, i = name, j
+        elif not _galpha(c):
+            bad, i = True, eol(i)                             # a key not starting with a letter, junk
         else:
             j = i
-            while j < n and (text[j].isalnum() or text[j] == "-"):
+            while j < n and _gkey(text[j]):
                 j += 1
-            key = text[i:j]
+            key = text[i:j].lower()
             while j < n and text[j] in " \t":
                 j += 1
-            if not key or (j < n and text[j] not in "=\n#;"):
-                i = eol(i)
+            if j < n and text[j] not in "=\n":
+                bad, i = True, eol(i)                         # not `key [= value]` (also `key ; comment`, `key_x`)
                 continue
-            if j >= n or text[j] != "=":
+            if j >= n or text[j] == "\n":
                 val, i = "true", j
             else:
-                j += 1
-                buf, quote, space, ln = [], False, "", 0
-                while j < n:
-                    ch = text[j]
-                    if ch == "\n":
-                        break                               # (inside quotes git refuses the file; the value so far is kept)
-                    if ch.isspace() and not quote:
-                        space += ch if ln else ""
-                        j += 1
-                        continue
-                    if not quote and ch in "#;":
-                        j = eol(j)
-                        break
-                    if space:
-                        buf.append(space)
-                        ln, space = ln + len(space), ""
-                    if ch == '"':
-                        quote = not quote
-                        j += 1
-                        continue
-                    if ch == "\\" and j + 1 < n:
-                        nx = text[j + 1]
-                        j += 2
-                        if nx != "\n":
-                            buf.append(_ESC.get(nx, nx))
-                            ln += 1
-                        continue
-                    buf.append(ch)
-                    ln += 1
-                    j += 1
-                val, i = "".join(buf), j
-            if sect is not None:
-                out.append([sect + "." + key.lower(), val])
-    return out
+                val, i, vb = value(j + 1)
+                bad = bad or vb
+            if sect is None:
+                bad = True                                    # a key before any section (git lists it bare; no program key looks so)
+            else:
+                out.append([_gbytes(sect + "." + key), _gbytes(val)])
+    return out, bad
 
 
 def git_config_report(root, spec: Spec):
     """-> ({absolute path of config / config.worktree of the git dir and the common git dir: [[key, value] whose key matches the list]},
     cut) or (None, False) when the list does not ask for it or there is no git dir. Only matching keys leave the machine (remote URLs and
-    their tokens never do); values are cut at max_value, at most max_entries per file; cut = something was cut or could not be read."""
+    their tokens never do); values are cut at max_value, at most max_entries per file; cut = something was cut or could not be read, or
+    read_git_config was unsure of a file (a line git refuses: fail-closed, the witness asks)."""
     if spec.gitcfg is None:
         return None, False
     files, rx, max_entries, max_value = spec.gitcfg
@@ -342,15 +406,20 @@ def git_config_report(root, spec: Spec):
             if not os.path.isfile(p):
                 continue
             try:
-                with open(p, "r", encoding="utf-8", errors="replace") as f:
+                with open(p, "r", encoding="utf-8", errors="surrogateescape", newline="") as f:  # \r is git's blank; bytes as git
                     text = f.read(spec.max_bytes + 1)
             except (OSError, ValueError):
                 cut = True
                 continue
             if len(text) > spec.max_bytes:
                 text, cut = text[:spec.max_bytes], True
-            ent = []
-            for k, v in parse_git_config(text):
+            ent, unsure = [], False
+            try:
+                got, unsure = read_git_config(text)
+            except Exception:      # noqa: BLE001  a reader fault is "unsure", never a silent empty list
+                got, unsure = [], True
+            cut = cut or unsure                     # a line git refuses (or we are unsure of) -> cut -> the witness asks
+            for k, v in got:
                 if rx.fullmatch(k):
                     if len(v) > max_value:
                         v, cut = v[:max_value], True
