@@ -11,3 +11,4 @@ build/
 *.key
 .DS_Store
 aarc
+*.bak*
