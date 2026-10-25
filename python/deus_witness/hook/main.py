@@ -25,7 +25,11 @@ Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_HOME (key pin d
                                 the terminal - yes runs the call WITHOUT a witness receipt - so it is an explicit choice only.
                                 defer: print mode / Agent SDK only - interactive Claude Code ignores it. Anything else: deny,
      DEUS_WITNESS_HOOK_ALLOW    allow | neutral, default allow (neutral: a witnessed allow still goes through Claude Code's prompts),
-     DEUS_WITNESS_VERIFY=0      do not check receipts (not recommended).
+     DEUS_WITNESS_VERIFY=0      do not check receipts (not recommended). 0.2.32: ignored once the URL has a pinned key.
+0.2.32 (K1): the URL is the one the key file (`deus-witness try`) was set up for; DEUS_WITNESS_URL may only repeat it (else a deny,
+WITNESS_URL_MISMATCH). A URL without a pinned key is pinned at first use only when nothing is pinned yet (or it is the key file's URL);
+otherwise a deny, WITNESS_URL_UNPINNED (`deus-witness-hook --trust URL` in a terminal pins it). A call that touches the agent's own
+harness (.claude/, .mcp.json, .git/hooks, ~/.claude, the Deus Witness key files) runs only with an owner-approved receipt.
 The log (stderr) carries the tool, rid and verdict only - never arguments.
 
 0.2.16 (thin client): the hook does not classify anything. It sends the event as Claude Code gave it (tool name, tool_input as is, cwd),
@@ -47,6 +51,7 @@ parents, and paths built from the words of the tool_input; any other question is
                                                 every Write / Edit is refused.
   deus-witness-hook --doctor [PROJECT_DIR]      is the hook fail-closed here? (Claude Code version, settings.json); exit 1 if not
   deus-witness-hook --session-start             for a SessionStart hook: a loud warning when the hook can be bypassed
+  deus-witness-hook --trust URL                 pin the key of another witness (asks you to type yes; a terminal only)
 """
 from __future__ import annotations
 
@@ -62,7 +67,7 @@ import time
 
 from .. import __version__, _compat
 from . import failsafe, fingerprint
-from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, args_sha256, request_sha256
+from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
 
@@ -169,17 +174,88 @@ class Settings:
         v = e.get("DEUS_WITNESS_HOOK_ON_DEFER", "deny")
         self.on_defer = v if v in ("ask", "deny", "defer") else "deny"       # 0.2.22: deny by default; ask only when set explicitly
         self.allow = "neutral" if e.get("DEUS_WITNESS_HOOK_ALLOW") == "neutral" else "allow"
-        self.verify = e.get("DEUS_WITNESS_VERIFY") != "0"
+        # 0.2.32 (K1): DEUS_WITNESS_VERIFY=0 is only a request; judge() keeps the check on when this URL already has a pinned key
+        self.verify_off = e.get("DEUS_WITNESS_VERIFY") == "0"
+        self.verify = not self.verify_off
         self.key = e.get("DEUS_WITNESS_KEY")
-        self.url = e.get("DEUS_WITNESS_URL")
+        env_url = _url(e.get("DEUS_WITNESS_URL"))
+        self.url = env_url
         self.key_from_file = False
-        if not self.key:                                  # 0.2.28: the key `deus-witness try` saved (agent-key.json, mode 600)
-            from ..trial import load_key
-            d = load_key(e)
-            if d is not None:
+        self.file_url = None                              # the witness the key file was set up for (`deus-witness try`)
+        self.url_conflict = None                          # (DEUS_WITNESS_URL, key file URL) when they differ: a deny, never a choice
+        from ..trial import load_key
+        d = load_key(e)                                   # 0.2.28: the key `deus-witness try` saved (agent-key.json, mode 600)
+        if d is not None and (not self.key or self.key == d["key"]):
+            if not self.key:
                 self.key = d["key"]
                 self.key_from_file = True
-                self.url = self.url or (d.get("url") if isinstance(d.get("url"), str) else None)
+            # 0.2.32 (K1): the URL comes from the key file; the environment may only repeat it (the environment is what an agent that
+            # wrote .claude/settings.local.json controls: before 0.2.32 it won, and the key went to whatever witness it named)
+            self.file_url = _url(d.get("url"))
+            if self.file_url:
+                if env_url and env_url != self.file_url:
+                    self.url_conflict = (env_url, self.file_url)
+                self.url = self.file_url
+
+
+def _url(v):
+    return v.strip().rstrip("/") if isinstance(v, str) and v.strip() else None
+
+
+# ---------------------------------------------------------------- 0.2.32 (K1): the agent's own harness
+# A write to these switches the witness off for the next session (Claude Code settings / hooks with their `env` and `disableAllHooks`,
+# .mcp.json, git hooks, the key file and the key pins). The witness asks the owner for them (server 0.2.24, category agent-config /
+# git-config); the hook does not rely on that alone: such a call runs only with a receipt the OWNER approved (status `approved`, a
+# passkey in Witness), never on the mandate alone. The mandate format has no exclusions (delete = targets + allow_irreversible), so the
+# rule lives here, like the server's. Shell commands: the hook does not parse them (thin client), so a command that NAMES one of these
+# places needs the owner's approval too, even a read (`cat .claude/settings.json`): fail-closed, and rare for an agent.
+WRITE_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
+SHELL_TOOLS = ("Bash", "PowerShell")
+_CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|"
+                           r"agent-key\.json|deus-witness-hook\s+--trust)", re.I)
+
+
+def _config_places(facts, env):
+    from ..trial import home_dir, key_path
+    out = set()
+    for r in {facts.root, facts.env.get("CLAUDE_PROJECT_DIR"), facts.proc_cwd} - {None}:
+        out |= {os.path.join(r, ".claude"), os.path.join(r, ".mcp.json"), os.path.join(r, ".git", "hooks")}
+    for h in {facts.home, env.get("HOME")} - {None, ""}:
+        out |= {os.path.join(h, n) for n in (".claude", ".claude.json", ".deus-witness", os.path.join(".config", "deus-witness"))}
+    out |= {home_dir(env), os.path.dirname(key_path(env))}
+    return {x for p in out for x in (os.path.normpath(p), _realpath(p)) if isinstance(x, str)}
+
+
+def agent_config_target(ev, facts, env):
+    """-> what makes this call touch the agent's own harness (a path or the word of a command), or None."""
+    tool, inp = ev.get("tool_name"), ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+    if tool in WRITE_TOOLS:
+        p = inp.get(WRITE_TOOLS[tool])
+        if not isinstance(p, str) or not p:
+            return None
+        cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and _is_abs(ev.get("cwd")) else facts.proc_cwd
+        a = p if _is_abs(p) else os.path.join(cwd, p)
+        places = _config_places(facts, env)
+        for c in {os.path.normpath(a), _realpath(a)} - {None}:
+            if any(_under(c, d) for d in places):
+                return c
+        return None
+    if tool in SHELL_TOOLS:
+        cmd = inp.get("command")
+        if not isinstance(cmd, str):
+            return None
+        m = _CONFIG_WORDS.search(cmd)
+        if m:
+            return m.group(0)
+        from ..trial import home_dir
+        h = home_dir(env)
+        return h if h and h in cmd else None
+    return None
+
+
+CONFIG_TEXT = ("(this call changes the agent's own harness: %s - Claude Code settings or hooks, .mcp.json, git hooks or the Deus Witness key "
+               "files. A change there can switch the witness off, so it runs only after the OWNER approves this exact call in Witness "
+               "(passkey), never on the mandate alone)")
 
 
 def _num(v, default, lo, hi):
@@ -453,9 +529,24 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
     if not s.key and witness is None:
         return deny("WITNESS_NOT_CONFIGURED", detail="(run `deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
     own = witness is None
-    w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()))
+    if own and s.url_conflict:                            # 0.2.32 (K1): fail-closed, and the key is not sent anywhere
+        return deny("WITNESS_URL_MISMATCH", detail="(DEUS_WITNESS_URL is %s, but the agent key on this machine was set up for %s "
+                    "(agent-key.json). The hook sends only to the witness the key was set up for. Unset DEUS_WITNESS_URL, or run "
+                    "`deus-witness try --url URL` in your own terminal to move to another witness)" % s.url_conflict)
+    w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()), pin_new=False)
     texts = {}
     try:
+        if own:
+            # 0.2.32 (K1): a new URL is pinned at first use only when nothing is pinned yet on this machine, or when it is the URL the key
+            # file was set up for; otherwise it is another witness, refused (WitnessNotPinned) instead of trusted silently
+            pins = w._read_pins()
+            w.pin_new = not pins or (s.file_url is not None and w.url == s.file_url)
+            if s.verify_off:
+                if w.url in pins:
+                    w.verify = True
+                    log("DEUS_WITNESS_VERIFY=0 ignored: %s has a pinned key, receipts are checked" % w.url)
+                elif not w.pin_new:
+                    raise WitnessNotPinned(w.url)
         facts = Facts(ev, s.env)
         if w.verify and getattr(w, "_pub", True) is None:
             w.witness_info()                              # the pinned key first: the answer is checked against it
@@ -517,6 +608,10 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             if s.on_defer == "deny":                      # 0.2.22: the default; the owner decides in Witness, not the person at the terminal
                 msg += " Do not try to reach the same effect another way."
             return decision(s.on_defer, msg)
+        cfg = agent_config_target(ev, facts, s.env)      # 0.2.32 (K1): the agent's own harness needs the owner's approval
+        if cfg and not any(res.status == "approved" for _, res in results):
+            log("tool=%s touches the agent's harness without an owner approval" % tool_name)
+            return deny("AGENT_CONFIG_UNAPPROVED", results[0][1].rid if results else None, detail=CONFIG_TEXT % cfg)
         allowed = [(m, res) for m, res in results if res.verdict == "allow"]
         for m, res in allowed:                            # check every receipt BEFORE consuming any
             if res.status not in ("allowed", "approved"):
@@ -540,6 +635,11 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
     except AARError as e:
         log("AAR rejected: %s" % e)
         return deny("AAR_%s" % e)
+    except WitnessNotPinned:
+        pinned = ", ".join(sorted(w._read_pins())) if hasattr(w, "_read_pins") else ""
+        return deny("WITNESS_URL_UNPINNED", detail="(%s is not the witness this machine trusts (pinned: %s), and a new witness is not "
+                    "trusted silently. Moving on purpose: run `deus-witness try --url %s`, or `deus-witness-hook --trust %s`, in your own "
+                    "terminal)" % (w.url, pinned or "none", w.url, w.url))
     except WitnessKeyChanged:
         return deny("WITNESS_KEY_CHANGED")
     except WitnessError as e:
@@ -596,6 +696,41 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
     return out["r"]
 
 
+def _trust(url: str) -> int:
+    """0.2.32 (K1): `deus-witness-hook --trust URL`: pin the key of another witness, by a person at a terminal (typed `yes`)."""
+    url = _url(url)
+    if not url or not url.startswith(("https://", "http://localhost", "http://127.0.0.1")):
+        print("usage: deus-witness-hook --trust https://WITNESS", file=sys.stderr)
+        return 2
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        print("deus-witness-hook --trust: run it yourself in a terminal (it asks you to type yes); not from a script or an agent", file=sys.stderr)
+        return 1
+    w = Witness(url, None, pin_new=True)
+    try:
+        info = w._call("GET", "/v1/witness")
+        mine = {"kid_hex": info.get("kid_hex"), "pub_hex": info.get("pub_hex")}
+        pins = w._read_pins()
+        if pins.get(w.url) == mine:
+            print("already pinned: %s kid %s" % (w.url, mine["kid_hex"]))
+            return 0
+        if pins.get(w.url) is not None:
+            print("REFUSED: %s is pinned with another key (%s); the witness key changed. Not replaced." % (w.url, pins[w.url].get("kid_hex")))
+            return 1
+        print("Witness %s, key id %s. Already trusted here: %s" % (w.url, mine["kid_hex"], ", ".join(sorted(pins)) or "none"))
+        if input("Pin this witness key? Type yes: ").strip() != "yes":
+            print("not pinned")
+            return 1
+        pins[w.url] = mine
+        w._write_pins(pins)
+        print("pinned")
+        return 0
+    except WitnessError as e:
+        print("cannot reach %s (%s)" % (url, e.code), file=sys.stderr)
+        return 1
+    finally:
+        w.close()
+
+
 def _out(text: str) -> None:
     """stdout as UTF-8 bytes with plain \\n: the same JSON line on every OS (Windows text mode would write cp1252 and CRLF)."""
     try:
@@ -631,6 +766,8 @@ def main(argv=None) -> None:
             log("session-start check failed (%s)" % type(e).__name__)
         sys.stdout.flush()
         os._exit(0)
+    if argv[:1] == ["--trust"]:
+        sys.exit(_trust(argv[1] if len(argv) > 1 else ""))
     if argv[:1] in (["-h"], ["--help"]):
         print(__doc__)
         return

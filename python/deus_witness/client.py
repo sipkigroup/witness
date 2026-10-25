@@ -40,6 +40,11 @@ class WitnessKeyChanged(Exception):
     """The witness key differs from the one pinned at first use."""
 
 
+class WitnessNotPinned(WitnessKeyChanged):
+    """0.2.32 (K1): the URL has no pinned key and this client may not pin a new one silently (pin_new=False): another witness is already
+    pinned on this machine, so a new URL is a different witness, not a first use."""
+
+
 class AARError(Exception):
     """str(e) is a reason code: MALFORMED, TYP_MISMATCH, KID_UNKNOWN, ALG_MISMATCH, SIGNATURE_INVALID, NOT_ALLOWED,
     REQUEST_MISMATCH, RECEIPT_EXPIRED, AUDIENCE, NO_RECEIPT."""
@@ -219,8 +224,10 @@ class Witness:
     (pinned at first use in ~/.config/deus-witness/witness.json; change => WitnessKeyChanged)."""
 
     def __init__(self, url: Optional[str] = None, key: Optional[str] = None, *, verify: bool = True,
-                 pin_path: Optional[str] = None, timeout: float = 30.0, transport: Optional[httpx.BaseTransport] = None):
+                 pin_path: Optional[str] = None, timeout: float = 30.0, transport: Optional[httpx.BaseTransport] = None,
+                 pin_new: bool = True):
         self.url = (url or os.environ.get("DEUS_WITNESS_URL") or DEFAULT_URL).rstrip("/")
+        self.pin_new = pin_new           # 0.2.32 (K1): False = a URL without a pin is refused (WitnessNotPinned), not pinned at first use
         self.key = key or os.environ.get("DEUS_WITNESS_KEY")
         self.verify = verify
         self.pin_path = pin_path or _default_pin_path()
@@ -289,6 +296,8 @@ class Witness:
         pin = self._read_pins()
         mine = {"kid_hex": info.get("kid_hex"), "pub_hex": info.get("pub_hex")}
         old = pin.get(self.url)
+        if old is None and not self.pin_new:
+            raise WitnessNotPinned("no pinned key for %s (pinned here: %s)" % (self.url, ", ".join(sorted(pin)) or "none"))
         if old is None:
             pin[self.url] = mine
             self._write_pins(pin)

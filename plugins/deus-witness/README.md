@@ -16,17 +16,17 @@ From the shell: `claude plugin marketplace add sipkigroup/witness && claude plug
 
 ## Requirements (read this)
 
-The plugin is a thin wrapper. The hook itself is the Python client `deus-witness` (PyPI, Apache-2.0, >= 0.2.29). The plugin finds it:
+The plugin is a thin wrapper. The hook itself is the Python client `deus-witness` (PyPI, Apache-2.0, >= 0.2.32). The plugin finds it:
 
-1. `deus-witness-hook` on your PATH - `pip install "deus-witness>=0.2.29"`, or
-2. [uv](https://docs.astral.sh/uv/) - then the plugin runs `uvx --from "deus-witness>=0.2.29" deus-witness-hook`
+1. `deus-witness-hook` on your PATH - `pip install "deus-witness>=0.2.32"`, or
+2. [uv](https://docs.astral.sh/uv/) - then the plugin runs `uvx --from "deus-witness>=0.2.32" deus-witness-hook`
    (first call downloads the client into the uv cache, about 30 packages).
 
 Also: Claude Code 2.1.295+ (it honours `"onFailure": "block"`), `python3` and `bash` (macOS, Linux, WSL).
 
 ## Set up in 2 minutes (trial, no sign-up form)
 
-In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness>=0.2.29" deus-witness try`).
+In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness>=0.2.32" deus-witness try`).
 It prints what the hook sends to the witness, saves a trial agent key to `~/.config/deus-witness/agent-key.json` (mode 600; the plugin
 picks it up at once) and opens a page in your browser. The first call of the agent that needs you waits; on that page ONE button asks
 for two passkey touches (Touch ID / Windows Hello / phone): one makes your passkey, one signs the recommended rules for the project. The
@@ -65,7 +65,7 @@ working defaults. Set `agent_key` only if you already have a full account (below
 | Key set | Decided by the witness; witness unreachable, client missing, crash or timeout = **blocked** (fail-closed) | The witness reason on every deny |
 | Owner approval pending (`defer`) | Waits up to 600 s for your approval in Witness, then denied | - |
 
-Check your setup: `uvx --from "deus-witness>=0.2.29" deus-witness-hook --doctor` - from a plain shell it does not see the plugin's hooks file and reports the hook as missing; inside Claude Code the session-start message is the authoritative check (it runs the same doctor with the plugin's hooks file).
+Check your setup: `uvx --from "deus-witness>=0.2.32" deus-witness-hook --doctor` - from a plain shell it does not see the plugin's hooks file and reports the hook as missing; inside Claude Code the session-start message is the authoritative check (it runs the same doctor with the plugin's hooks file).
 
 ## MCP servers
 

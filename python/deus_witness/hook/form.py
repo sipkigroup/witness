@@ -24,6 +24,9 @@ DEFAULT_SAFE_COMMANDS = ["ls", "pwd", "cd", "cat", "head", "tail", "wc", "echo",
 def default_form(project_dir: str, web_domains=None, safe_commands=None) -> dict:
     """Recommended mandate form for a Claude Code agent (the 'default rules'):
       - writes (Write/Edit/NotebookEdit/Bash redirections) only inside the project and the temp dir; elsewhere deny RESOURCE;
+        0.2.32 (K1): EXCEPT the agent's own harness (<proj>/.claude/**, <proj>/.mcp.json, <proj>/.git/hooks/**, ~/.claude/**, the Deus
+        Witness key files): the mandate format has no exclusions, so the witness asks the owner for those (category agent-config /
+        git-config) and the hook itself refuses them without an owner-approved receipt (hook/main.py agent_config_target);
       - shell commands: the listed read-only commands run, any other is asked, a dangerous one is always asked; reading a credential
         file is asked;
       - WebFetch only to the listed domains; elsewhere deny RECIPIENT;
