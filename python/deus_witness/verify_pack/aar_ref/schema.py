@@ -1,12 +1,13 @@
 """Section 6.1 CDDL of the mandate, as an executable check (draft-deus-aar-02: optional members, absent = null; unknown members rejected).
 Also Section 6.3 (ceiling) and Section 7.1 (entry bodies). Returns None or the first offending member."""
+from . import httpcanon
 
 
 MANDATE_KEYS = {"v", "id", "principal", "agent", "nbf", "exp", "currency", "budget_window_s", "permissions", "forbidden_data",
                 "named_circle", "key_attestation", "pin_source", "payment_mandate_ref", "permit_ref",
                 "ask_over", "toolmap_sha256"}          # -05 (6.1, 6.9, 8.6)
-COUNT_CLASSES = ("message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish", "pass", "command")   # extension: command
-PERM_KEYS = ("message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish", "command")
+COUNT_CLASSES = ("message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish", "pass", "command", "http")   # extension: command; extension-http: http
+PERM_KEYS = ("message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish", "command", "http")
 
 
 def _is_uint(x):
@@ -90,7 +91,8 @@ def validate_mandate(m):
               "delete": lambda: isinstance(p, dict) and _is_strs(p.get("targets", [])) and (p.get("allow_irreversible") is None or isinstance(p["allow_irreversible"], bool)),
               "publish": lambda: isinstance(p, dict) and _is_strs(p.get("channels", [])),
               "command": lambda: isinstance(p, dict) and (p.get("allow") is None or _is_strs(p["allow"]))
-                                 and p.get("unlisted") in (None, "ask", "allow", "deny")}[k]()
+                                 and p.get("unlisted") in (None, "ask", "allow", "deny"),
+              "http": lambda: isinstance(p, dict) and _http_rules_ok(p.get("allow")) and p.get("unlisted") in (None, "ask", "deny")}[k]()
         if not ok:
             return "permissions." + k
         if isinstance(p, dict) and set(p) - SUB_KEYS[k]:
@@ -100,7 +102,16 @@ def validate_mandate(m):
 
 SUB_KEYS = {"message": {"to", "domains"}, "file": {"to", "domains"}, "disclosure": {"to", "domains", "data"},
             "purchase": {"max_per_action", "budget"}, "sale": {"min_price"}, "meeting": set(), "refund": set(),
-            "delete": {"targets", "allow_irreversible"}, "publish": {"channels"}, "command": {"allow", "unlisted"}}
+            "delete": {"targets", "allow_irreversible"}, "publish": {"channels"}, "command": {"allow", "unlisted"},
+            "http": {"allow", "unlisted"}}
+
+
+def _http_rules_ok(x):
+    """extension-http: allow = null or a list of at most 200 CANONICAL rules (httpcanon.canon_rule(r) == r), no duplicates."""
+    if x is None:
+        return True
+    return (_is_strs(x) and len(x) <= httpcanon.MAX_RULES and len(set(x)) == len(x)
+            and all(httpcanon.is_canonical_rule(r) for r in x))
 
 
 def validate_ceiling(c):
