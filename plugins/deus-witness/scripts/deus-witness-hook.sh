@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Deus Witness plugin for Claude Code: runs the PyPI client `deus-witness-hook` (>= 0.2.32) for the plugin's hooks.
+# Deus Witness plugin for Claude Code: runs the PyPI client `deus-witness-hook` (>= 0.2.33) for the plugin's hooks.
 #
 #   deus-witness-hook.sh             PreToolUse: the witness decides the call (stdin = the event, stdout = the decision)
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.32")
-#   2. `uvx --from "deus-witness>=0.2.32" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.33")
+#   2. `uvx --from "deus-witness>=0.2.33" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
 # (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json; the client reads it itself).
@@ -17,7 +17,7 @@
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness>=0.2.32"
+SPEC="deus-witness>=0.2.33"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
 TRY="/deus-witness:try (or in your terminal: uvx --from \"$SPEC\" deus-witness try)"
 

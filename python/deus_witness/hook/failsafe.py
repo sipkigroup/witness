@@ -17,6 +17,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 
 from .. import _compat
 
@@ -65,10 +66,35 @@ def _num(v, default):
         return default
 
 
+# Managed settings (code.claude.com/docs/en/managed-settings): file-based policy lives in a system directory.
+MANAGED_DIRS = {"darwin": "/Library/Application Support/ClaudeCode", "win32": r"C:\Program Files\ClaudeCode"}
+MANAGED_DIR_DEFAULT = "/etc/claude-code"                   # Linux and WSL
+MANAGED_DIR_OVERRIDE = None                                # TESTS ONLY (monkeypatch). Deliberately not an env var: a project `env` block must not redirect it.
+
+
+def managed_dir(platform=None):
+    if MANAGED_DIR_OVERRIDE is not None:
+        return MANAGED_DIR_OVERRIDE
+    return MANAGED_DIRS.get(platform or sys.platform, MANAGED_DIR_DEFAULT)
+
+
+def managed_files(platform=None):
+    """Managed settings files in MERGE order (the later one wins a single value): managed-settings.json, then every
+    managed-settings.d/*.json alphabetically (hidden files and non-.json are ignored, as Claude Code does)."""
+    d = managed_dir(platform)
+    out = [os.path.join(d, "managed-settings.json")]
+    try:
+        names = sorted(n for n in os.listdir(os.path.join(d, "managed-settings.d")) if n.endswith(".json") and not n.startswith("."))
+    except OSError:
+        names = []
+    return out + [os.path.join(d, "managed-settings.d", n) for n in names]
+
+
 def settings_files(project_dir: str | None, env=None):
+    """Highest priority first: managed (last drop-in first), project local, project, user, plugin."""
     e = os.environ if env is None else env
     home = _compat.home(e)
-    out = []
+    out = list(reversed(managed_files()))
     if project_dir:
         out += [os.path.join(project_dir, ".claude", "settings.json"), os.path.join(project_dir, ".claude", "settings.local.json")]
     out.append(os.path.join(home, ".claude", "settings.json"))
@@ -90,9 +116,35 @@ def _load(path):
 
 
 def find_entries(project_dir, env=None):
-    """-> [(file, matcher, hook dict)] for every PreToolUse command hook that runs deus-witness-hook, and the merged env."""
+    """-> [(file, matcher, hook dict)] for every ACTIVE PreToolUse command hook that runs deus-witness-hook, and the merged env.
+    Active, per the Claude Code docs: `disableAllHooks` outside managed settings cannot switch off managed hooks; only managed
+    `disableAllHooks` can. Managed `allowManagedHooksOnly` blocks user/project/local/plugin hooks. Skipped hooks go to self-notes
+    via find_state(); this wrapper keeps the old two-value shape."""
+    found, merged_env, _ = find_state(project_dir, env)
+    return found, merged_env
+
+
+def is_managed(path):
+    return path in set(managed_files())
+
+
+def find_state(project_dir, env=None):
+    files = settings_files(project_dir, env)
+    managed = set(managed_files())
+    flags = {"managed_disable": False, "other_disable": [], "managed_only": False}
+    for p in reversed(files):                                  # merge order: lowest priority first, later wins
+        d = _load(p)
+        if not d:
+            continue
+        if p in managed:
+            if "disableAllHooks" in d:
+                flags["managed_disable"] = d["disableAllHooks"] is True
+            if d.get("allowManagedHooksOnly") is True:
+                flags["managed_only"] = True
+        elif d.get("disableAllHooks") is True:
+            flags["other_disable"].append(p)
     found, merged_env = [], {}
-    for p in reversed(settings_files(project_dir, env)):      # user < project < local, as Claude Code merges env
+    for p in reversed(files):                                  # user < project < local < managed, as Claude Code merges env
         d = _load(p)
         if not d:
             continue
@@ -105,7 +157,20 @@ def find_entries(project_dir, env=None):
                 if isinstance(h, dict) and h.get("type") == "command" and "deus-witness-hook" in str(h.get("command", "")) \
                         and "--session-start" not in str(h.get("command", "")):
                     found.append((p, str(grp.get("matcher", "")), h))
-    return found, merged_env
+    skipped = []
+    active = []
+    for ent in found:
+        m = ent[0] in managed
+        if flags["managed_disable"]:
+            skipped.append((ent[0], "managed disableAllHooks=true switches every hook off"))
+        elif not m and flags["other_disable"]:
+            skipped.append((ent[0], "disableAllHooks=true in %s (outside managed it disables non-managed hooks only)" % ", ".join(flags["other_disable"])))
+        elif not m and flags["managed_only"]:
+            skipped.append((ent[0], "managed allowManagedHooksOnly=true blocks non-managed hooks"))
+        else:
+            active.append(ent)
+    flags["skipped"] = skipped
+    return active, merged_env, flags
 
 
 def check(project_dir=None, env=None, runner=subprocess.run):
@@ -120,7 +185,14 @@ def check(project_dir=None, env=None, runner=subprocess.run):
         problems.append("Claude Code %s is older than %s: it ignores \"onFailure\": \"block\". A hook that times out or crashes "
                         "outside `|| exit 2` lets the call run. Update Claude Code (npm i -g @anthropic-ai/claude-code)"
                         % (".".join(map(str, ver)), ".".join(map(str, MIN_CC))))
-    entries, senv = find_entries(project_dir, e)
+    entries, senv, st = find_state(project_dir, e)
+    for path, why in st["skipped"]:
+        problems.append("%s: hook is NOT running - %s" % (path, why))
+    for path, matcher, h in entries:
+        notes.append("hook taken from %s%s" % (path, " (managed settings)" if is_managed(path) else ""))
+    for p in st["other_disable"]:
+        if any(is_managed(x[0]) for x in entries) and not st["managed_disable"]:
+            notes.append("%s: disableAllHooks=true is ignored for the managed hook (only managed settings can disable it)" % p)
     for k, v in senv.items():
         e.setdefault(k, v)                                    # the shell's own env wins, as in Claude Code
     if not entries:
@@ -128,7 +200,7 @@ def check(project_dir=None, env=None, runner=subprocess.run):
     hook_timeout = _num(e.get("DEUS_WITNESS_HOOK_TIMEOUT"), 20.0)
     wait = _num(e.get("DEUS_WITNESS_HOOK_WAIT"), 0.0)
     for path, matcher, h in entries:
-        where = "%s (matcher %r)" % (path, matcher)
+        where = "%s%s (matcher %r)" % (path, " [managed]" if is_managed(path) else "", matcher)
         if h.get("onFailure") != "block":
             problems.append("%s: no \"onFailure\": \"block\" - Claude Code runs the call when the hook fails or times out" % where)
         if "|| exit 2" not in str(h.get("command", "")):

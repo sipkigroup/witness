@@ -208,22 +208,162 @@ def _url(v):
 # git-config); the hook does not rely on that alone: such a call runs only with a receipt the OWNER approved (status `approved`, a
 # passkey in Witness), never on the mandate alone. The mandate format has no exclusions (delete = targets + allow_irreversible), so the
 # rule lives here, like the server's. Shell commands: the hook does not parse them (thin client), so a command that NAMES one of these
-# places needs the owner's approval too, even a read (`cat .claude/settings.json`): fail-closed, and rare for an agent.
+# places needs the owner's approval too; 0.2.33: except a Bash command that surely only reads (read_only_shell, below) - and never for
+# the Deus Witness key files.
 WRITE_TOOLS = {"Write": "file_path", "Edit": "file_path", "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 SHELL_TOOLS = ("Bash", "PowerShell")
+# 0.2.33 (red team, git config): git's own configuration is harness too. diff.external / diff.<drv>.textconv / core.fsmonitor /
+# core.pager / gpg.program there make `git diff`, `git show`, `git log`, `git status` run any program, which can rewrite .claude. So
+# `.git/` (except objects, refs, logs, index, HEAD: nothing there names a program), `.gitconfig`, `/etc/gitconfig`, `.config/git`, and a
+# `git config` subcommand, `--template`, `git clone -c` (they write them) need the owner's approval like .git/hooks. `.gitattributes` stays free: it only NAMES a driver,
+# git runs nothing unless the driver's command is defined in a (now guarded) config file.
+_GIT_WORDS = (r"|(?:^|(?<=[\s/'\"=:;&|(]))\.git(?:[/\\](?!(?:objects|refs|logs|index|HEAD|ORIG_HEAD|FETCH_HEAD|packed-refs)\b)|(?![\w./\\-]))"
+              r"|gitconfig(?![\w-])|\.config[/\\]git(?![\w.-])"
+              r"|(?:^|(?<=[\s;&|(]))git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S*)?)*\s+config(?![\w-])"
+              # a template directory's `config` and `git clone -c/--config` land in the new repository's .git/config
+              r"|--template(?![\w-])|GIT_TEMPLATE_DIR|(?:^|(?<=[\s;&|(]))git\s(?:[^;&|]*\s)?clone\s(?:[^;&|]*\s)?(?:-c|--config)(?=[\s=]|$)")
 _CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|"
-                           r"agent-key\.json|deus-witness-hook\s+--trust)", re.I)
+                           r"agent-key\.json|deus-witness-hook\s+--trust" + _GIT_WORDS + ")", re.I)
+# 0.2.33: the Deus Witness key files stay owner-only even for a read (the key itself); .claude / .mcp.json / .git/hooks do not (below)
+_KEY_WORDS = re.compile(r"(\.deus-witness|config[/\\]deus-witness|agent-key\.json|deus-witness-hook\s+--trust)", re.I)
+
+# 0.2.33 (friction of K1, residual risk 3): `cat .claude/settings.json`, `ls .git/hooks`, `git diff .mcp.json` were refused with no way to
+# approve them. A Bash command that can only READ is not the agent's harness being changed: it goes the normal way (the witness judges
+# it, as any other command). "Only read" is decided here, conservatively, on the text alone (the thin client has no shell parser):
+# every segment of `a && b || c ; d | e` starts with a listed read-only program and uses none of its writing / executing options; no
+# redirection except to /dev/null (`2>/dev/null`, `2>&1`); none of $ ` ( ) { } < * ? [ ] ! # \ newline outside quotes ($ and ` not even
+# inside double quotes); no `VAR=x cmd`, no path to a program. Anything else (unsure included) is refused as in 0.2.32.
+_RO_PROGRAMS = {"ls", "cat", "head", "tail", "wc", "grep", "rg", "stat", "du", "file", "pwd", "cd", "echo", "which", "find", "jq",
+                "readlink", "realpath", "basename", "dirname", "diff", "cmp", "git"}
+_RO_GIT = {"status", "diff", "log", "show", "branch"}
+_RO_GIT_DIFF = {"diff", "log", "show"}
+_RO_GIT_BRANCH = {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "-l", "--show-current", "--no-color", "--color"}
+_RO_FIND_BAD = {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"}
+_RO_UNQUOTED_BAD = set("$`(){}<*?[]!#\\")
+
+
+def _ro_scan(cmd):
+    """-> True when no shell expansion / substitution / glob can happen in `cmd` (quote-aware)."""
+    if any(ch in cmd for ch in "\n\r\0"):
+        return False
+    q = None
+    for ch in cmd:
+        if q == "'":
+            q = None if ch == "'" else q
+        elif q == '"':
+            if ch in "$`":
+                return False
+            q = None if ch == '"' else q
+        elif ch in "'\"":
+            q = ch
+        elif ch in _RO_UNQUOTED_BAD:
+            return False
+    return q is None
+
+
+def _ro_git_no_drivers(args):
+    """0.2.33 (red team): `git diff/show/log` run the repository's diff.external and diff.<driver>.textconv programs (config +
+    .gitattributes). They count as read-only only with BOTH `--no-ext-diff` and `--no-textconv` before any `--` (after `--` they are
+    paths), and with no option that turns either back on (`--ext-diff`, `--textconv`, or a prefix git would expand to one of them)."""
+    flags = set()
+    for a in args:
+        if a == "--":
+            break
+        if a in ("--no-ext-diff", "--no-textconv"):
+            flags.add(a)
+        elif len(a) > 2 and a.startswith("--") and ("--ext-diff".startswith(a.split("=")[0]) or "--textconv".startswith(a.split("=")[0])):
+            return False
+    return any(a in ("--ext-diff", "--textconv") for a in args) is False and flags == {"--no-ext-diff", "--no-textconv"}
+
+
+def _ro_segment(argv):
+    if not argv or argv[0] not in _RO_PROGRAMS:
+        return False
+    prog, args = argv[0], argv[1:]
+    if prog == "git":
+        if not args or args[0] not in _RO_GIT:
+            return False                                  # `git -c x=y ...`, `git -C dir ...`, `git config ...`: not read-only here
+        if any(a.startswith("--output") for a in args[1:]):
+            return False                                  # `git diff --output=FILE` writes
+        if args[0] in _RO_GIT_DIFF:                       # 0.2.33 (red team): see _ro_git_no_drivers
+            return _ro_git_no_drivers(args[1:])
+        if args[0] == "status":                           # `status -v` shows a diff (textconv)
+            return not any(a in ("-v", "-vv", "--verbose") or (a.startswith("-") and not a.startswith("--") and "v" in a) for a in args[1:])
+        return args[0] != "branch" or all(a in _RO_GIT_BRANCH for a in args[1:])
+    if prog == "find":
+        return not any(a in _RO_FIND_BAD for a in args)
+    if prog == "rg":                                      # --pre / --hostname-bin run a program; -z runs decompressors
+        return not any(a.startswith(("--pre", "--hostname-bin", "--search-zip")) or (a.startswith("-") and not a.startswith("--")
+                                                                                      and "z" in a) for a in args)
+    if prog == "file":                                    # -C / --compile writes a magic file
+        return not any(a.startswith("--compile") or (a.startswith("-") and not a.startswith("--") and "C" in a) for a in args)
+    return True
+
+
+def read_only_shell(cmd):
+    """0.2.33: True only when the Bash command `cmd` surely just reads (see above). False on any doubt."""
+    import shlex
+    if not isinstance(cmd, str) or not cmd.strip() or len(cmd) > 4096 or not _ro_scan(cmd):
+        return False
+    try:
+        lx = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>")
+        lx.whitespace_split, lx.commenters = True, ""
+        toks = list(lx)
+    except ValueError:
+        return False
+    seg, i = [], 0
+    while i < len(toks):
+        t = toks[i]
+        if t in ("&&", "||", ";", "|"):
+            if not _ro_segment(seg):
+                return False
+            seg = []
+        elif t in (">", ">>", "&>"):
+            if i + 1 >= len(toks) or toks[i + 1] != "/dev/null":
+                return False
+            i += 1
+        elif t == ">&":
+            if i + 1 >= len(toks) or not toks[i + 1].isdigit():
+                return False
+            i += 1
+        elif t and t[0] in ";&|<>":
+            return False                                  # `&`, `>|`, `<<<`, `;;`, `|&`, ...
+        else:
+            seg.append(t)
+        i += 1
+    return _ro_segment(seg)
 
 
 def _config_places(facts, env):
     from ..trial import home_dir, key_path
     out = set()
     for r in {facts.root, facts.env.get("CLAUDE_PROJECT_DIR"), facts.proc_cwd} - {None}:
-        out |= {os.path.join(r, ".claude"), os.path.join(r, ".mcp.json"), os.path.join(r, ".git", "hooks")}
+        # 0.2.33 (red team): all of .git (config, info/attributes, hooks, a worktree's `.git` pointer file), not only .git/hooks
+        out |= {os.path.join(r, ".claude"), os.path.join(r, ".mcp.json"), os.path.join(r, ".git")}
     for h in {facts.home, env.get("HOME")} - {None, ""}:
-        out |= {os.path.join(h, n) for n in (".claude", ".claude.json", ".deus-witness", os.path.join(".config", "deus-witness"))}
-    out |= {home_dir(env), os.path.dirname(key_path(env))}
+        out |= {os.path.join(h, n) for n in (".claude", ".claude.json", ".deus-witness", os.path.join(".config", "deus-witness"),
+                                              ".gitconfig", os.path.join(".config", "git"))}
+    out |= {home_dir(env), os.path.dirname(key_path(env))} | _git_config_files(facts, env)
     return {x for p in out for x in (os.path.normpath(p), _realpath(p)) if isinstance(x, str)}
+
+
+def _git_config_files(facts, env):
+    """0.2.33: git's global / system configuration named by the environment of the hook (= of Claude Code and its Bash)."""
+    out = {"/etc/gitconfig", "/opt/homebrew/etc/gitconfig", "/usr/local/etc/gitconfig"}
+    for e in (env, facts.env):
+        for k in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
+            if isinstance(e.get(k), str) and _is_abs(e.get(k)):
+                out.add(e[k])
+        x = e.get("XDG_CONFIG_HOME")
+        if isinstance(x, str) and _is_abs(x):
+            out.add(os.path.join(x, "git"))
+    return {g for g in out if g.rstrip("/\\") and g not in ("/dev/null", os.devnull, "nul", "NUL")}
+
+
+def _in_git_dir(p):
+    """0.2.33: a path inside any `.git` directory (a submodule's, a nested repository's, a worktree's common one) or a `.git` file."""
+    parts = re.split(r"[/\\]+", p)
+    return any(c.rstrip(". ").lower() == ".git" for c in parts)          # NTFS opens `.git.` / `.GIT` as .git
 
 
 def agent_config_target(ev, facts, env):
@@ -237,25 +377,28 @@ def agent_config_target(ev, facts, env):
         a = p if _is_abs(p) else os.path.join(cwd, p)
         places = _config_places(facts, env)
         for c in {os.path.normpath(a), _realpath(a)} - {None}:
-            if any(_under(c, d) for d in places):
+            if any(_under(c, d) for d in places) or _in_git_dir(c):
                 return c
         return None
     if tool in SHELL_TOOLS:
         cmd = inp.get("command")
         if not isinstance(cmd, str):
             return None
-        m = _CONFIG_WORDS.search(cmd)
+        m = (_KEY_WORDS if tool == "Bash" and read_only_shell(cmd) else _CONFIG_WORDS).search(cmd)
         if m:
             return m.group(0)
         from ..trial import home_dir
         h = home_dir(env)
-        return h if h and h in cmd else None
+        if h and h in cmd:
+            return h
+        return next((g for g in sorted(_git_config_files(facts, env)) if g in cmd), None)   # 0.2.33: GIT_CONFIG_GLOBAL, $XDG_CONFIG_HOME/git
     return None
 
 
-CONFIG_TEXT = ("(this call changes the agent's own harness: %s - Claude Code settings or hooks, .mcp.json, git hooks or the Deus Witness key "
-               "files. A change there can switch the witness off, so it runs only after the OWNER approves this exact call in Witness "
-               "(passkey), never on the mandate alone)")
+CONFIG_TEXT = ("(this call changes the agent's own harness: %s - Claude Code settings or hooks, .mcp.json, git hooks or git configuration, "
+               "or the Deus Witness key files. A change there can switch the witness off, so it runs only after the OWNER approves this "
+               "exact call in Witness (passkey), never on the mandate alone. Only reading: `git diff` / `git show` / `git log` pass with "
+               "--no-ext-diff --no-textconv)")
 
 
 def _num(v, default, lo, hi):
