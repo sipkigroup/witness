@@ -568,7 +568,7 @@ class Facts:
         if isinstance(lst, dict) and tool_name in (lst.get("prescan_tools") or ()):
             spec = fingerprint.Spec(lst)
             rep = fingerprint.scan(self.root, spec)
-            self.exec = dict(fingerprint.with_sizes(rep, self.root), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
+            self.exec = dict(fingerprint.with_gitcfg(fingerprint.with_sizes(rep, self.root), self.root, spec), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
 
     def body(self, ev, part=None):
         return {"v": 1, "event": {k: ev.get(k) for k in ("tool_name", "tool_input", "cwd") if k in ev},
@@ -599,7 +599,7 @@ class Facts:
                 raise Fail("HOOK_ERROR", "(the witness asked for another directory)")
             spec = fingerprint.Spec(w.scan_list(need.get("scan_rev")))
             rep = fingerprint.scan(self.root, spec)
-            self.exec = dict(fingerprint.with_sizes(rep, self.root), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
+            self.exec = dict(fingerprint.with_gitcfg(fingerprint.with_sizes(rep, self.root), self.root, spec), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
 
 
 class Part:

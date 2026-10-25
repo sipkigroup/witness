@@ -4,7 +4,8 @@ The hook does not know why a file is on the list: the list carries file shapes o
 a few executable names to look up in a project's bin directories, and bounds. The witness asks for a walk of the project root when it
 needs one (`need.scan`); the report goes back as a fact. Nothing in the list is executed: names are compared, one regular expression
 (a line filter for one file name) is matched against file bytes.
-Report: {"root", "files": {relative path: sha256 hex | "unreadable"}, "sizes": {relative path: bytes} (optional, 0.2.22), "git": {absolute path: digest}, "truncated": bool, "rev"}."""
+Report: {"root", "files": {relative path: sha256 hex | "unreadable"}, "sizes": {relative path: bytes} (optional, 0.2.22), "git": {absolute path: digest}, "truncated": bool, "rev"}.
+0.2.33 (witness 0.2.46): + "gitcfg": {absolute path of a git config file: [[key, value], ...]} (program keys only) and "gitcfg_cut"."""
 from __future__ import annotations
 
 import hashlib
@@ -36,6 +37,11 @@ class Spec:
         self.filters = {str(k): re.compile(str(v).encode()) for k, v in (lst.get("line_filters") or {}).items()}
         vs = lst.get("venv_site") or {}
         self.site_suffixes, self.site_names = tuple(vs.get("suffixes", ())), frozenset(vs.get("names", ()))
+        gc = lst.get("git_config")                    # 0.2.33: the program keys of git's own config files (witness 0.2.46); absent -> not sent
+        self.gitcfg = None
+        if isinstance(gc, dict):
+            self.gitcfg = (tuple(str(x) for x in gc.get("files") or ("config", "config.worktree")), re.compile(str(gc["keys"]), re.I),
+                           int(gc["max_entries"]), int(gc["max_value"]))
 
     def listed(self, path: str) -> bool:
         p = path.replace("\\", "/").rstrip("/")
@@ -216,6 +222,160 @@ def with_sizes(rep, root):
         except (OSError, ValueError):
             pass
     return dict(rep, sizes=dict(sorted(sizes.items()))) if sizes else rep
+
+
+_ESC = {"n": "\n", "t": "\t", "b": "\b", '"': '"', "\\": "\\"}
+
+
+def parse_git_config(text: str) -> list:
+    """0.2.33: a git config file -> [[key, value], ...] in file order, named as `git config --list --no-includes` names them (section and
+    variable lower case; a quoted subsection as written; the old `[a.B]` form lower case; a variable without `=` -> "true"). git's rules
+    (config.c): a UTF-8 BOM is skipped, CRLF is LF, comments # ; outside quotes, quotes, escapes \\n \\t \\b \\" \\\\, a backslash before the
+    line end continues the line, blanks outside quotes are kept between words, dropped at both ends. Git is not run and includes
+    are not followed. Where git would refuse the file (it then runs nothing), this reader keeps going and reports what it can: more keys
+    only cost a question, a missed one would be a program run unseen."""
+    text = text.replace("\r\n", "\n")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    out, sect, i, n = [], None, 0, len(text)
+
+    def eol(k):
+        while k < n and text[k] != "\n":
+            k += 1
+        return k
+
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+        elif c in "#;":
+            i = eol(i)
+        elif c == "[":
+            j, name = i + 1, []
+            while j < n and (text[j].isalnum() or text[j] in "-."):
+                name.append(text[j])
+                j += 1
+            name, sub = "".join(name), None
+            if j < n and text[j] in " \t":
+                while j < n and text[j] in " \t":
+                    j += 1
+                if j < n and text[j] == '"':
+                    j, sub = j + 1, []
+                    while j < n and text[j] not in '"\n':
+                        if text[j] == "\\" and j + 1 < n and text[j + 1] != "\n":
+                            j += 1
+                        sub.append(text[j])
+                        j += 1
+                    sub = "".join(sub)
+                    j += 1 if j < n and text[j] == '"' else 0
+            k = j
+            while k < n and text[k] not in "]\n":
+                k += 1
+            if k >= n or text[k] != "]" or not name:
+                sect, i = None, eol(i)                      # a broken header: nothing below it is attributed to a section
+                continue
+            sect = name.lower() + ("." + sub if sub is not None else "")
+            i = k + 1
+        else:
+            j = i
+            while j < n and (text[j].isalnum() or text[j] == "-"):
+                j += 1
+            key = text[i:j]
+            while j < n and text[j] in " \t":
+                j += 1
+            if not key or (j < n and text[j] not in "=\n#;"):
+                i = eol(i)
+                continue
+            if j >= n or text[j] != "=":
+                val, i = "true", j
+            else:
+                j += 1
+                buf, quote, space, ln = [], False, "", 0
+                while j < n:
+                    ch = text[j]
+                    if ch == "\n":
+                        break                               # (inside quotes git refuses the file; the value so far is kept)
+                    if ch.isspace() and not quote:
+                        space += ch if ln else ""
+                        j += 1
+                        continue
+                    if not quote and ch in "#;":
+                        j = eol(j)
+                        break
+                    if space:
+                        buf.append(space)
+                        ln, space = ln + len(space), ""
+                    if ch == '"':
+                        quote = not quote
+                        j += 1
+                        continue
+                    if ch == "\\" and j + 1 < n:
+                        nx = text[j + 1]
+                        j += 2
+                        if nx != "\n":
+                            buf.append(_ESC.get(nx, nx))
+                            ln += 1
+                        continue
+                    buf.append(ch)
+                    ln += 1
+                    j += 1
+                val, i = "".join(buf), j
+            if sect is not None:
+                out.append([sect + "." + key.lower(), val])
+    return out
+
+
+def git_config_report(root, spec: Spec):
+    """-> ({absolute path of config / config.worktree of the git dir and the common git dir: [[key, value] whose key matches the list]},
+    cut) or (None, False) when the list does not ask for it or there is no git dir. Only matching keys leave the machine (remote URLs and
+    their tokens never do); values are cut at max_value, at most max_entries per file; cut = something was cut or could not be read."""
+    if spec.gitcfg is None:
+        return None, False
+    files, rx, max_entries, max_value = spec.gitcfg
+    gd, common = _git_dirs(root)
+    if gd is None:
+        return None, False
+    out, cut = {}, False
+    for base in dict.fromkeys((gd, common)):
+        for rel in files:
+            p = os.path.join(base, rel)
+            if not os.path.isfile(p):
+                continue
+            try:
+                with open(p, "r", encoding="utf-8", errors="replace") as f:
+                    text = f.read(spec.max_bytes + 1)
+            except (OSError, ValueError):
+                cut = True
+                continue
+            if len(text) > spec.max_bytes:
+                text, cut = text[:spec.max_bytes], True
+            ent = []
+            for k, v in parse_git_config(text):
+                if rx.fullmatch(k):
+                    if len(v) > max_value:
+                        v, cut = v[:max_value], True
+                    ent.append([k, v])
+            if len(ent) > max_entries:
+                ent, cut = ent[:max_entries], True
+            out[p] = ent
+    return out, cut
+
+
+def with_gitcfg(rep, root, spec: Spec):
+    """0.2.33: `rep` + "gitcfg" (always when the project has a git dir and the list asks for it, empty lists too) and "gitcfg_cut": true
+    when something was cut or unreadable. A separate step, like with_sizes: `scan` stays equal to the witness's reference walk."""
+    if not isinstance(rep, dict) or not isinstance(rep.get("files"), dict):
+        return rep
+    try:
+        g, cut = git_config_report(root, spec)
+    except Exception:      # noqa: BLE001  never a crash in the hook: the witness asks every time about a cut list
+        g, cut = ({}, True) if spec.gitcfg is not None else (None, False)
+    if g is None:
+        return rep
+    rep = dict(rep, gitcfg=g)
+    if cut:
+        rep["gitcfg_cut"] = True
+    return rep
 
 
 def scan(root, spec: Spec):
