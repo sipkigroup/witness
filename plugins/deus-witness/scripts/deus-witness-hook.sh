@@ -5,7 +5,7 @@
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.34")
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.34"; Python 3.10+ in a venv)
 #   2. `uvx --from "deus-witness>=0.2.34" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
@@ -64,7 +64,7 @@ if [ "$mode" = "--session-start" ]; then
     exit 0
   fi
   if [ ${#runner[@]} -eq 0 ]; then
-    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"$SPEC\""
+    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"$SPEC\" (Python 3.10+ in a venv)"
     exit 0
   fi
   exec "${runner[@]}" --session-start </dev/null
@@ -94,6 +94,6 @@ if not os.path.exists(mark):
 fi
 if [ ${#runner[@]} -eq 0 ]; then
   cat >/dev/null
-  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"$SPEC\""
+  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"$SPEC\" (Python 3.10+ in a venv)"
 fi
 exec "${runner[@]}"

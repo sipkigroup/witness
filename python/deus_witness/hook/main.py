@@ -81,6 +81,8 @@ CLIENT = {"name": "deus-witness-hook", "version": VERSION}
 HINTS = {k: v[1] for k, v in LOCAL.items() if v[0] == "deny"}
 TRIAL_REASON = "ESCALATE_TRIAL_CLAIM"       # 0.2.28 (server 0.2.38): a trial account waits for its first touch
 TRIAL_OPEN_EVERY_S = 600
+TRIAL_WAIT_S = 90.0                          # 0.2.34: a trial account nobody has touched yet is waited for this long (an owner's question: DEUS_WITNESS_HOOK_WAIT)
+TRIAL_UNCLAIMED_TEXT = "Open the trial page from `deus-witness try` (or the link it showed you), touch the passkey, then ask again."
 
 
 def _trial_open(url, env) -> None:
@@ -707,7 +709,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             while res.verdict == "defer" and res.status == "pending_approval" and s.wait > 0:
                 if res.reason == TRIAL_REASON:
                     _trial_open(res.approval_url, s.env)          # 0.2.28: the trial page (the claim is in that browser, never here)
-                end = min(deadline - 1.0, time.monotonic() + s.wait)
+                wait_s = min(s.wait, _num(s.env.get("DEUS_WITNESS_TRIAL_WAIT"), TRIAL_WAIT_S, 1.0, 900.0)) if res.reason == TRIAL_REASON else s.wait
+                end = min(deadline - 1.0, time.monotonic() + wait_s)
                 rid = res.rid
                 while res.status == "pending_approval" and time.monotonic() < end:
                     if res.reason == TRIAL_REASON and _replaced(s):
@@ -740,6 +743,9 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 return deny({"refused": "APPROVAL_REFUSED", "expired": "RECEIPT_EXPIRED"}.get(res.status, res.reason or res.status or "UNKNOWN"), res.rid, texts=texts)
         pending = [(m, res) for m, res in results if res.verdict == "defer"]
         if pending:
+            for m, r_ in pending:
+                if r_.reason == TRIAL_REASON:
+                    return deny("TRIAL_NOT_CLAIMED", r_.rid, detail=TRIAL_UNCLAIMED_TEXT, texts=texts)
             msg = " ".join("Deus Witness: %s is waiting for the owner's approval in Witness (%s, receipt %s)%s%s: %s ." % (
                 m.summary, r_.reason, r_.rid, _why(m, r_, texts), _changed(r_), r_.approval_url) for m, r_ in pending) + \
                 " After the owner approves there, retry the SAME call."
