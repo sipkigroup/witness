@@ -37,7 +37,7 @@ that first touch, a program that controls your browser profile (or whoever holds
 
 Ran `/deus-witness:try` twice? The newer run replaces the older trial while it has no passkey yet: use the page that opened LAST (an
 older page says it was replaced). A trial that already has your passkey is kept (`try` refuses to replace it; `--force` makes a new one).
-Too many trials from one network (3 an hour): the message says when the next one is possible; a page already open keeps working.
+Too many trials from one network (10 an hour): the message says when the next one is possible; a page already open keeps working.
 
 ### "3 userConfig options not yet set" after install
 
