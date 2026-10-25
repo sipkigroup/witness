@@ -10,8 +10,13 @@ directory, the first that works (do not add arguments):
 
 If neither exists, tell the user to install uv (https://docs.astral.sh/uv/) or run `pip install "deus-witness>=0.2.34"` (Python 3.10+ in a venv), and stop.
 
-Then tell the user, in two short sentences, what the command printed: a browser page opened; the first call of yours that needs them
-will wait, and that page asks them for two passkey prompts (Touch ID, Windows Hello or their phone): one creates the passkey, one signs the rules; after that the page asks them to decide the waiting call itself. Nothing else.
+Then tell the user, in a few short sentences, what the command printed:
+- what it sent and what the hook will send to the witness (repeat its "will send" list in your own words): `try` already sent a trial
+  request with the drafted rules for this project (they contain the project and temp directory paths) and the client version; from now on
+  the hook sends the tool name and full input of every call it sees, with the working and project directories;
+- a browser page opened; the first call of yours that needs them waits there up to 90 s (then it is refused: ask again after the touches),
+  and the page asks for two passkey prompts (Touch ID, Windows Hello or their phone): one creates the passkey, one signs the rules; after
+  that the page asks them to decide the waiting call itself.
 If it said a previous trial account was replaced, add: use the page that opened last. If it said the trial account already has their
 passkey, or when the next trial is possible, tell them exactly that and stop (never add --force yourself).
 

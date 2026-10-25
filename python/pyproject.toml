@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "deus-witness"
 version = "0.2.34"
-description = "Deus Witness: MCP proxy, Claude Code hook and SDK that put every agent tool call through an independent witness"
+description = "Deus Witness: MCP proxy, Claude Code hook and SDK that send each agent tool call to a witness service before it runs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

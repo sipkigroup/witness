@@ -2,7 +2,9 @@
 
 Every tool call Claude Code makes (Bash, Edit, Write, Read, Grep, Glob, WebFetch, WebSearch, MCP tools) goes to
 [Deus Witness](https://witness.sipkigroup.com) before it runs. The witness checks it against the mandate you signed and answers
-`allow`, `deny` or `defer` (wait for your approval on your phone). Every answer is a signed receipt you can verify offline.
+`allow`, `deny` or `defer` (wait for your approval: on the witness page in your browser, or on your phone once you set up a channel in a full
+account). A decision made against your mandate gets a signed receipt you can verify offline; a few automatic refusals (e.g. no mandate yet, a
+rate limit) are kept only in the server database.
 
 ## Install
 
@@ -65,6 +67,7 @@ working defaults. Set `agent_key` only if you already have a full account (below
 | No key, `strict` on | Denied | Session start + the deny reason |
 | Key set | Decided by the witness; witness unreachable, client missing, crash or timeout = **blocked** (fail-closed) | The witness reason on every deny |
 | Owner approval pending (`defer`) | Waits up to 600 s for your approval in Witness, then denied | - |
+| Trial account, nobody has touched the page yet | Waits 90 s, then denied (`TRIAL_NOT_CLAIMED`) | "touch the passkey, then ask again" |
 
 Check your setup: `uvx --from "deus-witness>=0.2.34" deus-witness-hook --doctor` - from a plain shell it does not see the plugin's hooks file and reports the hook as missing; inside Claude Code the session-start message is the authoritative check (it runs the same doctor with the plugin's hooks file).
 

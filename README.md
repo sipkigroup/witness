@@ -1,8 +1,8 @@
 # Deus Witness
 
 **A witness service for AI-agent tool calls.** Your agent asks before it acts; a witness outside the agent
-checks the call against a mandate you signed, and answers `allow`, `deny` or `defer` (wait for you). Every answer is a signed,
-append-only, independently verifiable receipt - so "what did the agent do, and who allowed it" has an answer you do not have to take on trust.
+checks the call against a mandate you signed, and answers `allow`, `deny` or `defer` (wait for you). A decision made against your mandate is a signed,
+append-only receipt you can verify offline (a few automatic refusals, e.g. a call before any mandate or over a rate limit, are kept only in the server database) - so "what did the agent do, and who allowed it" has an answer you do not have to take on trust.
 
 - Hosted service: <https://witness.sipkigroup.com> - live demo: <https://witness.sipkigroup.com/demo>
 - This repository: the open parts - the receipt specification, two separate verifiers, the TypeScript client, the Python client and the HTTP API contract (OpenAPI, data only).
@@ -21,7 +21,9 @@ Needs Claude Code 2.1.295+ and uv (`curl -LsSf https://astral.sh/uv/install.sh |
 /deus-witness:try
 ```
 
-`try` makes a trial account and opens a page in your browser. The first tool call that needs you waits; the page asks for two passkey touches (one makes your passkey, one signs the recommended rules), then that call is decided - allowed, refused, or shown to you for one more touch. Until your first touch every call waits. A trial account you do not keep is erased after 7 days. Without the plugin: `deus-witness try`.
+`try` makes a trial account and opens a page in your browser. The first tool call that needs you waits; the page asks for two passkey touches (one makes your passkey, one signs the recommended rules), then that call is decided - allowed, refused, or shown to you for one more touch. Until your first touch a call waits up to 90 s, then it is refused (`TRIAL_NOT_CLAIMED`): ask again after the touches. A trial account has no phone notifications: the call waits for you on that page. A trial account you do not keep is erased after 7 days.
+`/plugin install` opens the plugin panel: pick a scope and install; if it says so, run `/reload-plugins`.
+Without the plugin: `uvx --from deus-witness deus-witness try` (`pip install deus-witness` only with Python 3.10+ in a venv).
 
 ## What is here
 

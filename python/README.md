@@ -1,13 +1,14 @@
 <!-- mcp-name: io.github.sipkigroup/witness -->
 # deus-witness
 
-MCP proxy and SDK for Deus Witness: every tool call of your agent is checked by an independent witness
-before it runs, and you get a signed receipt for it.
+MCP proxy, Claude Code hook and SDK for Deus Witness: your agent's tool calls go to a witness service outside the agent before they
+run; a decision made against the rules you signed gets a signed receipt (a few automatic refusals stay in the server database only).
 
 ## Install
 ```
 pip install deus-witness
 ```
+pip needs Python 3.10+, in a venv (the stock macOS Python 3.9 and PEP 668 system Pythons refuse it); with uv: `uvx --from deus-witness deus-witness try`.
 Fastest start for Claude Code (0.2.28+, no sign-up form): `deus-witness try` in your project. It prints what the hook sends, saves a trial
 agent key to `~/.config/deus-witness/agent-key.json` (mode 600; the hook and the Claude Code plugin use it when `DEUS_WITNESS_KEY` is not
 set) and opens a page in your browser: when the agent first needs you, that page asks for two passkey touches (Touch ID / Windows Hello / phone):
