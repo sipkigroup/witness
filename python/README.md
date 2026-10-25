@@ -108,7 +108,7 @@ Set-up (full text: https://witness.sipkigroup.com/dl/docs/quickstart.html, secti
 ```json
 {"hooks": {
   "SessionStart": [{"hooks": [{"type": "command", "command": "uvx --from deus-witness deus-witness-hook --session-start", "timeout": 15}]}],
-  "PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
+  "PreToolUse": [{"matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
     "hooks": [{"type": "command", "command": "uvx --from deus-witness deus-witness-hook || exit 2", "timeout": 30, "onFailure": "block"}]}]},
  "env": {"DEUS_WITNESS_URL": "https://witness.sipkigroup.com", "DEUS_WITNESS_HOOK_TIMEOUT": "20"}}
 ```

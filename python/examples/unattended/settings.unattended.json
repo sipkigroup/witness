@@ -1,6 +1,6 @@
 {"hooks": {
   "SessionStart": [{"hooks": [{"type": "command", "command": "deus-witness-hook --session-start", "timeout": 15}]}],
-  "PreToolUse": [{"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
+  "PreToolUse": [{"matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
     "hooks": [{"type": "command", "command": "deus-witness-hook || exit 2", "timeout": 620, "onFailure": "block"}]}]},
  "env": {"DEUS_WITNESS_URL": "https://witness.sipkigroup.com", "DEUS_WITNESS_HOOK_TIMEOUT": "610", "DEUS_WITNESS_HOOK_WAIT": "600",
          "DEUS_WITNESS_HOOK_ON_DEFER": "deny"},

@@ -362,6 +362,7 @@ def _main(argv):
     leaves_of_cps = {hashlib.sha256(c).hexdigest() for c in cps.values()}
     unmet = []                               # 0.2.5 (R4-01): anchor records that disclose a batch that was NOT stamped ("failed", or "off": anchoring was switched off)
     good_anchors = {}
+    confirmed_leaves = set()                 # 0.2.30: leaves whose batch has a Bitcoin attestation that was read (not a bare pending / not-checked proof)
     anchored_leaves = set()                  # 0.2.4: leaves of checkpoints under a batch that was stamped (OpenTimestamps `pending` or confirmed): the anchored CHECKPOINT entries of promises
     for jp in sorted(glob.glob(os.path.join(root, "anchors", "*.json"))):
         b = os.path.basename(jp)[:-5]
@@ -391,6 +392,8 @@ def _main(argv):
         if "MISMATCH" in _last:
             ok = False
         elif a.get("status") in ("pending", "bitcoin", "confirmed") and os.path.exists(os.path.join(root, "anchors", b + ".ots")):
+            if _last.startswith("bitcoin block"):
+                confirmed_leaves.add(a["leaf"])
             anchored_leaves.add(a["leaf"])      # verify.md 0.2.6: "anchored" = a stamped status AND the .ots file in the pack (a bare status is a claim, not a stamp)
         elif a.get("status") == "failed":
             unmet.append((b, [s_ for s_, raw in cps.items() if hashlib.sha256(raw).hexdigest() == a["leaf"]][0]))      # 0.2.6: only a FAILED batch discloses (`off` does not); kept with the seq its checkpoint covers
@@ -408,6 +411,18 @@ def _main(argv):
         if need_anchors:
             print("anchors: --require-anchors and no anchored checkpoint")
             ok = False
+    # 4''. 0.2.30: a stamp that is only pending (or whose .ots was not checked: opentimestamps missing) is NOT an anchor in Bitcoin:
+    # everything after the newest Bitcoin-attested checkpoint rests on the server's word
+    if entries and cps:
+        conf_seqs = sorted(s_ for s_, raw in cps.items() if hashlib.sha256(raw).hexdigest() in confirmed_leaves)
+        last_conf = conf_seqs[-1] if conf_seqs else 0
+        if not conf_seqs or max(cps) > last_conf:
+            import datetime
+            after = [e_ for e_ in entries if isinstance(e_, dict) and isinstance(e_.get("seq"), int) and e_["seq"] > last_conf and isinstance(e_.get("t"), (int, float))]
+            when = (datetime.datetime.fromtimestamp(min(e_["t"] for e_ in after), datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    if after and conf_seqs else "the start of the history")
+            why_ = "anchor pending" if anchored_seqs else "not verified"
+            trust.append("entries after %s rely on the server (%s)" % (when, why_))
     reg_line, reg_bad = _registry_anchored(root, reg_doc["log"], verify_inclusion)
     if reg_line:
         print(reg_line)

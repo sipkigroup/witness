@@ -27,8 +27,8 @@ BUILTIN = ("Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "Read", "WebFet
 # 0.2.12 (R7-06): built-in tools that read files or send data out. Outside the matcher they bypass the witness: `Grep` with pattern "." on .env
 # prints the secret that Read / `cat` would ask about, `WebSearch` sends its query out. Missing ones are a problem, not a note.
 READERS = ("Grep", "Glob", "WebSearch")
-OPTIONAL = ("NotebookRead", "LS", "ReadMcpResourceTool", "ListMcpResourcesTool")     # older or rarer tools: a note
-MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*"
+OPTIONAL = ("PowerShell", "NotebookRead", "LS", "ReadMcpResourceTool", "ListMcpResourcesTool")     # older or rarer tools: a note
+MATCHER = "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*"
 
 
 def parse_version(text: str | None):

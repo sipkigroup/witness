@@ -6,7 +6,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
         "hooks": [{"type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/deus-witness-hook.sh\" || exit 2", "timeout": 620, "onFailure": "block"}]
       }
     ]
