@@ -7,7 +7,7 @@ func allow(_ r: String) -> Verdict { Verdict(decision: "allow", reason: r) }
 func deny(_ r: String) -> Verdict { Verdict(decision: "deny", reason: r) }
 func deferV(_ r: String) -> Verdict { Verdict(decision: "defer", reason: r) }
 
-let REGISTERED_CLASSES: Set<String> = ["message", "file", "disclosure", "purchase", "sale", "refund", "meeting", "delete", "publish", "pass"]   // -05 §5.6: `pass`
+let REGISTERED_CLASSES: Set<String> = ["message", "file", "disclosure", "purchase", "sale", "refund", "meeting", "delete", "publish", "pass", "http"]   // -05 §5.6: `pass`; PROPOSAL-08-http: `http`
 let MONETARY: Set<String> = ["purchase", "sale", "refund"]
 let MAX_AMOUNT: Int64 = 1_000_000_000_000_000   // 10^15, allowed (§5.2)
 
@@ -158,6 +158,15 @@ func decide(mandate M: V?, mandateSigValid: Bool, action A: V, now: Int64, state
         if absentOrNull(P) || absentOrNull(P?["channels"]) { R = deferV("ESCALATE_PUBLISH") }
         else if !resourceMatches(P?["channels"], rcpt) { return deny("RESOURCE") }
         else { R = allow("OK") }
+    case "http":
+        // PROPOSAL-08-http PH-5: protected data first (step 12 does not apply); `true` is malformed; listed -> allow;
+        // `unlisted: deny` -> RESOURCE; otherwise ask. Counter rule 12a applies as to every class.
+        if protectedData { return deny("DATA_FORBIDDEN") }
+        if P?.boolean == true { return deny("CLASS_DENIED") }
+        let hrules = (P?["allow"]?.arr ?? []).compactMap { $0.str }
+        if P?["allow"]?.arr != nil && httpAllowed(hrules, rcpt) { R = allow("OK") }
+        else if P?["unlisted"]?.str == "deny" { return deny("RESOURCE") }
+        else { R = deferV("ESCALATE_HTTP") }
     case "pass":
         // -05 §6.4 step 10 / §8.6: protected data -> DATA_FORBIDDEN, else OK_PASS (step 4a already required the map)
         if protectedData { return deny("DATA_FORBIDDEN") }
@@ -191,7 +200,7 @@ func decide(mandate M: V?, mandateSigValid: Bool, action A: V, now: Int64, state
     if R.decision == "deny" { return R }
     // 12
     var D: Verdict? = nil
-    if protectedData && rule != "publish" && rule != "pass" {
+    if protectedData && rule != "publish" && rule != "pass" && rule != "http" {
         let DP = perms["disclosure"]
         if DP?.boolean == false { D = deny("DATA_FORBIDDEN") }
         else if absentOrNull(DP) || absentOrNull(DP?["data"]) { D = deny("DATA_NOT_PERMITTED") }
@@ -222,7 +231,7 @@ func riskOf(_ A: V) -> String {
     let data = (A["data"]?.arr ?? []).compactMap { $0.str }
     switch cls {
     case "message", "disclosure": return data.contains(where: isProtected) ? "disclosure" : "low"
-    case "file", "publish": return "disclosure"
+    case "file", "publish", "http": return "disclosure"
     case "purchase", "sale", "refund": return "monetary"
     case "meeting": return A["principal_present"]?.boolean == true ? "low" : "irreversible"
     case "delete": return A["reversible"]?.boolean == true ? "low" : "irreversible"

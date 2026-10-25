@@ -1,0 +1,45 @@
+{
+ "id": "XHS05",
+ "class": "invalid",
+ "kind": "sequence",
+ "title": "`http: true` is MANDATE_MALFORMED",
+ "basis": "PH-3",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "message": {
+       "to": [
+        "buh@firma1.example"
+       ]
+      },
+      "http": true
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "named_circle": false,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "reject",
+    "reason": "MANDATE_MALFORMED"
+   }
+  ]
+ }
+}

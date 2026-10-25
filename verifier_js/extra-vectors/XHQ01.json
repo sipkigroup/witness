@@ -1,0 +1,127 @@
+{
+ "id": "XHQ01",
+ "class": "invalid",
+ "kind": "sequence",
+ "title": "Mandate with http registered; listed request allowed, unlisted asked, unmatchable asked",
+ "basis": "PH-5, PH-8",
+ "input": {
+  "pinned_principal_key": "pk-principal",
+  "ops": [
+   {
+    "op": "register_mandate",
+    "mandate": {
+     "id": "m1",
+     "principal": "pk-principal",
+     "agent": "agent-1",
+     "nbf": 0,
+     "exp": 86400,
+     "key_attestation": "software",
+     "permissions": {
+      "message": {
+       "to": [
+        "buh@firma1.example"
+       ]
+      },
+      "http": {
+       "allow": [
+        "GET api.github.com/repos/acme/app/**",
+        "PUT api.github.com/repos/acme/app/pulls/*/merge",
+        "* uploads.example.com:8443/v1/*",
+        "POST *.hooks.example.net/in",
+        "GET 10.0.0.7:8080/",
+        "GET docs.example/caf%C3%A9"
+       ]
+      }
+     },
+     "forbidden_data": [],
+     "budget_window_s": 86400,
+     "named_circle": false,
+     "v": "deus-aar-0.1",
+     "currency": "USD"
+    },
+    "signed_by": "pk-principal"
+   },
+   {
+    "op": "authorize",
+    "id": "a0",
+    "mandate": "m1",
+    "ttl": 1000,
+    "action": {
+     "class": "http",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 0,
+     "recipient": "GET api.github.com:443/repos/acme/app/x",
+     "data": []
+    }
+   },
+   {
+    "op": "authorize",
+    "id": "a1",
+    "mandate": "m1",
+    "ttl": 1000,
+    "action": {
+     "class": "http",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 0,
+     "recipient": "DELETE api.github.com:443/repos/acme/app/x",
+     "data": []
+    }
+   },
+   {
+    "op": "authorize",
+    "id": "a2",
+    "mandate": "m1",
+    "ttl": 1000,
+    "action": {
+     "class": "http",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 0,
+     "recipient": "GET api.github.com:443/repos/acme/app/x/../../admin",
+     "data": []
+    }
+   },
+   {
+    "op": "authorize",
+    "id": "a3",
+    "mandate": "m1",
+    "ttl": 1000,
+    "action": {
+     "class": "http",
+     "agent": "agent-1",
+     "t": 100,
+     "amount": 0,
+     "recipient": "GET api.github.com:443/repos/acme/app/x",
+     "data": [
+      "api_key"
+     ]
+    }
+   }
+  ]
+ },
+ "expected": {
+  "steps": [
+   {
+    "result": "accept"
+   },
+   {
+    "verdict": "allow",
+    "reason": "OK"
+   },
+   {
+    "verdict": "defer",
+    "reason": "ESCALATE_HTTP"
+   },
+   {
+    "verdict": "defer",
+    "reason": "ESCALATE_HTTP"
+   },
+   {
+    "verdict": "deny",
+    "reason": "DATA_FORBIDDEN"
+   }
+  ]
+ }
+}

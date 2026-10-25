@@ -98,7 +98,7 @@ func optUintOrNull(_ m: V, _ k: String) -> Bool { guard let x = m[k] else { retu
 /// `permit_ref`, `allow_irreversible`) may be `null`. Literal mode rejects `null` there (MANDATE_MALFORMED).
 func nullOK(_ m: V, _ k: String) -> Bool { !OPT.cddlLiteral && m[k]?.isNull == true }
 /// -05 §6.1: count-class and the ask-over map.
-let COUNT_CLASSES: Set<String> = ["message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish", "pass"]
+let COUNT_CLASSES: Set<String> = ["message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish", "pass", "http"]
 func askOverOK(_ a: V) -> Bool {
     if a.isNull { return true }
     guard a.isMap, onlyKeys(a, ["amount", "committed", "count"]), optUintOrNull(a, "amount"), optUintOrNull(a, "committed") else { return false }
@@ -141,7 +141,7 @@ func mandateMatchesCDDL(_ m: V) -> Bool {
             if let u = h["uri"], u.str == nil { return false } }
     }
     guard let p = m["permissions"], p.isMap,
-          onlyKeys(p, ["message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish"]) else { return false }
+          onlyKeys(p, ["message", "file", "disclosure", "purchase", "sale", "meeting", "refund", "delete", "publish", "http"]) else { return false }
     for (kv, v) in p.mapPairs! {
         let k = kv.str!
         if v.isNull || v.boolean == false { continue }                         // every permission: `/ false / null`
@@ -158,6 +158,7 @@ func mandateMatchesCDDL(_ m: V) -> Bool {
             if let a = v["allow_irreversible"], a.boolean == nil, !nullOK(v, "allow_irreversible") { return false }
         case "publish":
             guard v.isMap, onlyKeys(v, ["channels"]), isTstrArray(v["channels"]) else { return false }
+        case "http": if !httpPermWellFormed(v) { return false }              // PROPOSAL-08-http PH-3
         default: return false
         }
     }

@@ -2,6 +2,7 @@
 // State is ALWAYS re-derived from the ledger (§7.2): there is no per-instance memory,
 // so `restart` and multiple `instance` values cannot change any result by construction.
 import { evaluate, riskOf } from './evaluate.mjs';
+import { permWellFormed as httpPermWellFormed } from './httpcanon.mjs';
 
 export const DEFAULT_TTL = 300; // NOT in the spec (AMBIGUITY-6). Chosen = only ttl value seen in vectors.
 const DEFAULT_CEILING_WINDOW = 86400; // NOT in the spec for register_ceiling without window (AMBIGUITY-9).
@@ -59,6 +60,7 @@ export class Witness {
     switch (o.op) {
       case 'register_mandate': {
         if (o.signed_by !== this.pinned) return { result: 'reject', reason: 'KEY_MISMATCH' }; // §4.2, no state change
+        if (o.mandate?.permissions && !httpPermWellFormed(o.mandate.permissions.http)) return { result: 'reject', reason: 'MANDATE_MALFORMED' };   // PROPOSAL-08-http PH-3
         this.append('MANDATE', this.now(), { mandate: o.mandate });
         return { result: 'accept' };
       }

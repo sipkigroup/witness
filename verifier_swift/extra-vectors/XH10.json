@@ -1,0 +1,52 @@
+{
+ "id": "XH10",
+ "class": "valid",
+ "kind": "decision",
+ "title": "`unlisted: deny` does not stop a listed request",
+ "basis": "PH-5 3 before 4",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "message": {
+     "to": [
+      "buh@firma1.example"
+     ]
+    },
+    "http": {
+     "allow": [
+      "GET api.github.com/repos/acme/app/**",
+      "PUT api.github.com/repos/acme/app/pulls/*/merge",
+      "* uploads.example.com:8443/v1/*",
+      "POST *.hooks.example.net/in",
+      "GET 10.0.0.7:8080/",
+      "GET docs.example/caf%C3%A9"
+     ],
+     "unlisted": "deny"
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD"
+  },
+  "action": {
+   "class": "http",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "GET api.github.com:443/repos/acme/app/x",
+   "data": []
+  }
+ },
+ "expected": {
+  "verdict": "allow",
+  "reason": "OK"
+ }
+}

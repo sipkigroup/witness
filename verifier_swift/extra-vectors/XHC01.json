@@ -1,0 +1,63 @@
+{
+ "id": "XHC01",
+ "class": "invalid",
+ "kind": "decision",
+ "title": "http is a counted class: {http: {max: 1}} with one earlier request -> COUNT_LIMIT",
+ "basis": "PH-5 (steps 12a/13 apply as to every class), PH-3 count-class",
+ "input": {
+  "mandate": {
+   "id": "m1",
+   "principal": "pk-principal",
+   "agent": "agent-1",
+   "nbf": 0,
+   "exp": 86400,
+   "key_attestation": "software",
+   "permissions": {
+    "message": {
+     "to": [
+      "buh@firma1.example"
+     ]
+    },
+    "http": {
+     "allow": [
+      "GET api.github.com/repos/acme/app/**",
+      "PUT api.github.com/repos/acme/app/pulls/*/merge",
+      "* uploads.example.com:8443/v1/*",
+      "POST *.hooks.example.net/in",
+      "GET 10.0.0.7:8080/",
+      "GET docs.example/caf%C3%A9"
+     ]
+    }
+   },
+   "forbidden_data": [],
+   "budget_window_s": 86400,
+   "named_circle": false,
+   "v": "deus-aar-0.1",
+   "currency": "USD",
+   "ask_over": {
+    "count": {
+     "http": {
+      "max": 1
+     }
+    }
+   }
+  },
+  "action": {
+   "class": "http",
+   "agent": "agent-1",
+   "t": 100,
+   "amount": 0,
+   "recipient": "GET api.github.com:443/repos/acme/app/x",
+   "data": []
+  },
+  "ledger_state": {
+   "counts": {
+    "http": 1
+   }
+  }
+ },
+ "expected": {
+  "verdict": "deny",
+  "reason": "COUNT_LIMIT"
+ }
+}

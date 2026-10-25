@@ -5,7 +5,8 @@
 // is listed as an AMBIGUITY in OTCHET-INTEROP.
 
 export const REGISTERED = new Set(['message', 'file', 'disclosure', 'purchase', 'sale',
-  'refund', 'meeting', 'delete', 'publish']);            // §5.6 table
+  'refund', 'meeting', 'delete', 'publish', 'http']);    // §5.6 table + PROPOSAL-08-http (0.2.43)
+import { allowed as httpAllowed } from './httpcanon.mjs';
 export const NON_PROTECTED = new Set(['city']);          // §5.5
 export const isProtected = (c) => !NON_PROTECTED.has(c); // §5.5 "every unregistered ... protected"
 export const MAX_AMOUNT = 10n ** 15n;                    // §5.2
@@ -65,7 +66,7 @@ export function riskOf(A) {
     case 'purchase': case 'sale': case 'refund': return 'monetary';
     case 'meeting': return A.principal_present === true ? 'low' : 'irreversible';
     case 'delete': return A.reversible === true ? 'low' : 'irreversible';   // "reversible flag, default false"
-    case 'publish': return 'disclosure';
+    case 'publish': case 'http': return 'disclosure';
     default: return 'irreversible';
   }
 }
@@ -174,6 +175,15 @@ export function evaluate(M, A, S = {}, opts = {}) {
       const ch = Array.isArray(P.channels) ? P.channels : null;
       if (!ch) { R = deny('UNDEFINED_BY_SPEC', risk); break; }
       R = ch.map(canonRecipient).includes(canonRecipient(A.recipient)) ? allow('OK', risk) : deny('RECIPIENT', risk);
+      break;
+    }
+    case 'http': {
+      // PROPOSAL-08-http PH-5: protected data first (step 12 does not apply); `true` is malformed; listed -> allow; unlisted deny -> RESOURCE; else ask.
+      if (prot) { R = deny('DATA_FORBIDDEN', risk); break; }
+      if (P === true) { R = deny('CLASS_DENIED', risk); break; }
+      const hp = P && typeof P === 'object' && !Array.isArray(P) ? P : {};
+      if (Array.isArray(hp.allow) && httpAllowed(hp.allow, A.recipient)) { R = allow('OK', risk); break; }
+      R = hp.unlisted === 'deny' ? deny('RESOURCE', risk) : defer('ESCALATE_HTTP', risk);
       break;
     }
     default:
