@@ -13,7 +13,7 @@ An account without a policy works exactly as in 0.1 ("solo": the owner's pinned 
 | `observer` | read only: the feed, the digest, the evidence pack. Signs nothing and is **not** in the policy |
 One person may hold several roles. A quorum is counted over **different keys** (`kid`), so one person with two roles closes both
 requirements only where each needs k = 1. Every changing request passes one rights check on the server (`require(user, account, action)`);
-an observer gets `403` on every changing path *(tested, `server/tests/test_org.py::test_6_observer_403_on_every_changing_path`)*.
+an observer gets `403` on every changing path *(tested)*.
 
 ## 2. The policy
 A signed CBOR document (`typ application/dw-org-policy+cbor`, version `dw-org-policy-0.1`): members (<= 16; key id, public key, roles,
@@ -34,7 +34,7 @@ builds a quorum envelope `wq` (`deus-aar-wq-0.1`: typ, payload, policy hash, sig
 approval once. Until then the mandate stays "collecting 1/2" and the agent is refused (`NO_MANDATE`). A mandate draft lives 24 h.
 **Stopping is easy, permitting is hard**: revocation needs ONE signature of any signer; widening rights needs the quorum of the role.
 
-*Tested in the browser* (`cloud/e2e/test_team.py`, three Chromium profiles with three CDP virtual authenticators, real 0.2.0 server,
+*Tested in the browser* (three Chromium profiles with three CDP virtual authenticators, real 0.2.0 server,
 19.10.2026): invitations -> policy v2 "mandates with purchases over 500 USD: 2 of 3 budget signers" -> a $2000 mandate: after one
 signature "collecting 1/2" and the agent gets `NO_MANDATE`; after the second, the ledger's MANDATE entry carries a `wq` with exactly the
 two signers' key ids and the agent's $300 purchase is allowed -> a **non-owner** budget signer revokes with one signature (the ledger's
@@ -43,8 +43,8 @@ revocation carries only that signer's key id) -> the agent is refused.
 ## 4. What a third party sees
 The evidence pack carries `org/policy-v<N>.cbor` with the envelope of each version, the registry chain, and for every
 MANDATE / APPROVAL / REVOCATION which key ids signed and under which version. `verify_pack.py` checks the chain, the signatures and,
-in a second pass over the ledger, that each quorum met the policy **in force at the entry's time**. My run of
-`server/tests_pack/test_team_pack_server.py` (19.10.2026: a 3-member organisation built by the real server, a 2-of-3 mandate, a quorum
+in a second pass over the ledger, that each quorum met the policy **in force at the entry's time**. A run of
+the server's pack test (19.10.2026: a 3-member organisation built by the real server, a 2-of-3 mandate, a quorum
 approval, a one-signature refusal, a batch of 3 publications, an advisory hold + release, coverage from the proxy, a revocation, the
 anchor job with two **test** TSAs) printed:
 ```
@@ -64,7 +64,7 @@ It does **not** see: names and e-mail addresses (only labels and key ids), obser
 ## 5. Limits
 1. **Policy time is the witness's time.** "Was version v in force when this entry was written" is decided by the entry time, which the
    witness signs (-04 §12.6). A dishonest or wrong-clock witness could accept a signature of a member removed a minute earlier. Same
-   trust as key pinning in 0.1. In the pack the time of each policy version is signed only by the manifest (OTCHET-0.2.0 §4 p.8).
+   trust as key pinning in 0.1. In the pack the time of each policy version is signed only by the manifest.
 2. The quorum check inside the core's registry is stateless; policy-at-time is a **second pass** outside the core (server at intake,
    `verify_pack` on the ledger). An error there would accept a removed member's signature; the contract vectors include "removed in v3,
    signed by v2 after v3 -> `WQ_POLICY_STALE`".

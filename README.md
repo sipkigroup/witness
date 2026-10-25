@@ -1,23 +1,33 @@
 # Deus Witness
 
-**An independent witness for AI-agent tool calls.** Your agent asks before it acts; a witness that is *not* the agent's operator
+**A witness service for AI-agent tool calls.** Your agent asks before it acts; a witness outside the agent
 checks the call against a mandate you signed, and answers `allow`, `deny` or `defer` (wait for you). Every answer is a signed,
 append-only, independently verifiable receipt - so "what did the agent do, and who allowed it" has an answer you do not have to take on trust.
 
 - Hosted service: <https://witness.sipkigroup.com> - live demo: <https://witness.sipkigroup.com/demo>
-- This repository: the open parts - the receipt specification, two independent verifiers, the TypeScript client, the Python client and the HTTP API contract (OpenAPI, data only).
+- This repository: the open parts - the receipt specification, two separate verifiers, the TypeScript client, the Python client and the HTTP API contract (OpenAPI, data only).
 
-> **Status: early (0.x).** The specification is an unpublished individual draft (not an IETF standard, not submitted anywhere).
-> The evidence so far is our own simulations and independent implementations written inside one project; there are no external audits or deployments yet.
+> **Status: early (0.x).** The specification is an individual draft in `spec/` (not an IETF standard, not submitted to the IETF).
+> The evidence so far is our own simulations and separate implementations written from the spec by one author; there are no external audits or deployments yet.
 > Treat it as something to test and attack, not as a certified security boundary. Reports of bypasses are the most valuable thing you can send us.
+
+## Try it (Claude Code, needs `uv` or `pip install deus-witness`)
+
+```
+/plugin marketplace add sipkigroup/witness
+/plugin install deus-witness@sipkigroup
+/deus-witness:try
+```
+
+`try` makes a trial account and opens a page in your browser. The first tool call that needs you waits; the page asks for two passkey touches (one makes your passkey, one signs the recommended rules), then that call is decided - allowed, refused, or shown to you for one more touch. Until your first touch every call waits. A trial account you do not keep is erased after 7 days. Without the plugin: `deus-witness try`.
 
 ## What is here
 
 | Path | What | License |
 |---|---|---|
 | `spec/` | Draft specification of the action receipt (`draft-deus-aar-05`, plus history and errata) and the test vectors (`spec/vectors`) | Apache-2.0 |
-| `verifier_js/` | Independent clean-room verifier in JavaScript | Apache-2.0 |
-| `verifier_swift/` | Independent clean-room verifier in Swift (source; build with `./build.sh`) | Apache-2.0 |
+| `verifier_js/` | Verifier in JavaScript, written from the spec | Apache-2.0 |
+| `verifier_swift/` | Verifier in Swift, written from the spec (source; build with `./build.sh`) | Apache-2.0 |
 | `sdk-ts/` | `@deus-witness/sdk` (npm): TypeScript client, no dependencies | Apache-2.0 |
 | `python/` | `deus-witness` (PyPI): Python thin client - MCP proxy, Claude Code hook, doctor, SDK. Registry name `io.github.sipkigroup/witness` | Apache-2.0 |
 | `contract/` | HTTP API contract (OpenAPI), WebAuthn signing profile, contract stub | Apache-2.0 |
@@ -30,7 +40,7 @@ append-only, independently verifiable receipt - so "what did the agent do, and w
 You can implement your own witness from `spec/` and `contract/`.
 
 ## Use it
-Claude Code, one command: `/plugin install deus-witness --marketplace sipkigroup/witness` (or `/plugin marketplace add sipkigroup/witness`, then `/plugin install deus-witness@sipkigroup`); see [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md).
+Claude Code: the three commands above (the one-step form `/plugin install deus-witness --marketplace sipkigroup/witness` also exists in Claude Code 2.1.275 or later); see [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md).
 
 The hosted service is at <https://witness.sipkigroup.com>. From TypeScript: `npm install @deus-witness/sdk` (see [`sdk-ts/README.md`](sdk-ts/README.md)). From Python, or to put any MCP server behind the witness: `pip install deus-witness` or, with no install, `uvx deus-witness -- <your MCP server command>` (MCP Registry: `io.github.sipkigroup/witness`; see [`python/README.md`](python/README.md); setup: <https://witness.sipkigroup.com/dl/docs/quickstart.html>).
 Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.yaml) and [`integrations/`](integrations/).

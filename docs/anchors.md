@@ -23,7 +23,7 @@ about calls that never reached the witness (see the coverage page).
 - **A TSA is a trusted third party** (unlike Bitcoin): you trust its key, its clock and its certificate chain; the root of trust in the
   pack comes from the pack's author (the verifier prints its fingerprint; `--tsa-ca` lets you pin your own).
 - **These are NOT qualified time stamps (eIDAS)** and not "legally binding" anywhere: call them "RFC 3161 time stamp from FreeTSA".
-  Qualified stamps are separate paid services (a contract for the enterprise plan, not a free second anchor).
+  Qualified stamps are separate paid services, not part of the free tier.
 - Profile `enterprise` shows both anchors.
 
 ### 2.1 Switching it on: `DW_TSA_URL` (0.2.9)
@@ -46,20 +46,18 @@ Off by default: with neither `DW_TSA_URL` nor `DW_TSA=on` set, no timestamp requ
 - The browser check of the pack (`packcheck.js`) does not verify RFC 3161 tokens; `verify_pack.py` does.
 
 ## 3. Status in 0.2.1 - read this before relying on the second anchor
-- Which TSA may be asked (decision of 19.10.2026, `cloud/lib/tsa/USLOVIYA.md`; the terms are known from research only, not read
-  first-hand): a provider in `cloud/lib/tsa/providers.json` is queried only if `take: true` AND `terms: "allowed"` AND its root
+- Which TSA may be asked (decision of 19.10.2026; the provider terms have not been read first-hand yet): a provider in `cloud/lib/tsa/providers.json` is queried only if `take: true` AND `terms: "allowed"` AND its root
   certificate is on disk. **FreeTSA** is `take: true` (commercial use allowed per research, 1 request/s, no SLA, own root, not
   qualified); **DigiCert** is off (`terms: "unconfirmed"`) until it confirms in writing. **Sectigo, Apple, GlobalSign, Entrust** are
-  excluded in code (`EXCLUDED` in `server/app/jobs.py`, by name and by host): their free endpoints are for code signing only.
+  excluded in the server (by name and by host): their free endpoints are for code signing only.
 - **In fact no live TSA is asked yet**: the FreeTSA root `ca/freetsa.pem` is not in the repository (the build sessions had no route to
   freetsa.org), so the anchor job writes `tsa=0` and a WARN line. A person with a browser has to add the root (fingerprint checked over
-  two channels), quote the terms in `USLOVIYA.md` and make one live stamp.
-- Even then there is ONE free TSA, not two: the requirement "two free independent TSAs" of ARHITEKTURA-0.2 section 7 is dropped. A
+  two channels), check the provider's terms and make one live stamp.
+- Even then there is ONE free TSA, not two: there is no promise of two free independent TSAs. A
   second independent TSA = DigiCert after a written answer, or a paid TSA under contract.
-- The whole path was exercised against **two local test TSAs** only. My run of `server/tests_pack/test_team_pack_server.py`
+- The whole path was exercised against **two local test TSAs** only. A run of the server's own pack tests
   (19.10.2026) printed `tsa 20261019T020441Z-b2995c14: OK (tsa-a, tsa-b)` and, for the Bitcoin anchor with `DW_ANCHOR=off`,
   `anchor 20261019T020441Z-b2995c14: pending (inclusion in batch root proven; not stamped)`.
-- Texts must not promise "two independent timestamp authorities" (OTCHET-0.2.0 section 4 p.3, OTCHET-P0 section 4).
 
 ## 4. Which anchor answers which question
 | question | ledger + witness signature | Bitcoin (OTS) | RFC 3161 (each enabled TSA) |

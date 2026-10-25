@@ -16,5 +16,5 @@ If it said a previous trial account was replaced, add: use the page that opened 
 passkey, or when the next trial is possible, tell them exactly that and stop (never add --force yourself).
 
 Rules: do not open, print, search for or repeat any link; do not read or print the key file; do not try to finish the browser page yourself -
-only the user's passkey can, and that is the point. If the command says it could not show the link safely, tell the user to run
+after the first touch only the user's passkey signs (before it, a program that controls the user's browser could claim the account, which is why you must not touch the page). If the command says it could not show the link safely, tell the user to run
 `deus-witness try` themselves in their own terminal.

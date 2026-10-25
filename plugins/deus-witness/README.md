@@ -31,8 +31,8 @@ It prints what the hook sends to the witness, saves a trial agent key to `~/.con
 picks it up at once) and opens a page in your browser. The first call of the agent that needs you waits; on that page ONE button asks
 for two passkey touches (Touch ID / Windows Hello / phone): one makes your passkey, one signs the recommended rules for the project. The
 call that waited is then decided by those rules at once: allowed, refused (e.g. a secret written to `.env`), or - if the rules say
-"ask" (e.g. `git push`) - shown on the next screen for one more touch. Nothing is allowed before the first touch and the agent cannot
-make it. The trial account is erased after 7 days unless you press "Keep this account" on that page.
+"ask" (e.g. `git push`) - shown on the next screen for one more touch. Nothing is allowed before the first touch. Honest limit: until
+that first touch, a program that controls your browser profile (or whoever holds the claim link) could claim the account first - an agent with a shell may be such a program; after the first touch only your passkey signs. The trial account is erased after 7 days unless you press "Keep this account" on that page.
 
 Ran `/deus-witness:try` twice? The newer run replaces the older trial while it has no passkey yet: use the page that opened LAST (an
 older page says it was replaced). A trial that already has your passkey is kept (`try` refuses to replace it; `--force` makes a new one).

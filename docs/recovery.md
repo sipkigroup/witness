@@ -60,7 +60,7 @@ keys: 2 keys (1 added: 0 by passkey, 1 by recovery code (witness-attested); 1 re
 quorum: 1/1 entries meet policy-at-time
 RESULT: VALID
 ```
-(from my run of `server/tests/test_recovery_org.py::test_o1_owner_key_replaced_by_two_others_and_pack_valid`, 19.10.2026: the owner of a
+(from a test run, 19.10.2026: the owner of a
 3-member organisation lost the phone; Bob and Carol replaced the key.)
 
 ## 4. Mandates signed by the lost key

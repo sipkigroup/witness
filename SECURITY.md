@@ -10,8 +10,9 @@ Include: affected component and version, what an attacker gains, steps or a proo
 
 ## Scope
 
-In scope: the specification (`spec/`) where it allows a forged or ambiguous receipt, the verifiers (`verifier_js/`, `verifier_swift/`), the TypeScript client (`sdk-ts/`), and this repository's release workflows.
-Out of scope: social engineering, denial of service by volume, findings that need a modified client or a stolen owner key.
+In scope: the specification (`spec/`) where it allows a forged or ambiguous receipt, the verifiers (`verifier_js/`, `verifier_swift/`), the TypeScript client (`sdk-ts/`), the Python client and Claude Code hook (`python/`), the Claude Code plugin (`plugins/`), and this repository's release workflows.
+A way for an agent to turn off or get around the hook (through its config, environment or files) is in scope: that is the attack the hook exists to stop.
+Out of scope: social engineering, denial of service by volume, a stolen owner key, and a modified client run by the attacker on a machine they already control outside the agent's reach (an agent rewriting its own hook or settings is NOT that and is in scope).
 The hosted service at witness.sipkigroup.com is covered by the same contact; please do not test it at volume.
 
 ## Supported versions
