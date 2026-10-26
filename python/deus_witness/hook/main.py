@@ -66,7 +66,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import failsafe, fingerprint
+from . import failsafe, fingerprint, gitref
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -509,7 +509,7 @@ class Facts:
         self.proc_cwd = os.getcwd()
         self.home = _compat.home()
         self.env = {k: env[k] for k in ENV_KEYS if isinstance(env.get(k), str)}
-        self.fs = {"realpath": {}, "isdir": {}, "exists": {}}
+        self.fs = {"realpath": {}, "isdir": {}, "exists": {}, "gitref": {}}    # gitref (0.2.37): the witness may ask what a ref switch rewrites
         self.exec = "off" if self.env.get("DEUS_WITNESS_EXEC_SCAN") == "0" else None
         self.nonce = secrets.token_urlsafe(24)        # R9-01: 192 bits, fresh for every call (and for a re-judge)
         cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and _is_abs(ev.get("cwd")) else self.proc_cwd
@@ -524,6 +524,7 @@ class Facts:
         self.bases |= {v for v in self.fs["realpath"].values() if isinstance(v, str)}
         self.words = set()
         inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+        self.text = "\0".join(_strings([inp.get(k) for k in _PATH_FIELDS], []))    # a ref asked about must be written in the call
         # only the fields that name paths (not the text of a Write or an Edit: words of a file's content name nothing to look up)
         for t in _strings([inp.get(k) for k in _PATH_FIELDS], []):
             # as written, and with quotes / backslashes / $VAR / ${VAR} taken out (bash joins `"${HOME}/a"1` into one word `<home>/a1`)
@@ -596,6 +597,14 @@ class Facts:
                 self.fs[kind][p] = v
                 if kind == "realpath" and isinstance(v, str):
                     self.bases.add(v)                 # the classifier goes on from where a link of the call points
+        refs = need.get("gitref") or []
+        if not isinstance(refs, list) or len(refs) > 16 or not all(isinstance(x, list) and len(x) == 2 and all(isinstance(y, str) and 0 < len(y) <= 4096 for y in x)
+                                                                  for x in refs):
+            raise Fail("HOOK_ERROR", "(bad witness answer)")
+        if not all(self.related(top) and _is_abs(top) and (ref == "-" or ref in self.text) for top, ref in refs):
+            raise Fail("HOOK_ERROR", "(the witness asked about a path unrelated to this call)")
+        for top, ref in refs:                         # 0.2.37: what switching that repository to `ref` rewrites (git plumbing only, gitref.py)
+            self.fs["gitref"][top + "\n" + ref] = gitref.answer(top, ref, avoid=(self.root,))
         if "scan" in need:
             if need["scan"] != self.root or self.root is None:
                 raise Fail("HOOK_ERROR", "(the witness asked for another directory)")

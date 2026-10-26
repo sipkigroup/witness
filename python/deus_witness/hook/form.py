@@ -17,11 +17,18 @@ DEFAULT_WEB_DOMAINS = ["localhost", "127.0.0.1", "docs.python.org", "pypi.org", 
 # Default read-only commands of the recommended mandate (command.allow), 0.2.9: modelled on Claude Code's own read-only set.
 # A listed name covers only the plain form of the command (the witness names other forms differently and asks). Same list: the server's
 # preset and the Mandate page (a test keeps them equal). The owner-facing summary is docs/coverage-public.md.
+# 0.2.37: + 15 local writes (mkdir, touch, cp, mv, ln, chmod, rm, rmdir, git add/commit/checkout/switch/restore/mv/rm): the witness (server
+# 0.2.53) lets only the form through whose every path is inside the project; any other form of them is asked.
+# 0.2.38: + find, sed, awk, jq: the witness (server 0.2.54) lets only the form through that reads and prints; -exec, -delete, sed -i, e, w,
+# awk system(), pipes, print > file, jq env ... are asked.
 DEFAULT_SAFE_COMMANDS = ["ls", "pwd", "cd", "cat", "head", "tail", "wc", "echo", "grep", "rg", "which", "file", "stat", "du", "df",
                          "date", "uname", "git status", "git log", "git diff", "git show", "git branch", "diff", "tree", "sort",
                          "uniq", "cut", "tr", "nl", "column", "basename", "dirname", "realpath", "sha1sum", "sha256sum", "sha512sum",
                          "shasum", "cmp", "comm", "test", "sleep", "git blame", "git ls-files", "git rev-parse", "git describe",
-                         "git shortlog", "git grep", "git reflog"]
+                         "git shortlog", "git grep", "git reflog",
+                         "mkdir", "touch", "cp", "mv", "ln", "chmod", "rm", "rmdir", "git add", "git commit", "git checkout",
+                         "git switch", "git restore", "git mv", "git rm",
+                         "find", "sed", "awk", "jq"]
 
 
 def default_form(project_dir: str, web_domains=None, safe_commands=None) -> dict:

@@ -5,8 +5,8 @@
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.36"; Python 3.10+ in a venv)
-#   2. `uvx --from "deus-witness>=0.2.36" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.38"; Python 3.10+ in a venv)
+#   2. `uvx --from "deus-witness>=0.2.38" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
 # (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json; the client reads it itself).
@@ -17,7 +17,7 @@
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness>=0.2.36"
+SPEC="deus-witness>=0.2.38"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
 TRY="/deus-witness:try (or in your terminal: uvx --from \"$SPEC\" deus-witness try)"
 
