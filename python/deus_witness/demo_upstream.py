@@ -2,6 +2,9 @@
 import json
 import os
 import time
+from typing import Annotated
+
+from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
 
@@ -16,36 +19,50 @@ def _effect(tool: str, args: dict) -> None:
 
 
 @mcp.tool()
-def send_email(to: str, subject: str, body: str) -> str:
-    """Send an email (demo: only recorded)."""
+def send_email(
+    to: Annotated[str, Field(description="Recipient email address, e.g. alice@example.com. Free text in this demo; nothing is validated or sent.")],
+    subject: Annotated[str, Field(description="Subject line, plain text.")],
+    body: Annotated[str, Field(description="Message body, plain text.")],
+) -> str:
+    """Send an email. Demo tool: no mail leaves the machine; the call is only appended as one line to $DEUS_DEMO_OUT/effects.jsonl and a confirmation string is returned. Use it to see how the witness decides on a call with an outside effect (allow, deny or defer to the owner); use read_file instead for a call without one. Needs no credentials."""
     _effect("send_email", {"to": to, "subject": subject, "body": body})
     return "email to %s queued (demo)" % to
 
 
 @mcp.tool()
-def purchase(vendor: str, amount_cents: int) -> str:
-    """Buy something (demo: only recorded)."""
+def purchase(
+    vendor: Annotated[str, Field(description="Name of the vendor to pay, free text, e.g. acme-store.")],
+    amount_cents: Annotated[int, Field(description="Amount in integer cents (1999 means 19.99). The mandate can cap this value.")],
+) -> str:
+    """Record a purchase of the given amount at a vendor. Demo tool: no money moves and nothing is bought; the call is only appended as one line to $DEUS_DEMO_OUT/effects.jsonl. Use it to see how a witness mandate with a spending limit allows, denies or defers a call. Needs no credentials."""
     _effect("purchase", {"vendor": vendor, "amount_cents": amount_cents})
     return "purchase of %d cents at %s recorded (demo)" % (amount_cents, vendor)
 
 
 @mcp.tool()
-def delete_resource(resource: str) -> str:
-    """Delete a resource (demo: only recorded)."""
+def delete_resource(
+    resource: Annotated[str, Field(description="Identifier of the resource to delete, free text, e.g. db/orders-2025.")],
+) -> str:
+    """Delete a named resource. Demo tool: nothing is deleted; the call is only appended as one line to $DEUS_DEMO_OUT/effects.jsonl. It stands for a destructive action that a mandate would normally hold for the owner's approval. Needs no credentials."""
     _effect("delete_resource", {"resource": resource})
     return "resource %s deleted (demo)" % resource
 
 
 @mcp.tool()
-def publish(channel: str, text: str) -> str:
-    """Publish text to a channel (demo: only recorded)."""
+def publish(
+    channel: Annotated[str, Field(description="Name of the channel to post to, free text, e.g. #announcements.")],
+    text: Annotated[str, Field(description="Text to post, plain text.")],
+) -> str:
+    """Publish text to a channel. Demo tool: nothing is posted anywhere; the call is only appended as one line to $DEUS_DEMO_OUT/effects.jsonl. It stands for an outward, public action. Needs no credentials."""
     _effect("publish", {"channel": channel, "text": text})
     return "published to %s (demo)" % channel
 
 
 @mcp.tool()
-def read_file(path: str) -> str:
-    """Read a file (demo: returns fixed text, reads nothing)."""
+def read_file(
+    path: Annotated[str, Field(description="Path of the file to read, free text, e.g. /tmp/notes.txt. The file is never opened.")],
+) -> str:
+    """Read a file. Demo tool: reads nothing from disk and returns the fixed text 'demo contents of <path>'; the call is only appended as one line to $DEUS_DEMO_OUT/effects.jsonl. A read-only call, so a witness usually lets it pass. Needs no credentials."""
     _effect("read_file", {"path": path})
     return "demo contents of %s" % path
 

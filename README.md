@@ -4,6 +4,9 @@
 checks the call against a mandate you signed, and answers `allow`, `deny` or `defer` (wait for you). A decision made against your mandate is a signed,
 append-only receipt you can verify offline (a few automatic refusals, e.g. a call before any mandate or over a rate limit, are kept only in the server database) - so "what did the agent do, and who allowed it" has an answer you do not have to take on trust.
 
+**Install and try (one command):** `uvx --from deus-witness deus-witness try` - or in Claude Code `/plugin marketplace add sipkigroup/witness`, then `/plugin install deus-witness@sipkigroup`.
+**As an MCP proxy** (stdio; after `--` put the MCP server you want witnessed; the bundled demo server records calls to a file and does nothing real): `uvx deus-witness -- deus-witness-demo-tools`, with `DEUS_WITNESS_KEY` (`dwk_...`, from your account at the hosted service) set.
+
 - Hosted service: <https://witness.sipkigroup.com> - live demo: <https://witness.sipkigroup.com/demo>
 - This repository: the open parts - the receipt specification, two separate verifiers, the TypeScript client, the Python client and the HTTP API contract (OpenAPI, data only).
 

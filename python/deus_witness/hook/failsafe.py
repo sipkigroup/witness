@@ -90,14 +90,24 @@ def managed_files(platform=None):
     return out + [os.path.join(d, "managed-settings.d", n) for n in names]
 
 
-def settings_files(project_dir: str | None, env=None):
-    """Highest priority first: managed (last drop-in first), project local, project, user, plugin."""
+def user_config_dir(env=None):
+    """Claude Code's user configuration directory: $CLAUDE_CONFIG_DIR when set to an absolute path, else ~/.claude."""
     e = os.environ if env is None else env
-    home = _compat.home(e)
+    cfg = e.get("CLAUDE_CONFIG_DIR")
+    return cfg if isinstance(cfg, str) and os.path.isabs(cfg) else os.path.join(_compat.home(e), ".claude")
+
+
+def settings_files(project_dir: str | None, env=None):
+    """Highest priority first: managed (last drop-in first), project local, project, user, plugin.
+    0.2.56: local BEFORE project (it was the other way round, so a project value beat a local one in the merged view; Claude Code's
+    order is "managed, command line, project local, shared project, user"), and the user file follows $CLAUDE_CONFIG_DIR when it is
+    set to an absolute path (Claude Code keeps settings.json there instead of ~/.claude). Read from the process environment only:
+    a settings `env` block must not redirect it."""
+    e = os.environ if env is None else env
     out = list(reversed(managed_files()))
     if project_dir:
-        out += [os.path.join(project_dir, ".claude", "settings.json"), os.path.join(project_dir, ".claude", "settings.local.json")]
-    out.append(os.path.join(home, ".claude", "settings.json"))
+        out += [os.path.join(project_dir, ".claude", "settings.local.json"), os.path.join(project_dir, ".claude", "settings.json")]
+    out.append(os.path.join(user_config_dir(e), "settings.json"))
     # 0.2.27: installed as a Claude Code plugin, the hook entry lives in the plugin's hooks/hooks.json, and Claude Code exports
     # CLAUDE_PLUGIN_ROOT to the hook process. Read that file too, or --session-start reports a missing hook that is there.
     root = e.get("CLAUDE_PLUGIN_ROOT")

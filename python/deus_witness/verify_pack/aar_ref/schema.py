@@ -91,7 +91,8 @@ def validate_mandate(m):
               "delete": lambda: isinstance(p, dict) and _is_strs(p.get("targets", [])) and (p.get("allow_irreversible") is None or isinstance(p["allow_irreversible"], bool)),
               "publish": lambda: isinstance(p, dict) and _is_strs(p.get("channels", [])),
               "command": lambda: isinstance(p, dict) and (p.get("allow") is None or _is_strs(p["allow"]))
-                                 and p.get("unlisted") in (None, "ask", "allow", "deny"),
+                                 and p.get("unlisted") in (None, "ask", "allow", "deny")
+                                 and p.get("sandboxed") in (None, "ask", "allow"),
               "http": lambda: isinstance(p, dict) and _http_rules_ok(p.get("allow")) and p.get("unlisted") in (None, "ask", "deny")}[k]()
         if not ok:
             return "permissions." + k
@@ -102,7 +103,7 @@ def validate_mandate(m):
 
 SUB_KEYS = {"message": {"to", "domains"}, "file": {"to", "domains"}, "disclosure": {"to", "domains", "data"},
             "purchase": {"max_per_action", "budget"}, "sale": {"min_price"}, "meeting": set(), "refund": set(),
-            "delete": {"targets", "allow_irreversible"}, "publish": {"channels"}, "command": {"allow", "unlisted"},
+            "delete": {"targets", "allow_irreversible"}, "publish": {"channels"}, "command": {"allow", "unlisted", "sandboxed"},
             "http": {"allow", "unlisted"}}
 
 

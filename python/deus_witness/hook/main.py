@@ -66,7 +66,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import failsafe, fingerprint, gitref
+from . import failsafe, fingerprint, gitref, sandbox_fact
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -524,6 +524,13 @@ class Facts:
         self.bases |= {v for v in self.fs["realpath"].values() if isinstance(v, str)}
         self.words = set()
         inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+        self.sandbox = None                           # V3: how Claude Code's sandbox is set up for this Bash call (the witness judges it)
+        if ev.get("tool_name") == "Bash":
+            try:
+                self.sandbox = sandbox_fact.fact(inp, self.root, env, self.env.get("HOME") or self.home,
+                                                transcript=ev.get("transcript_path"), permission_mode=ev.get("permission_mode"))
+            except Exception:      # noqa: BLE001  no fact = the witness asks as before
+                self.sandbox = None
         self.text = "\0".join(_strings([inp.get(k) for k in _PATH_FIELDS], []))    # a ref asked about must be written in the call
         # only the fields that name paths (not the text of a Write or an Edit: words of a file's content name nothing to look up)
         for t in _strings([inp.get(k) for k in _PATH_FIELDS], []):
@@ -575,7 +582,8 @@ class Facts:
 
     def body(self, ev, part=None):
         return {"v": 1, "event": {k: ev.get(k) for k in ("tool_name", "tool_input", "cwd") if k in ev},
-                "facts": {"home": self.home, "proc_cwd": self.proc_cwd, "env": self.env, "fs": self.fs, "exec": self.exec},
+                "facts": dict({"home": self.home, "proc_cwd": self.proc_cwd, "env": self.env, "fs": self.fs, "exec": self.exec},
+                              **({"sandbox": self.sandbox} if self.sandbox is not None else {})),
                 "client": CLIENT, "part": part, "nonce": self.nonce}
 
     def answer(self, need, w):
