@@ -19,7 +19,7 @@ The link that claims the account is a one-time secret. It goes ONLY to the brows
 server) and is never printed, logged or saved by this command - an agent that reads this command's output or your files must not get it.
 No browser here (SSH, a container)? The link is written to your terminal (/dev/tty) only, never to stdout or stderr; with no terminal either
 (0.2.34), nothing is saved, the trial account is withdrawn (POST /v1/trial/retire) and the exit code is 3: run `deus-witness try` yourself in
-a terminal, not through the agent.
+a terminal (`uvx --from deus-witness deus-witness try`), not through the agent.
 Unkept, the trial account and its journal are erased after 7 days (the page has a "Keep this account" button)."""
 from __future__ import annotations
 
@@ -36,6 +36,7 @@ from . import __version__, _compat
 
 DEFAULT_URL = "https://witness.sipkigroup.com"
 KEY_FILE = "agent-key.json"
+TRY_CMD = "uvx --from deus-witness deus-witness try"      # 0.2.40: what a person types; a uv user has no `deus-witness` on PATH
 SENT = ("the tool name and the full input of every call the hook sees (shell commands, file paths, URLs, the text of a Write/Edit)",
         "the working directory and the project directory",
         "answers to the witness' questions about paths of that call and SHA-256 fingerprints of project files a command runs")
@@ -129,7 +130,7 @@ def _retire(old, url, transport, force, path, out):
         return None
     if r.status_code == 409 and j.get("error") == "TRIAL_CLAIMED" and not force:
         print("deus-witness try: your trial account already has your passkey: it is yours, nothing changed (key: %s). Keep using it "
-              "(the page: %s/trial.html). To make another trial account anyway: deus-witness try --force" % (path, base.rstrip("/")), file=out)
+              "(the page: %s/trial.html). To make another trial account anyway: %s --force" % (path, base.rstrip("/"), TRY_CMD), file=out)
         return 2
     return None                                # expired, unknown key, an older server (404): make the new one
 
@@ -208,8 +209,8 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
             except OSError:
                 pass
         print("No browser here, and no terminal to show the link in (the link claims the account: it is shown only to a person, never "
-              "to this output). Nothing was saved and the trial account was withdrawn, so your calls are not held. Run `deus-witness try` "
-              "yourself in a terminal (SSH is fine: the link is shown there, and you can open it on your phone or laptop).", file=out)
+              "to this output). Nothing was saved and the trial account was withdrawn, so your calls are not held. Run `%s` "
+              "yourself in a terminal (SSH is fine: the link is shown there, and you can open it on your phone or laptop)." % TRY_CMD, file=out)
         return 3
     _save(path, {"key": j["api_key"], "url": url, "agent_id": j.get("agent_id"), "trial": True, "expires_at": j.get("expires_at"),
                  "project": os.path.realpath(o.project), "created_at": int(time.time())})
@@ -217,7 +218,8 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
         _mark_opened(e)                        # 0.2.39: the hook does not open a second tab for the same account right away
     print("Trial account ready (expires %s; %d calls a day)." % (time.strftime("%Y-%m-%d", time.gmtime(j.get("expires_at") or 0)), j.get("quota_per_day") or 0), file=out)
     print("Agent key saved to %s (mode 600). The Claude Code plugin and deus-witness-hook use it when DEUS_WITNESS_KEY is not set." % path, file=out)
-    print("Next: use Claude Code as usual. The first call that needs you waits; the browser page that just opened asks for two passkey "
+    page = "the browser page that just opened" if opened else "the page at the link above"     # 0.2.40: --no-browser shows a link
+    print("Next: use Claude Code as usual. The first call that needs you waits; " + page + " asks for two passkey "
           "touches (Touch ID / Windows Hello / phone): one makes the passkey, one signs the rules - nothing is allowed before that, and the agent cannot do it for you.", file=out)
     return 0
 

@@ -49,7 +49,9 @@ parents, and paths built from the words of the tool_input; any other question is
                                                 redirections work INSIDE the project and the temp dir (the witness judges a write as an
                                                 irreversible delete of its path). Add --no-irreversible for a read-only mandate: then
                                                 every Write / Edit is refused.
-  deus-witness-hook --doctor [PROJECT_DIR]      is the hook fail-closed here? (Claude Code version, settings.json); exit 1 if not
+  deus-witness-hook --doctor [PROJECT_DIR]      is the hook fail-closed here? (Claude Code version, settings.json, the
+                                                plugin as Claude Code registered it, the agent key); exit 1 if not or if
+                                                it cannot tell
   deus-witness-hook --session-start             for a SessionStart hook: a loud warning when the hook can be bypassed
   deus-witness-hook --trust URL                 pin the key of another witness (asks you to type yes; a terminal only)
 """
@@ -66,7 +68,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import failsafe, fingerprint, gitref, sandbox_fact
+from . import failsafe, fingerprint, gitref, sandbox_fact, selfpath
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -82,7 +84,7 @@ HINTS = {k: v[1] for k, v in LOCAL.items() if v[0] == "deny"}
 TRIAL_REASON = "ESCALATE_TRIAL_CLAIM"       # 0.2.28 (server 0.2.38): a trial account waits for its first touch
 TRIAL_OPEN_EVERY_S = 600
 TRIAL_WAIT_S = 90.0                          # 0.2.34: a trial account nobody has touched yet is waited for this long (an owner's question: DEUS_WITNESS_HOOK_WAIT)
-TRIAL_UNCLAIMED_TEXT = "Open the trial page from `deus-witness try` (or the link it showed you), touch the passkey, then ask again."
+TRIAL_UNCLAIMED_TEXT = "This trial account has no passkey yet (nothing ran). Open the trial page from `/deus-witness:try` or `uvx --from deus-witness deus-witness try` (or the link it showed you), touch the passkey, then ask again."
 
 
 def _trial_open(url, env) -> None:
@@ -154,13 +156,14 @@ def decision(kind: str | None, reason: str = "") -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": kind, "permissionDecisionReason": reason}}
 
 
-def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None = None) -> dict:
-    """texts: {code: [kind, text]} from the witness' answer; the hook's own codes are in messages.LOCAL."""
+def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None = None, hint: bool = True) -> dict:
+    """texts: {code: [kind, text]} from the witness' answer; the hook's own codes are in messages.LOCAL.
+    hint=False (0.2.40): the detail already says what to do; the code's hint would repeat it."""
     t = (texts or {}).get(code)
-    hint = t[1] if isinstance(t, (list, tuple)) and len(t) == 2 and t[0] == "deny" and isinstance(t[1], str) else HINTS.get(code)
+    hint = (t[1] if isinstance(t, (list, tuple)) and len(t) == 2 and t[0] == "deny" and isinstance(t[1], str) else HINTS.get(code)) if hint else None
     text = "Blocked by Deus Witness: %s (receipt %s)" % (code, rid or "none")
     if detail:
-        text += " %s" % detail
+        text += " %s" % (detail.rstrip(".") if hint is None else detail)
     if hint:
         text += ". " + hint
     return decision("deny", text + ". Do not try to reach the same effect another way.")
@@ -346,6 +349,7 @@ def _config_places(facts, env):
         out |= {os.path.join(h, n) for n in (".claude", ".claude.json", ".deus-witness", os.path.join(".config", "deus-witness"),
                                               ".gitconfig", os.path.join(".config", "git"))}
     out |= {home_dir(env), os.path.dirname(key_path(env))} | _git_config_files(facts, env)
+    out |= selfpath.places(env, facts.home)          # 0.2.40 (HN rehearsal 6, K1): this client's own install (venv, package, executable)
     return {x for p in out for x in (os.path.normpath(p), _realpath(p)) if isinstance(x, str)}
 
 
@@ -393,12 +397,22 @@ def agent_config_target(ev, facts, env):
         h = home_dir(env)
         if h and h in cmd:
             return h
-        return next((g for g in sorted(_git_config_files(facts, env)) if g in cmd), None)   # 0.2.33: GIT_CONFIG_GLOBAL, $XDG_CONFIG_HOME/git
+        g = next((g for g in sorted(_git_config_files(facts, env)) if g in cmd), None)   # 0.2.33: GIT_CONFIG_GLOBAL, $XDG_CONFIG_HOME/git
+        if g:
+            return g
+        if tool == "Bash" and read_only_shell(cmd):
+            return None                                   # reading the client's own files is not changing them
+        # 0.2.40 (HN rehearsal 6, K1): the client's own install - `cp x .venv/bin/deus-witness-hook`, a `.pth`, `pip install` into it
+        cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and _is_abs(ev.get("cwd")) else None
+        roots = {r for r in (facts.root, facts.env.get("CLAUDE_PROJECT_DIR"), cwd or facts.proc_cwd) if isinstance(r, str) and r}
+        roots |= {x for x in map(_realpath, list(roots)) if x}
+        hm = env.get("HOME") or facts.home
+        return selfpath.shell_target(cmd, selfpath.places(env, facts.home), roots, hm if isinstance(hm, str) and _is_abs(hm) else None)
     return None
 
 
 CONFIG_TEXT = ("(this call changes the agent's own harness: %s - Claude Code settings or hooks, .mcp.json, git hooks or git configuration, "
-               "or the Deus Witness key files. A change there can switch the witness off, so it runs only after the OWNER approves this "
+               "the Deus Witness key files, or the Deus Witness client itself (its venv, package or executable). A change there can switch the witness off, so it runs only after the OWNER approves this "
                "exact call in Witness (passkey), never on the mandate alone. Only reading: `git diff` / `git show` / `git log` pass with "
                "--no-ext-diff --no-textconv)")
 
@@ -689,12 +703,12 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         log("refused before the witness: %s" % e.code)
         return deny(e.code)
     if not s.key and witness is None:
-        return deny("WITNESS_NOT_CONFIGURED", detail="(run `deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
+        return deny("WITNESS_NOT_CONFIGURED", detail="(run `uvx --from deus-witness deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
     own = witness is None
     if own and s.url_conflict:                            # 0.2.32 (K1): fail-closed, and the key is not sent anywhere
         return deny("WITNESS_URL_MISMATCH", detail="(DEUS_WITNESS_URL is %s, but the agent key on this machine was set up for %s "
                     "(agent-key.json). The hook sends only to the witness the key was set up for. Unset DEUS_WITNESS_URL, or run "
-                    "`deus-witness try --url URL` in your own terminal to move to another witness)" % s.url_conflict)
+                    "`uvx --from deus-witness deus-witness try --url URL` in your own terminal to move to another witness)" % s.url_conflict)
     w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()), pin_new=False)
     texts = {}
     try:
@@ -762,7 +776,7 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         if pending:
             for m, r_ in pending:
                 if r_.reason == TRIAL_REASON:
-                    return deny("TRIAL_NOT_CLAIMED", r_.rid, detail=TRIAL_UNCLAIMED_TEXT, texts=texts)
+                    return deny("TRIAL_NOT_CLAIMED", r_.rid, detail=TRIAL_UNCLAIMED_TEXT, texts=texts, hint=False)   # 0.2.40: said once
             msg = " ".join("Deus Witness: %s is waiting for the owner's approval in Witness (%s, receipt %s)%s%s: %s ." % (
                 m.summary, r_.reason, r_.rid, _why(m, r_, texts), _changed(r_), r_.approval_url) for m, r_ in pending) + \
                 " After the owner approves there, retry the SAME call."
@@ -804,18 +818,18 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
     except WitnessNotPinned:
         pinned = ", ".join(sorted(w._read_pins())) if hasattr(w, "_read_pins") else ""
         return deny("WITNESS_URL_UNPINNED", detail="(%s is not the witness this machine trusts (pinned: %s), and a new witness is not "
-                    "trusted silently. Moving on purpose: run `deus-witness try --url %s`, or `deus-witness-hook --trust %s`, in your own "
+                    "trusted silently. Moving on purpose: run `uvx --from deus-witness deus-witness try --url %s`, or `uvx --from deus-witness deus-witness-hook --trust %s`, in your own "
                     "terminal)" % (w.url, pinned or "none", w.url, w.url))
     except WitnessKeyChanged:
         return deny("WITNESS_KEY_CHANGED")
     except WitnessError as e:
         log("witness error %s %s" % (e.status, e.code))
         if e.status == 401 and e.code == "TRIAL_EXPIRED":
-            return deny("BAD_KEY", detail="(the trial account expired and is being erased: run `deus-witness try` for a new one, or sign up at https://witness.sipkigroup.com)")
+            return deny("BAD_KEY", detail="(the trial account expired and is being erased: run `uvx --from deus-witness deus-witness try` for a new one, or sign up at https://witness.sipkigroup.com)")
         if e.status in (401, 404) and _replaced(s):       # 0.2.29: a newer `deus-witness try` replaced this trial account (its key is gone)
             return deny("TRIAL_REPLACED", detail=REPLACED_TEXT)
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
-            return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `deus-witness try`)")
+            return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `uvx --from deus-witness deus-witness try`)")
         return deny("WITNESS_UNAVAILABLE", detail=e.code)
     except Exception as e:      # noqa: BLE001  whatever goes wrong while judging, the call does not run
         log("cannot judge (%s)" % type(e).__name__)
@@ -918,7 +932,7 @@ def main(argv=None) -> None:
         r = failsafe.check(argv[1] if len(argv) > 1 else os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
         print(failsafe.report_text(r))
         sys.stdout.flush()
-        os._exit(1 if r["problems"] else 0)
+        os._exit(1 if r["problems"] or r.get("unsure") else 0)      # 0.2.40: "cannot tell" is not "fail-closed" either
     if argv[:1] == ["--session-start"]:
         try:                                              # a warning only: it never blocks the session
             raw = sys.stdin.read(MAX_EVENT) if not sys.stdin.isatty() else ""

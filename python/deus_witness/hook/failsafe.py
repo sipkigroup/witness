@@ -97,6 +97,63 @@ def user_config_dir(env=None):
     return cfg if isinstance(cfg, str) and os.path.isabs(cfg) else os.path.join(_compat.home(e), ".claude")
 
 
+def _base_settings_files(project_dir, e):
+    out = list(reversed(managed_files()))
+    if project_dir:
+        out += [os.path.join(project_dir, ".claude", "settings.local.json"), os.path.join(project_dir, ".claude", "settings.json")]
+    out.append(os.path.join(user_config_dir(e), "settings.json"))
+    return out
+
+
+PLUGIN_NAME = "deus-witness"
+
+
+def _under(path, root) -> bool:
+    try:
+        p, r = os.path.realpath(path), os.path.realpath(root)
+    except (TypeError, ValueError):
+        return False
+    return p == r or p.startswith(r.rstrip(os.sep) + os.sep)
+
+
+def plugin_state(project_dir, env=None):
+    """0.2.40: the Deus Witness plugin as Claude Code registered it, for a doctor run from a plain terminal (no CLAUDE_PLUGIN_ROOT).
+    Claude Code (checked 26.10.2026, 2.1.311) records an install in <config dir>/plugins/installed_plugins.json
+    ({"version": 2, "plugins": {"deus-witness@<marketplace>": [{"scope", "installPath", "projectPath"?...}]}}) and switches it on or off
+    with "enabledPlugins": {"deus-witness@<marketplace>": true|false} in settings.json (user, project, local or managed; the usual merge
+    order). -> [{"id", "hooks", "scope", "enabled": True|False|None, "enabled_in": file or None}]; enabled None = installed, but no
+    settings file says whether it is on (the doctor says so instead of guessing). Read only; never raises."""
+    e = os.environ if env is None else env
+    d = _load(os.path.join(user_config_dir(e), "plugins", "installed_plugins.json"))
+    plugins = d.get("plugins") if d else None
+    if not isinstance(plugins, dict):
+        return []
+    enabled, where = {}, {}
+    for p in reversed(_base_settings_files(project_dir, e)):          # lowest priority first, later wins
+        s = _load(p)
+        ep = s.get("enabledPlugins") if s else None
+        if isinstance(ep, dict):
+            for k, v in ep.items():
+                if isinstance(v, bool):
+                    enabled[k], where[k] = v, p
+    out = []
+    for pid, installs in sorted(plugins.items()):
+        if not isinstance(pid, str) or pid.split("@", 1)[0] != PLUGIN_NAME or not isinstance(installs, list):
+            continue
+        for inst in installs:
+            if not isinstance(inst, dict) or not isinstance(inst.get("installPath"), str):
+                continue
+            scope = inst.get("scope") or "user"
+            pp = inst.get("projectPath")
+            if scope != "user" and isinstance(pp, str) and not (project_dir and _under(project_dir, pp)):
+                continue                                          # installed for another project
+            hooks = os.path.join(inst["installPath"], "hooks", "hooks.json")
+            if not os.path.isfile(hooks):
+                continue
+            out.append({"id": pid, "hooks": hooks, "scope": scope, "enabled": enabled.get(pid), "enabled_in": where.get(pid)})
+    return out
+
+
 def settings_files(project_dir: str | None, env=None):
     """Highest priority first: managed (last drop-in first), project local, project, user, plugin.
     0.2.56: local BEFORE project (it was the other way round, so a project value beat a local one in the merged view; Claude Code's
@@ -104,16 +161,32 @@ def settings_files(project_dir: str | None, env=None):
     set to an absolute path (Claude Code keeps settings.json there instead of ~/.claude). Read from the process environment only:
     a settings `env` block must not redirect it."""
     e = os.environ if env is None else env
-    out = list(reversed(managed_files()))
-    if project_dir:
-        out += [os.path.join(project_dir, ".claude", "settings.local.json"), os.path.join(project_dir, ".claude", "settings.json")]
-    out.append(os.path.join(user_config_dir(e), "settings.json"))
+    out = _base_settings_files(project_dir, e)
     # 0.2.27: installed as a Claude Code plugin, the hook entry lives in the plugin's hooks/hooks.json, and Claude Code exports
     # CLAUDE_PLUGIN_ROOT to the hook process. Read that file too, or --session-start reports a missing hook that is there.
     root = e.get("CLAUDE_PLUGIN_ROOT")
     if root:
         out.append(os.path.join(root, "hooks", "hooks.json"))
+    else:
+        # 0.2.40: outside Claude Code (a doctor run from a terminal) there is no CLAUDE_PLUGIN_ROOT: take the plugin's hooks file from
+        # Claude Code's own plugin registry, when a settings file switches the plugin on (unknown or off: see plugin_state / check)
+        out += [p["hooks"] for p in plugin_state(project_dir, e) if p["enabled"] is True]
     return out
+
+
+def agent_key_source(env=None):
+    """0.2.40: where the hook gets its agent key, as the hook itself does (hook/main.py): DEUS_WITNESS_KEY, else the key file
+    `deus-witness try` saved. -> "DEUS_WITNESS_KEY", the key file path, or None."""
+    e = os.environ if env is None else env
+    if e.get("DEUS_WITNESS_KEY"):
+        return "DEUS_WITNESS_KEY"
+    try:
+        from ..trial import key_path, load_key
+        if load_key(e) is not None:
+            return key_path(e)
+    except Exception:      # noqa: BLE001  a thin install without httpx: the env variable is all we can see
+        pass
+    return None
 
 
 def _load(path):
@@ -196,16 +269,44 @@ def check(project_dir=None, env=None, runner=subprocess.run):
                         "outside `|| exit 2` lets the call run. Update Claude Code (npm i -g @anthropic-ai/claude-code)"
                         % (".".join(map(str, ver)), ".".join(map(str, MIN_CC))))
     entries, senv, st = find_state(project_dir, e)
+    unsure = []
+    # 0.2.40 (HN rehearsal 6, K1): a client installed inside the project can be rewritten by an allowed write in the project
+    from . import selfpath
+    if project_dir and selfpath.inside(selfpath.places(e), {os.path.normpath(os.path.abspath(project_dir)), os.path.realpath(project_dir)}):
+        problems.append("this client runs from inside the project (%s): an agent that may write in the project can replace the hook "
+                        "itself (a venv in the project, a `bin` on PATH). Install it outside the project: uvx, or a venv elsewhere"
+                        % sorted(p for p in selfpath.places(e) if selfpath._under(p, os.path.realpath(project_dir)) or
+                                 selfpath._under(p, os.path.normpath(os.path.abspath(project_dir))))[0])
+    # 0.2.40: the plugin as Claude Code registered it (a doctor run from a terminal has no CLAUDE_PLUGIN_ROOT)
+    inside = bool(e.get("CLAUDE_PLUGIN_ROOT"))
+    plugins = [] if inside else plugin_state(project_dir, e)
+    plugin_hooks = {p["hooks"]: p for p in plugins}
+    if inside:
+        plugin_hooks[os.path.join(e["CLAUDE_PLUGIN_ROOT"], "hooks", "hooks.json")] = {"id": PLUGIN_NAME, "enabled": True, "enabled_in": "this Claude Code session"}
+    for p in plugins:
+        if p["enabled"] is None:
+            unsure.append("the %s plugin is installed (%s) but no settings file says whether it is enabled, so this check cannot tell "
+                          "whether Claude Code runs its hook. In Claude Code: /plugin -> Installed -> %s must say enabled (the "
+                          "session-start message there is the authoritative check)" % (p["id"], p["hooks"], p["id"]))
+        elif p["enabled"] is False:
+            notes.append("the %s plugin is installed but switched off (enabledPlugins false in %s): its hook does not run" % (p["id"], p["enabled_in"]))
     for path, why in st["skipped"]:
         problems.append("%s: hook is NOT running - %s" % (path, why))
     for path, matcher, h in entries:
-        notes.append("hook taken from %s%s" % (path, " (managed settings)" if is_managed(path) else ""))
+        pl = plugin_hooks.get(path)
+        notes.append("hook taken from %s%s" % (path, " (managed settings)" if is_managed(path) else
+                                                (" (plugin %s, enabled in %s)" % (pl["id"], pl["enabled_in"]) if pl else "")))
+    key_source = agent_key_source(e)
+    if not inside and key_source is None and any(path in plugin_hooks for path, _, _ in entries + [(x["hooks"], 0, 0) for x in plugins if x["enabled"] is None]):
+        # the plugin's own script lets a call run (and says so) while it has no key: not fail-closed, but it may have a key we cannot see
+        unsure.append("no agent key here (DEUS_WITNESS_KEY is not set and there is no key file): unless agent_key is set in /plugin -> "
+                      "deus-witness -> Configure (not visible from a terminal), the plugin lets every call run unwitnessed. Set up: %s" % TRY_CMD)
     for p in st["other_disable"]:
         if any(is_managed(x[0]) for x in entries) and not st["managed_disable"]:
             notes.append("%s: disableAllHooks=true is ignored for the managed hook (only managed settings can disable it)" % p)
     for k, v in senv.items():
         e.setdefault(k, v)                                    # the shell's own env wins, as in Claude Code
-    if not entries:
+    if not entries and not any(p["enabled"] is None for p in plugins):
         problems.append("no PreToolUse hook running deus-witness-hook in %s" % ", ".join(settings_files(project_dir, e)))
     hook_timeout = _num(e.get("DEUS_WITNESS_HOOK_TIMEOUT"), 20.0)
     wait = _num(e.get("DEUS_WITNESS_HOOK_WAIT"), 0.0)
@@ -241,23 +342,32 @@ def check(project_dir=None, env=None, runner=subprocess.run):
     if e.get("DEUS_WITNESS_HOOK_ON_DEFER") == "ask":
         notes.append("DEUS_WITNESS_HOOK_ON_DEFER=ask: a held call becomes a yes/no question in the terminal, and `yes` runs it WITHOUT a witness "
                      "receipt - the person at the keyboard approves in the owner's place. The default is deny (the owner approves in Witness)")
-    return {"version": ".".join(map(str, ver)) if ver else None, "version_source": how, "problems": problems, "notes": notes}
+    return {"version": ".".join(map(str, ver)) if ver else None, "version_source": how, "problems": problems, "notes": notes,
+            "unsure": unsure, "key_source": key_source, "plugin": bool(plugin_hooks)}
 
 
 BANNER = "DEUS WITNESS: THIS HOOK CAN BE BYPASSED (fail-open)."
+UNSURE_BANNER = "DEUS WITNESS: CANNOT TELL FROM HERE whether the hook is fail-closed (see why below)."
+TRY_CMD = "uvx --from deus-witness deus-witness try"     # 0.2.40: a uv user has no `deus-witness` on PATH
 
 
 QUICKSTART_HOOK = "https://witness.sipkigroup.com/dl/docs/quickstart.html#hook"
 SETTINGS_EXAMPLE = "https://github.com/sipkigroup/witness/blob/main/python/examples/unattended/settings.unattended.json"
 
 
-def next_steps(env=None):
-    """What to do after a fail-open report: the missing key (if it is missing) and where the working settings are."""
+def next_steps(env=None, r=None):
+    """What to do after a fail-open report: the missing key (if it is missing) and where the working settings are.
+    0.2.40: the key counts when it is in the key file `try` saved too (the hook reads it there), as check() found it (r)."""
     e = os.environ if env is None else env
     out = [""]
-    if not e.get("DEUS_WITNESS_KEY"):
+    ks = r.get("key_source") if r is not None and "key_source" in r else agent_key_source(e)
+    if ks is None:
         out.append("  DEUS_WITNESS_KEY not set -> sign up and create an agent with the claude-code preset: "
                    "https://witness.sipkigroup.com/signup.html")
+        out.append("  (no key file either; a trial account in one command: %s)" % TRY_CMD)
+    if r is not None and r.get("plugin"):
+        out.append("  Plugin install: its hooks.json already has \"onFailure\": \"block\", `|| exit 2` and the timeout; fix the lines above.")
+        return out
     out.append("  Next: copy the settings from settings.unattended.json (%s) into <project>/.claude/settings.json" % SETTINGS_EXAMPLE)
     out.append("  Guide (steps 1-3 of the hook section): " + QUICKSTART_HOOK)
     return out
@@ -267,7 +377,10 @@ def report_text(r) -> str:
     lines = ["Claude Code: %s (%s)" % (r["version"] or "unknown", r["version_source"])]
     if r["problems"]:
         lines += ["", "!" * 72, "!! " + BANNER, "!" * 72] + ["  - " + p for p in r["problems"]]
-        lines += next_steps()
+        lines += ["  ? " + u for u in r.get("unsure") or []]
+        lines += next_steps(r=r)
+    elif r.get("unsure"):
+        lines += ["", "?" * 72, "?? " + UNSURE_BANNER, "?" * 72] + ["  - " + p for p in r["unsure"]]
     else:
         lines.append("OK: fail-closed (onFailure block, || exit 2, timeouts in order)")
     lines += ["  note: " + n for n in r["notes"]]

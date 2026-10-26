@@ -20,16 +20,17 @@ From the shell: `claude plugin marketplace add sipkigroup/witness && claude plug
 
 The plugin is a thin wrapper. The hook itself is the Python client `deus-witness` (PyPI, Apache-2.0, >= 0.2.34). The plugin finds it:
 
-1. [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) - then the plugin runs `uvx --from "deus-witness>=0.2.39" deus-witness-hook`
+1. [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) - then the plugin runs `uvx --from "deus-witness>=0.2.40" deus-witness-hook`
    (first call downloads the client into the uv cache, about 30 packages). This is the way we test.
-2. `deus-witness-hook` on your PATH - `pip install "deus-witness>=0.2.39"`, only with Python 3.10+ in a venv (the stock macOS Python 3.9 and
-   PEP 668 system Pythons refuse it).
+2. `deus-witness-hook` on your PATH - `pip install "deus-witness>=0.2.40"`, only with Python 3.10+ in a venv (the stock macOS Python 3.9 and
+   PEP 668 system Pythons refuse it). Put that venv OUTSIDE the project: the agent may write inside the project, so the plugin does not
+   use a `deus-witness-hook` (or any program) found on PATH inside the project - it falls back to uvx, or blocks the call without uv.
 
 Requirements: Claude Code 2.1.295+ (it honours `"onFailure": "block"`) and uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); `python3` and `bash`; macOS, Linux, WSL.
 
 ## Set up in 2 minutes (trial, no sign-up form)
 
-In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness>=0.2.39" deus-witness try`).
+In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness>=0.2.40" deus-witness try`).
 It prints what the hook sends to the witness, saves a trial agent key to `~/.config/deus-witness/agent-key.json` (mode 600; the plugin
 picks it up at once) and opens a page in your browser. The first call of the agent that needs you waits; on that page ONE button asks
 for two passkey touches (Touch ID / Windows Hello / phone): one makes your passkey, one signs the recommended rules for the project. The
@@ -69,7 +70,7 @@ working defaults. Set `agent_key` only if you already have a full account (below
 | Owner approval pending (`defer`) | Waits up to 600 s for your approval in Witness, then denied | - |
 | Trial account, nobody has touched the page yet | Waits 90 s, then denied (`TRIAL_NOT_CLAIMED`) | "touch the passkey, then ask again" |
 
-Check your setup: `uvx --from "deus-witness>=0.2.39" deus-witness-hook --doctor` - from a plain shell it does not see the plugin's hooks file and reports the hook as missing; inside Claude Code the session-start message is the authoritative check (it runs the same doctor with the plugin's hooks file).
+Check your setup: `uvx --from "deus-witness>=0.2.40" deus-witness-hook --doctor` - from 0.2.40 on it finds the plugin from a plain shell too (Claude Code's plugin registry and `enabledPlugins`) and the key file `try` saved; when no settings file says whether the plugin is enabled it says "CANNOT TELL" instead of guessing. Inside Claude Code the session-start message is the authoritative check.
 
 ## MCP servers
 

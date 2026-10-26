@@ -83,13 +83,18 @@ deus-witness doctor [--json] [--no-network] [--project DIR]
 Reads (never writes) the client configs: Claude Desktop (`claude_desktop_config.json`), Claude Code (`~/.claude.json`,
 `~/.claude/settings.json`, project `.mcp.json`, `.claude/settings.json`, `.claude/settings.local.json`), Cursor
 (`~/.cursor/mcp.json`). Prints `coverage: C0|C1|C2|C3` and one `bypass: <what> -> <how to close>` per hole; rc 0 for C2/C3, 2 for C0/C1.
-- C0: no MCP server is behind `deus-witness-mcp` (a server is behind it when its `command` is `deus-witness-mcp`).
-- C1: proxy in place, but a server is not behind it, or Claude Code's Bash/Write/Edit/WebFetch are not in `permissions.deny`,
+- C0: no MCP server is behind `deus-witness-mcp` (a server is behind it when its `command` is `deus-witness-mcp`) and no `deus-witness-hook`.
+- C1: proxy or hook in place, but a server is not behind it, or Claude Code's Bash/Write/Edit/WebFetch are neither taken by the hook
+  nor in `permissions.deny`,
   or a pass tool has a network effect (known to the proxy at start from the agent toolmap), or Cursor's built-in agent tools.
 - C2: all MCP servers behind the proxy and those built-ins denied. C3: C2 + no `/bin/sh` + egress to 1.1.1.1:443 and
   example.com:443 refused (only probed without `--no-network`; the sandbox recipe gives it).
 
 The level is a claim of the operator made from local files, not a proof; the output says so. `--no-network` opens no socket.
+0.2.40: the hook counts from `settings.json` hooks and from the Claude Code plugin as Claude Code registered it
+(`<config dir>/plugins/installed_plugins.json` + `enabledPlugins`; `$CLAUDE_CONFIG_DIR` honoured). Plugin installed but no settings
+file says whether it is enabled: `unsure:` instead of a guess. `deus-witness-hook --doctor` reads the same, and takes the agent key from
+`DEUS_WITNESS_KEY` or the key file `try` saved, as the hook does; "cannot tell" exits 1 with its own banner, never "OK".
 
 ## Claude Code hook (built-in tools)
 `deus-witness-hook` is a Claude Code PreToolUse hook: `Bash`, `Edit`, `Write`, `NotebookEdit`, `Read`, `WebFetch` and `mcp__*` calls are

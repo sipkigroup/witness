@@ -448,6 +448,9 @@ def _main(argv):
         ok &= not bad
     for t_ in trust:
         print("trust: " + t_)
+    if want_wk is None:      # 0.2.40 (HN rehearsal 6, K3/K9): right above RESULT, which stays the exact last line
+        print("note: RESULT below means internally consistent (witness key taken from the pack; pass --witness-kid=<kid from "
+              "/v1/witness> to pin it)")
     print("RESULT: VALID" if ok else "RESULT: INVALID")
     return 0 if ok else 1
 

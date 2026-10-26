@@ -5,8 +5,9 @@
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.39"; Python 3.10+ in a venv)
-#   2. `uvx --from "deus-witness>=0.2.39" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.40"; Python 3.10+ in a venv OUTSIDE the project: one found inside
+#      the project, as found or resolved, is not used - the agent may write there)
+#   2. `uvx --from "deus-witness>=0.2.40" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
 # (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json; the client reads it itself).
@@ -17,7 +18,7 @@
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness>=0.2.39"
+SPEC="deus-witness>=0.2.40"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
 TRY="/deus-witness:try (or in your terminal: uvx --from \"$SPEC\" deus-witness try)"
 
@@ -35,12 +36,55 @@ if [ -n "${DEUS_WITNESS_KEY:-}" ] || [ -s "$KEYFILE" ]; then configured=1; fi
 
 mode="${1:-pretool}"
 
+# The agent may write inside the project, so nothing this script runs may come from there: a project .venv activated before `claude`,
+# direnv `PATH_add bin`, a relative PATH entry. Those PATH entries are dropped (as given and resolved) before ANY command is looked up -
+# the client, uvx, and python3 / head / sed below. A client found elsewhere that resolves (symlink) or whose interpreter points into the
+# project is not used either. (A project that is the home directory itself is not filtered: the agent can write all of it anyway.)
+roots=()
+for d in "${CLAUDE_PROJECT_DIR:-}" "$PWD"; do
+  [ -n "$d" ] && [ "${d%/}" != "${HOME%/}" ] || continue
+  roots+=("${d%/}" "$(cd -P "$d" 2>/dev/null && pwd -P)")
+done
+in_project() {    # $1 = absolute path
+  local r
+  for r in ${roots[@]+"${roots[@]}"}; do
+    [ -n "$r" ] || continue
+    case "${1%/}/" in "${r%/}/"*) return 0 ;; esac
+  done
+  return 1
+}
+safe=""
+dropped=""
+IFS=: read -r -a path_entries <<<"${PATH:-}"
+for e in ${path_entries[@]+"${path_entries[@]}"}; do
+  case "$e" in
+    /*) rp="$(cd -P "$e" 2>/dev/null && pwd -P)"
+        if in_project "$e" || { [ -n "$rp" ] && in_project "$rp"; }; then dropped="$dropped $e"; else safe="${safe:+$safe:}$e"; fi ;;
+    *) [ "${#roots[@]}" -eq 0 ] && safe="${safe:+$safe:}$e" || dropped="$dropped ${e:-.}" ;;     # "" or relative = the cwd
+  esac
+done
+export PATH="$safe"
 runner=()
-if command -v deus-witness-hook >/dev/null 2>&1; then
-  runner=(deus-witness-hook)
-elif command -v uvx >/dev/null 2>&1; then
+inproj=""
+found="$(command -v deus-witness-hook 2>/dev/null)"
+if [ -n "$found" ]; then
+  rfound="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$found" 2>/dev/null || realpath "$found" 2>/dev/null || printf '%s' "$found")"
+  interp="$(head -n 1 "$rfound" 2>/dev/null | sed -n 's/^#![[:space:]]*\([^[:space:]]*\).*/\1/p')"
+  if in_project "$found" || in_project "$rfound" || { case "$interp" in /*) in_project "$interp" ;; *) false ;; esac; }; then
+    inproj="$found"
+  else
+    runner=("$found")
+  fi
+elif [ -n "$dropped" ]; then
+  for e in $dropped; do
+    case "$e" in /*) [ -x "$e/deus-witness-hook" ] && inproj="$e/deus-witness-hook" && break ;; esac
+    [ -x "$PWD/$e/deus-witness-hook" ] && inproj="$PWD/$e/deus-witness-hook" && break
+  done
+fi
+if [ ${#runner[@]} -eq 0 ] && command -v uvx >/dev/null 2>&1; then
   runner=(uvx --quiet --from "$SPEC" deus-witness-hook)
 fi
+INPROJ_MSG="the deus-witness-hook on PATH ($inproj) is inside the project (or resolves there), where the agent may write, so it is not used. Install uv (https://docs.astral.sh/uv/), or install the client outside the project (a venv elsewhere)"
 
 say_session() {   # $1 = message for the user at session start
   python3 -c 'import json,sys; m=sys.argv[1]; print(json.dumps({"systemMessage": m, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "Deus Witness warning for the user: " + m}}))' "$1" 2>/dev/null \
@@ -53,14 +97,37 @@ deny() {          # $1 = reason; a PreToolUse deny on stdout, exit 0
   exit 0
 }
 
+# Before `try` (no key yet): say now what would stop it later - no uv / no client, or a Claude Code too old for "onFailure": "block".
+preflight() {
+  local p="" v a b c
+  if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
+    p="$p Note: $INPROJ_MSG."
+  elif [ ${#runner[@]} -eq 0 ]; then
+    p="$p First install uv (https://docs.astral.sh/uv/): without it /deus-witness:try cannot run (or: pip install \"$SPEC\" with Python 3.10+ in a venv)."
+  fi
+  v="$("${CLAUDE_CODE_EXECPATH:-claude}" --version 2>/dev/null </dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ -n "$v" ]; then
+    IFS=. read -r a b c <<<"$v"
+    if [ "$a" -lt 2 ] || { [ "$a" -eq 2 ] && { [ "$b" -lt 1 ] || { [ "$b" -eq 1 ] && [ "$c" -lt 295 ]; }; }; }; then
+      p="$p Claude Code $v is older than 2.1.295: it ignores \"onFailure\": \"block\", so a crash or timeout of the hook would let a call run - update Claude Code first (npm i -g @anthropic-ai/claude-code)."
+    fi
+  fi
+  printf '%s' "$p"
+}
+
 if [ "$mode" = "--session-start" ]; then
   cat >/dev/null
   if [ -z "$configured" ]; then
+    pre="$(preflight)"
     if [ "$STRICT" = "true" ]; then
-      say_session "DEUS WITNESS plugin: no agent key - every matched tool call is DENIED (strict). Set up in 2 minutes: $TRY . Have an account? /plugin -> deus-witness -> Configure (agent_key), or export DEUS_WITNESS_KEY."
+      say_session "DEUS WITNESS plugin: no agent key - every matched tool call is DENIED (strict). Set up in 2 minutes: $TRY . Have an account? /plugin -> deus-witness -> Configure (agent_key), or export DEUS_WITNESS_KEY.$pre"
     else
-      say_session "DEUS WITNESS plugin is installed but NOT set up: tool calls are NOT witnessed yet. Set up in 2 minutes, no sign-up form: $TRY - then two passkey touches (Touch ID / Windows Hello / phone) in the page it opens. Have an account? /plugin -> deus-witness -> Configure (agent_key)."
+      say_session "DEUS WITNESS plugin is installed but NOT set up: tool calls are NOT witnessed yet. Set up in 2 minutes, no sign-up form: $TRY - then two passkey touches (Touch ID / Windows Hello / phone) in the page it opens. Have an account? /plugin -> deus-witness -> Configure (agent_key).$pre"
     fi
+    exit 0
+  fi
+  if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
+    say_session "DEUS WITNESS plugin: every matched tool call is BLOCKED: $INPROJ_MSG."
     exit 0
   fi
   if [ ${#runner[@]} -eq 0 ]; then
@@ -91,6 +158,10 @@ if not os.path.exists(mark):
 ' "$TRY" 2>/dev/null || cat >/dev/null
   echo "[deus-witness] not set up (no agent key): call not witnessed" >&2
   exit 0
+fi
+if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
+  cat >/dev/null
+  deny "Blocked by Deus Witness: $INPROJ_MSG."
 fi
 if [ ${#runner[@]} -eq 0 ]; then
   cat >/dev/null

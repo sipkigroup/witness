@@ -9,5 +9,5 @@ ENV PYTHONUNBUFFERED=1 \
     DEUS_WITNESS_HOME=/tmp/deus-witness \
     DEUS_DEMO_OUT=/tmp/deus-demo \
     DEUS_WITNESS_KEY=dwk_glama_introspection_placeholder
-RUN pip install deus-witness==0.2.39
+RUN pip install deus-witness==0.2.40
 ENTRYPOINT ["deus-witness-mcp", "--", "deus-witness-demo-tools"]

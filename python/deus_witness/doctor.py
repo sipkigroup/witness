@@ -10,6 +10,7 @@ light part at start and sends it as POST /v1/coverage)."""
 import argparse
 import json
 import os
+import re
 import socket
 import sys
 
@@ -155,14 +156,53 @@ def probe_egress(timeout: float = 3.0) -> list:
     return res
 
 
+def hook_cover(home: str = None, project: str = None) -> dict:
+    """0.2.40: the deus-witness-hook (settings.json hooks or the Claude Code plugin as Claude Code registered it), read with the same
+    code as `deus-witness-hook --doctor`. -> {"active": [(file, matcher)], "unsure": [(file, matcher, plugin id)]}. Never raises."""
+    from .hook import failsafe
+    e = dict(os.environ)
+    if home:
+        e["HOME"] = home
+    e.pop("CLAUDE_PLUGIN_ROOT", None)          # only a hook process inside Claude Code has it; this is a terminal command
+    prj = os.path.abspath(project or os.getcwd())
+    out = {"active": [], "unsure": []}
+    try:
+        active, _, _ = failsafe.find_state(prj, e)
+        out["active"] = [(p, m) for p, m, _ in active]
+        for pl in failsafe.plugin_state(prj, e):
+            if pl["enabled"] is None:
+                d = failsafe._load(pl["hooks"]) or {}
+                for grp in ((d.get("hooks") or {}).get("PreToolUse") or []):
+                    if isinstance(grp, dict) and any(isinstance(h, dict) and "deus-witness-hook" in str(h.get("command", "")) for h in grp.get("hooks") or []):
+                        out["unsure"].append((pl["hooks"], str(grp.get("matcher", "")), pl["id"]))
+    except Exception:          # noqa: BLE001  the doctor reports what it can read
+        pass
+    return out
+
+
+def _covers(entries, tool: str) -> bool:
+    for ent in entries:
+        try:
+            if re.fullmatch(ent[1], tool):
+                return True
+        except re.error:
+            pass
+    return False
+
+
 def diagnose(home: str = None, project: str = None, network: bool = True, pass_net_tools=None, in_proxy: bool = False) -> dict:
     """The doctor as a function. pass_net_tools: names of pass tools with a network effect (the proxy gets them from POST /v1/catalog);
     None = not known here. in_proxy: called by a running deus-witness-mcp (so a proxy IS in place even if no config shows it)."""
     c = collect(home, project)
-    bypass = []
+    bypass, unsure = [], []
+    hk = hook_cover(home, project)
+    hooked = []                                # what the deus-witness-hook takes to the witness in Claude Code (0.2.40)
     unproxied = [s for s in c["servers"] if not s["proxied"]]
     proxied = [s for s in c["servers"] if s["proxied"]]
-    for s in unproxied:
+    for s in list(unproxied):
+        if s["client"] == "claude-code" and _covers(hk["active"], "mcp__%s__tool" % s["name"]):
+            hooked.append("MCP server %s (Claude Code)" % s["name"])
+            continue
         if s["remote"]:
             how = "remove it, or run it through a local stdio bridge behind deus-witness-mcp"
         else:
@@ -170,7 +210,11 @@ def diagnose(home: str = None, project: str = None, network: bool = True, pass_n
         bypass.append({"kind": "mcp", "what": "MCP server %s (%s) not behind deus-witness-mcp" % (s["name"], s["client"]), "how": how})
     if c["claude_code"]:
         for t in BUILTINS:
-            if not _denied_fully(t, c["deny"]):
+            if _covers(hk["active"], t):
+                hooked.append(t)
+            elif not _denied_fully(t, c["deny"]) and _covers(hk["unsure"], t):
+                unsure.append(t)
+            elif not _denied_fully(t, c["deny"]):
                 bypass.append({"kind": "builtin", "what": "%s (Claude Code built-in, allowed)" % t, "how": HOW_DENY % t})
     if c["cursor"]:
         bypass.append({"kind": "builtin", "what": "Cursor agent built-in terminal/edit tools (not controlled by ~/.cursor/mcp.json)",
@@ -185,7 +229,7 @@ def diagnose(home: str = None, project: str = None, network: bool = True, pass_n
     if not proxied and in_proxy:
         bypass.append({"kind": "config", "what": "the client config that started this proxy is not among the configs read",
                        "how": "run `deus-witness doctor` in the agent working directory and put every MCP server behind deus-witness-mcp"})
-    if not proxied and not in_proxy:
+    if not proxied and not in_proxy and not hk["active"]:
         level = "C0"
     elif bypass:
         level = "C1"
@@ -208,6 +252,8 @@ def diagnose(home: str = None, project: str = None, network: bool = True, pass_n
     return {"coverage": level, "operator_declared": True, "claim": CLAIM, "tool": TOOL, "network": network,
             "configs": c["configs"], "servers": c["servers"], "deny": c["deny"], "bypass": bypass,
             "c3_gaps": c3 if level in ("C2", "C3") else [], "notes": notes,
+            "hook": {"files": sorted({p for p, _ in hk["active"]}), "witnessed": hooked,
+                     "unsure": {"files": sorted({p for p, _, _ in hk["unsure"]}), "tools": unsure}},
             "checks": {"shell": shell, "egress": [{"to": hp, "open": ok} for hp, ok in egress] if egress is not None else None}}
 
 
@@ -232,8 +278,17 @@ def render(r: dict) -> str:
     for s in r["servers"]:
         lines.append("  mcp %s/%s: %s" % (s["client"], s["name"], "behind deus-witness-mcp" if s["proxied"] else "NOT behind the proxy"))
     lines.append("coverage: %s" % r["coverage"])
-    if r["coverage"] == "C0":
-        lines.append("bypass: everything (no MCP server behind deus-witness-mcp) -> put your MCP servers behind deus-witness-mcp (see README)")
+    hk = r.get("hook") or {}
+    if hk.get("files"):
+        lines.append("hook: deus-witness-hook in %s takes %s to the witness (fail-closed or not: run `uvx --from deus-witness "
+                     "deus-witness-hook --doctor`)" % (", ".join(hk["files"]), ", ".join(hk.get("witnessed") or []) or "no listed tool"))
+    un = hk.get("unsure") or {}
+    if un.get("tools"):
+        lines.append("unsure: %s -> the deus-witness plugin is installed (%s) but no settings file says whether it is enabled; if "
+                     "/plugin in Claude Code shows it enabled, its hook takes these to the witness" % (", ".join(un["tools"]), ", ".join(un["files"])))
+    if r["coverage"] == "C0" and not un.get("tools"):
+        lines.append("bypass: everything (no MCP server behind deus-witness-mcp, no deus-witness-hook) -> install the Claude Code plugin "
+                     "or put your MCP servers behind deus-witness-mcp (see README)")
     for b in r["bypass"]:
         lines.append("bypass: %s -> %s" % (b["what"], b["how"]))
     for g in r["c3_gaps"]:
