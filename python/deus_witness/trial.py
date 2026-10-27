@@ -272,12 +272,13 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
                 print("deus-witness try: your previous trial account (no passkey yet) was erased before this refusal, so its page no longer "
                       "works. You can make the next trial account in %d min (at %s)." % ((ra + 59) // 60, time.strftime("%H:%M", time.localtime(time.time() + ra))), file=out)
             elif ra:
-                print("deus-witness try: you can make the next trial account in %d min (at %s). A trial page already open in your browser "
-                      "keeps working: press its button again." % ((ra + 59) // 60, time.strftime("%H:%M", time.localtime(time.time() + ra))), file=out)
+                # 2710z: the "page keeps working" sentence is said once: below when the old account is kept, here when it is not
+                print("deus-witness try: you can make the next trial account in %d min (at %s)." % ((ra + 59) // 60, time.strftime("%H:%M", time.localtime(time.time() + ra))) +
+                      ("" if kept else " A trial page already open in your browser keeps working: press its button again."), file=out)
         if retired and not (r.status_code == 429 and ra):
             print("deus-witness try: your previous trial account (no passkey yet) was erased before this refusal; run this again later.", file=out)
         if kept:                               # 2710u: nothing was erased
-            print("deus-witness try: your previous trial account is kept as it was (key: %s); its page keeps working." % path, file=out)
+            print("deus-witness try: your previous trial account is kept as it was (key: %s); its page keeps working%s" % (path, ": press its button again." if ra and not retired else "."), file=out)
         return 1
     # N4 (27.10): what the hook sends is said once there is an account to send it to
     print("Deus Witness trial. The hook will send to %s:" % url, file=out)
