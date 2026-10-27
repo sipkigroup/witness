@@ -247,6 +247,9 @@ class Witness:
     # ---- HTTP ----
     def _call(self, method: str, path: str, **kw) -> Any:
         headers = {"Authorization": "Bearer " + self.key, "X-DW-Args-Salt": "1"} if self.key and path.startswith(AGENT_PATHS) else {}
+        rn = getattr(self, "run_nonce", None)             # RT-0.2.41 F1: the nonce of a `deus-witness run` (server 0.2.63+ counts the call)
+        if headers and rn and path in ("/v1/hook/judge", "/v1/hook/run/start"):
+            headers["X-DW-Run"] = rn
         timeout = kw.pop("timeout", None)
         if timeout is not None:
             kw["timeout"] = timeout
@@ -436,6 +439,19 @@ class Witness:
     def hook_judge(self, body: dict) -> dict:
         """POST /v1/hook/judge: raw facts in, the witness' classification and decisions out (see deus_witness/hook/main.py)."""
         return self._call("POST", "/v1/hook/judge", json=body)
+
+    # ---- RT-0.2.41 F1 (server 0.2.63+): `deus-witness run` asks the witness, not a file ----
+    def run_new(self) -> dict:
+        """POST /v1/hook/run -> {"run": nonce, "exp": t}: a one-time nonce for one run of Claude Code."""
+        return self._call("POST", "/v1/hook/run", json={})
+
+    def run_start(self, session: Optional[str]) -> dict:
+        """POST /v1/hook/run/start (X-DW-Run: self.run_nonce): the hook's SessionStart of that run."""
+        return self._call("POST", "/v1/hook/run/start", json={"session": session})
+
+    def run_view(self, nonce: str) -> dict:
+        """GET /v1/hook/run/<nonce> -> {"starts", "judged", "sessions"} as the witness counted them."""
+        return self._call("GET", "/v1/hook/run/%s" % nonce)
 
     def judge_statement(self, b64: str) -> dict:
         """0.2.17 (R9-01): the statement of a judge answer (COSE_Sign1 by the witness key, checked against the pin) -> its payload.

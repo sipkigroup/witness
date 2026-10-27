@@ -270,6 +270,12 @@ def check(project_dir=None, env=None, runner=subprocess.run):
                         % (".".join(map(str, ver)), ".".join(map(str, MIN_CC))))
     entries, senv, st = find_state(project_dir, e)
     unsure = []
+    # 0.2.41 (R-bare): CLAUDE_CODE_SIMPLE is what `claude --bare` sets (CLAUDE_CODE_SAFE_MODE: --safe-mode); with it in this environment
+    # every `claude` started from here skips the hooks of settings and plugins, and says nothing
+    for k, flag in (("CLAUDE_CODE_SIMPLE", "--bare"), ("CLAUDE_CODE_SAFE_MODE", "--safe-mode")):
+        if str(e.get(k) or "").strip().lower() not in ("", "0", "false", "no", "off"):
+            problems.append("%s=%s is set here: it is what `claude %s` sets, and Claude Code then skips the hooks of settings and "
+                            "plugins - this hook does not run at all. Unset it" % (k, e.get(k), flag))
     # 0.2.40 (HN rehearsal 6, K1): a client installed inside the project can be rewritten by an allowed write in the project
     from . import selfpath
     if project_dir and selfpath.inside(selfpath.places(e), {os.path.normpath(os.path.abspath(project_dir)), os.path.realpath(project_dir)}):
@@ -347,6 +353,8 @@ def check(project_dir=None, env=None, runner=subprocess.run):
 
 
 BANNER = "DEUS WITNESS: THIS HOOK CAN BE BYPASSED (fail-open)."
+BARE_NOTE = ("  bare: `claude --bare` (or CLAUDE_CODE_SIMPLE=1) runs without this hook and says nothing; Claude Code's docs say --bare "
+             "will become the default for `claude -p`. In CI / cron run `deus-witness run -- claude -p ...`: it fails when the hook did not run.")
 UNSURE_BANNER = "DEUS WITNESS: CANNOT TELL FROM HERE whether the hook is fail-closed (see why below)."
 TRY_CMD = "uvx --from deus-witness deus-witness try"     # 0.2.40: a uv user has no `deus-witness` on PATH
 
@@ -384,6 +392,7 @@ def report_text(r) -> str:
     else:
         lines.append("OK: fail-closed (onFailure block, || exit 2, timeouts in order)")
     lines += ["  note: " + n for n in r["notes"]]
+    lines.append(BARE_NOTE)
     return "\n".join(lines)
 
 

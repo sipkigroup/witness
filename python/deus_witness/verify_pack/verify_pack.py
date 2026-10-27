@@ -35,8 +35,9 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-_FLAGS_BOOL = ["--offline", "--require-anchors", "--require-tee", "--require-node2", "--use-pack-code", "--no-node2-pin-write"]
-_FLAGS_VAL = ["--witness-kid", "--owner-kid", "--tsa-ca", "--tee-expect", "--tee-intel-root", "--tee-collateral", "--tee-now",
+_FLAGS_BOOL = ["--offline", "--require-anchors", "--require-tee", "--require-node2", "--use-pack-code", "--no-node2-pin-write",
+              "--tee-second-verifier-strict"]
+_FLAGS_VAL = ["--witness-kid", "--owner-kid", "--tsa-ca", "--tee-expect", "--tee-intel-root", "--tee-collateral", "--tee-now", "--tee-second-verifier",
               "--node2-amd-ark", "--node2-expect", "--node2-genesis", "--node2-pin"]
 
 
@@ -82,6 +83,10 @@ def _main(argv):
         if a.startswith("--") and not (" " not in a and ((name in _FLAGS_BOOL and not eq) or (name in _FLAGS_VAL and eq))):
             print("verify_pack: unknown or malformed argument: %s (one flag per argument; value flags are --name=value)" % repr(a))
             return 2
+    sv = next((a.split("=", 1)[1] for a in argv if a.startswith("--tee-second-verifier=")), None)
+    if (sv is not None and sv != "dcap-qvl") or ("--tee-second-verifier-strict" in argv and sv is None):
+        print("verify_pack: --tee-second-verifier=dcap-qvl is the only second verifier; --tee-second-verifier-strict needs it")
+        return 2
     if "--require-tee" in argv:
         miss = [n for n in ("--tee-intel-root", "--tee-expect") if not any(a.startswith(n + "=") and len(a) > len(n) + 1 for a in argv)]
         if miss:
@@ -518,6 +523,7 @@ def _tee_lines(root, wk, cps, good_anchors, receipt_seqs, argv, trust):
     codes = []                               # (fingerprint, where) of every quote that checked
     seen_nv, tcb_notes = set(), set()
     attested, unquoted = [], []              # (bid, checkpoint seq)
+    second = []                              # 0.2.41: (label, quote, our result) for --tee-second-verifier=dcap-qvl
 
     def note(r):
         for n, x, _ in r["checks"]:
@@ -556,6 +562,7 @@ def _tee_lines(root, wk, cps, good_anchors, receipt_seqs, argv, trust):
             continue
         note(r)
         codes.append((fp, "batch " + b))
+        second.append(("batch " + b, q, r))
         attested.append((b, seq))
         out.append(("tee %s: OK (quote over batch root + witness key %s; %s)" % (b, wk.kid.hex()[:16], verdict), False))
     bp = os.path.join(tdir, "boot.tdx.json")
@@ -571,6 +578,7 @@ def _tee_lines(root, wk, cps, good_anchors, receipt_seqs, argv, trust):
         else:
             note(r)
             codes.append((fp, "boot t=%s" % att["t"]))
+            second.append(("boot", q, r))
             out.append(("tee boot: OK (the instance that made this pack holds witness key %s; %s)" % (wk.kid.hex()[:16], verdict), False))
     # one witness key, one code version: different OS/VM measurements or a different compose-hash under the same key = the key outlived its code
     bases = {}
@@ -613,6 +621,12 @@ def _tee_lines(root, wk, cps, good_anchors, receipt_seqs, argv, trust):
         trust.append("TEE: the platform TCB is %s (not UpToDate): a known, unpatched weakness of that platform level" % t_)
     if attested:
         trust.append("TEE: that the code is honest and never exports the key (TDX proves which code runs, not that it is correct: audit the source)")
+    if "--tee-second-verifier=dcap-qvl" in argv:     # 0.2.41: opt-in, offline, same quotes and collateral; the verdict stays tdx_quote.py's
+        import tee_second as T2
+        res = T2.run(second, col, float(now) if now else None)
+        out.extend(T2.lines(res, "--tee-second-verifier-strict" in argv))
+        if res["state"] == "AGREE":
+            trust.append("TEE: dcap-qvl (a second, independent verifier) agrees on TCB status, FMSPC, measurements and RTMRs; it does not check the key binding, the expected code, the DEBUG bit or the pinned Intel root")
     return out
 
 def _owner_tags(log):

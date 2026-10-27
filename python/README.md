@@ -96,6 +96,28 @@ The level is a claim of the operator made from local files, not a proof; the out
 file says whether it is enabled: `unsure:` instead of a guess. `deus-witness-hook --doctor` reads the same, and takes the agent key from
 `DEUS_WITNESS_KEY` or the key file `try` saved, as the hook does; "cannot tell" exits 1 with its own banner, never "OK".
 
+## CI and cron: `deus-witness run` (0.2.41)
+```
+deus-witness run -- claude -p "your task"          # or: uvx --from deus-witness deus-witness run -- claude -p "your task"
+```
+`claude --bare` (and `CLAUDE_CODE_SIMPLE=1`) skips the hooks of settings and plugins without a word, and Claude Code's Headless docs
+say `--bare` "will become the default for `-p` in a future release". `run` refuses `--bare`, `--safe-mode`, `CLAUDE_CODE_SIMPLE`,
+`CLAUDE_CODE_SAFE_MODE` (and `-p` on a Claude Code listed as bare by default; `DEUS_WITNESS_BARE_DEFAULT_FROM=X.Y.Z` adds one) before
+the run (exit 2); after the run it exits 3 (or Claude Code's own non-zero code) with "Witness hook did not run in this session (bare
+mode?) - nothing was checked" when no Witness hook (client 0.2.41+, or plugin 0.2.41+) left its mark of this run. It shows that the
+hook ran, not that each call was approved, and it guards against a silent switch-off, not against an agent that writes the mark itself.
+With an agent key and a witness 0.2.63+ the witness counts instead of a mark file: `run` takes a one-time run nonce from the witness, the
+hook sends it with its SessionStart call and with every PreToolUse call it has judged, and after the run `run` asks the witness for the
+counts and counts the covered tool calls in the run's Claude Code transcript. Tool calls with none judged is a failure; a run with no tool
+call and no hook call is a warning (exit = Claude Code's), not a failure; `--expect-tools` fails a run with no judged call when the
+transcript is not found. Without a key (or with an older witness) it falls back to the local mark and says that any process of the run can
+write that mark. A process that holds the agent key and the nonce can still send calls itself; they are judged and journaled like any.
+0.2.41: `try` says "The hook is NOT installed yet, so nothing is checked" instead of "use Claude Code as usual" when it finds no Witness
+hook (plugin or settings.json).
+
+0.2.41: `deus-witness-verify-pack <pack> --tee-second-verifier=dcap-qvl` (with `pip install "deus-witness[tee]"`, plus `--tee-collateral=`) has dcap-qvl, a second
+TDX verifier, judge the same quotes with the same saved Intel collateral, offline, and prints `tee second verifier (dcap-qvl X.Y): AGREE` or `DISAGREE: <fields>` (and the Phala platform flags it was told to allow). A DISAGREE is a warning; add `--tee-second-verifier-strict` to make it INVALID. It never replaces the main check (key binding, expected code, DEBUG bit, pinned Intel root stay with the built-in checker).
+
 ## Claude Code hook (built-in tools)
 `deus-witness-hook` is a Claude Code PreToolUse hook: `Bash`, `Edit`, `Write`, `NotebookEdit`, `Read`, `WebFetch` and `mcp__*` calls are
 judged by the witness before they run. Answers `allow` / `deny` / `ask`; fail closed. It is a thin client: it sends the call as Claude Code

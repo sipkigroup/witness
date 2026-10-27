@@ -113,6 +113,32 @@ REPLACED_TEXT = ("(`deus-witness try` was run again: this call belonged to the p
                  "Retry the SAME call: it now goes to the new trial account, and its page asks for the passkey)")
 
 
+TRIAL_GONE_TEXT = ("(this trial account no longer exists: its trial time ran out and it was erased, or it was withdrawn. Nothing ran. "
+                   "Get a new one: /deus-witness:try in Claude Code, or `uvx --from deus-witness deus-witness try` in your terminal)")
+
+
+def trial_key_gone(env=None, transport=None, timeout=5.0):
+    """27.10 (polygon O6): SessionStart with the trial key of the key file: one GET /v1/salt to the witness the file names. -> the text to show
+    when the witness refuses the key (401: erased or withdrawn), else None (a live key, not a trial key, or the witness unreachable: the
+    PreToolUse hook says what it finds then). The key goes only to the URL of the key file, as in judge()."""
+    s = Settings(env)
+    if not s.key_trial or not s.key_from_file or s.url_conflict or not s.url:
+        return None
+    msg = "DEUS WITNESS: your trial account no longer exists (its trial time ran out and it was erased, or it was withdrawn): tool calls are " \
+          "refused until you set up again. Run /deus-witness:try (or in your terminal: uvx --from deus-witness deus-witness try)."
+    exp = getattr(s, "file_expires_at", None)
+    if isinstance(exp, (int, float)) and not isinstance(exp, bool) and exp < time.time() - 3600:
+        return msg
+    try:
+        import httpx
+        kw = {"transport": transport} if transport is not None else {}
+        with httpx.Client(base_url=s.url, timeout=timeout, **kw) as h:
+            r = h.get("/v1/salt", headers={"Authorization": "Bearer " + s.key})
+        return msg if r.status_code == 401 else None
+    except Exception:      # noqa: BLE001  unreachable / anything else: not "gone"
+        return None
+
+
 def _replaced(s) -> bool:
     """0.2.29: the key this hook uses came from the key file and the file now holds another key (a newer `deus-witness try`)."""
     if not getattr(s, "key_from_file", False):
@@ -183,14 +209,19 @@ class Settings:
         self.verify_off = e.get("DEUS_WITNESS_VERIFY") == "0"
         self.verify = not self.verify_off
         self.key = e.get("DEUS_WITNESS_KEY")
+        rn = e.get("DEUS_WITNESS_RUN_NONCE")              # RT-0.2.41 F1: under `deus-witness run` (the witness counts this run's calls)
+        self.run_nonce = rn if isinstance(rn, str) and re.fullmatch(r"[A-Za-z0-9_-]{43}", rn) else None
         env_url = _url(e.get("DEUS_WITNESS_URL"))
         self.url = env_url
         self.key_from_file = False
+        self.key_trial = False                            # 27.10 (polygon O6): the key in use is the trial key `deus-witness try` saved
         self.file_url = None                              # the witness the key file was set up for (`deus-witness try`)
         self.url_conflict = None                          # (DEUS_WITNESS_URL, key file URL) when they differ: a deny, never a choice
         from ..trial import load_key
         d = load_key(e)                                   # 0.2.28: the key `deus-witness try` saved (agent-key.json, mode 600)
         if d is not None and (not self.key or self.key == d["key"]):
+            self.key_trial = d.get("trial") is True
+            self.file_expires_at = d.get("expires_at")
             if not self.key:
                 self.key = d["key"]
                 self.key_from_file = True
@@ -710,6 +741,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                     "(agent-key.json). The hook sends only to the witness the key was set up for. Unset DEUS_WITNESS_URL, or run "
                     "`uvx --from deus-witness deus-witness try --url URL` in your own terminal to move to another witness)" % s.url_conflict)
     w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()), pin_new=False)
+    if own and s.run_nonce:
+        w.run_nonce = s.run_nonce
     texts = {}
     try:
         if own:
@@ -777,6 +810,12 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             for m, r_ in pending:
                 if r_.reason == TRIAL_REASON:
                     return deny("TRIAL_NOT_CLAIMED", r_.rid, detail=TRIAL_UNCLAIMED_TEXT, texts=texts, hint=False)   # 0.2.40: said once
+            if s.wait > 0 and s.on_defer == "deny":         # 27.10 (polygon O9): the hook waited and gives up: say refused, not "waiting"
+                return decision("deny", " ".join(
+                    "Deus Witness refused %s: nobody approved it in Witness within %.0f s (%s, receipt %s)%s%s." % (
+                        m.summary, s.wait, r_.reason, r_.rid, _why(m, r_, texts), _changed(r_)) for m, r_ in pending) +
+                    " The request stays open in Witness until it expires: approve it at %s, then rerun the SAME call."
+                    % ", ".join(r_.approval_url for _, r_ in pending) + " Do not try to reach the same effect another way.")
             msg = " ".join("Deus Witness: %s is waiting for the owner's approval in Witness (%s, receipt %s)%s%s: %s ." % (
                 m.summary, r_.reason, r_.rid, _why(m, r_, texts), _changed(r_), r_.approval_url) for m, r_ in pending) + \
                 " After the owner approves there, retry the SAME call."
@@ -828,6 +867,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             return deny("BAD_KEY", detail="(the trial account expired and is being erased: run `uvx --from deus-witness deus-witness try` for a new one, or sign up at https://witness.sipkigroup.com)")
         if e.status in (401, 404) and _replaced(s):       # 0.2.29: a newer `deus-witness try` replaced this trial account (its key is gone)
             return deny("TRIAL_REPLACED", detail=REPLACED_TEXT)
+        if (e.status == 401 or e.code == "BAD_KEY") and getattr(s, "key_trial", False):
+            return deny("BAD_KEY", detail=TRIAL_GONE_TEXT)  # 27.10 (polygon O6): a trial user never saw an Agents page
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
             return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `uvx --from deus-witness deus-witness try`)")
         return deny("WITNESS_UNAVAILABLE", detail=e.code)
@@ -919,6 +960,40 @@ def _out(text: str) -> None:
         sys.stdout.write(text)
 
 
+def _run_mark(what: str) -> None:
+    """0.2.41: under `deus-witness run -- claude ...` leave the mark that this hook ran (an empty file; never blocks, never raises)."""
+    try:
+        from ..run import mark
+        mark(what)
+    except Exception:      # noqa: BLE001
+        pass
+
+
+def _run_report(ev, env=None, witness=None) -> bool:
+    """RT-0.2.41 F1: under `deus-witness run` with an agent key, tell the witness that this run's SessionStart hook ran (with the session
+    id, so that `run` finds the transcript). Only to the witness the hook itself would ask; a few seconds at most; never raises."""
+    try:
+        s = Settings(env)
+        if not s.run_nonce or (witness is None and (not s.key or s.url_conflict)):
+            return False
+        w = witness or Witness(s.url, s.key, verify=False, timeout=5.0, pin_new=False)
+        try:
+            if witness is None:
+                pins = w._read_pins()
+                if pins and w.url not in pins and w.url != s.file_url:
+                    return False
+            w.run_nonce = s.run_nonce
+            sid = ev.get("session_id") if isinstance(ev, dict) else None
+            w.run_start(sid if isinstance(sid, str) else None)
+            return True
+        finally:
+            if witness is None:
+                w.close()
+    except Exception as e:      # noqa: BLE001
+        log("run report failed (%s)" % type(e).__name__)
+        return False
+
+
 def main(argv=None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["--print-form"]:
@@ -934,11 +1009,18 @@ def main(argv=None) -> None:
         sys.stdout.flush()
         os._exit(1 if r["problems"] or r.get("unsure") else 0)      # 0.2.40: "cannot tell" is not "fail-closed" either
     if argv[:1] == ["--session-start"]:
+        _run_mark("session-start")
         try:                                              # a warning only: it never blocks the session
             raw = sys.stdin.read(MAX_EVENT) if not sys.stdin.isatty() else ""
             ev = json.loads(raw) if raw.strip() else {}
+            _run_report(ev)
             d = (ev.get("cwd") if isinstance(ev, dict) else None) or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
             out = failsafe.session_start_output(failsafe.check(os.environ.get("CLAUDE_PROJECT_DIR") or d))
+            if not out:
+                gone = trial_key_gone()                   # 27.10 (polygon O6): a dead trial key used to be silent here
+                if gone:
+                    out = {"systemMessage": gone, "hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                                         "additionalContext": "Deus Witness warning for the user: " + gone}}
             if out:
                 _out(json.dumps(out, ensure_ascii=False) + "\n")
                 log(out["systemMessage"])
@@ -951,6 +1033,7 @@ def main(argv=None) -> None:
     if argv[:1] in (["-h"], ["--help"]):
         print(__doc__)
         return
+    _run_mark("pretool")
     try:
         r = run(sys.stdin.buffer.read(MAX_EVENT + 1))
         if r is not None:

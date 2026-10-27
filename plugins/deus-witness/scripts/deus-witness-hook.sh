@@ -5,9 +5,9 @@
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.40"; Python 3.10+ in a venv OUTSIDE the project: one found inside
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness>=0.2.41"; Python 3.10+ in a venv OUTSIDE the project: one found inside
 #      the project, as found or resolved, is not used - the agent may write there)
-#   2. `uvx --from "deus-witness>=0.2.40" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   2. `uvx --from "deus-witness>=0.2.41" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
 # (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json; the client reads it itself).
@@ -18,7 +18,7 @@
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness>=0.2.40"
+SPEC="deus-witness>=0.2.41"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
 TRY="/deus-witness:try (or in your terminal: uvx --from \"$SPEC\" deus-witness try)"
 
@@ -85,6 +85,19 @@ if [ ${#runner[@]} -eq 0 ] && command -v uvx >/dev/null 2>&1; then
   runner=(uvx --quiet --from "$SPEC" deus-witness-hook)
 fi
 INPROJ_MSG="the deus-witness-hook on PATH ($inproj) is inside the project (or resolves there), where the agent may write, so it is not used. Install uv (https://docs.astral.sh/uv/), or install the client outside the project (a venv elsewhere)"
+
+# 0.2.41: under `deus-witness run -- claude ...` (CI, cron) leave an empty mark that this hook ran, so that a run where Claude Code
+# started no hook (`claude --bare`, CLAUDE_CODE_SIMPLE) fails loudly instead of passing unchecked. Only into the directory
+# `deus-witness run` made (absolute, not a symlink) and only with its well-formed run id; never blocks, never prints.
+rid="${DEUS_WITNESS_RUN_ID:-}"
+rdir="${DEUS_WITNESS_RUN_DIR:-}"
+case "$mode" in --session-start) rmode=session-start ;; *) rmode=pretool ;; esac
+case "$rid" in *[!0-9a-f]*) rid="" ;; esac
+case "$rdir" in /*) ;; *) rdir="" ;; esac
+if [ "${#rid}" -eq 32 ] && [ -n "$rdir" ] && [ -d "$rdir" ] && [ ! -L "$rdir" ]; then
+  if [ -z "$configured" ]; then rstate=unset; elif [ ${#runner[@]} -eq 0 ]; then rstate=blocked; else rstate=on; fi
+  { : >"$rdir/$rid.plugin-$rmode-$rstate.$$"; } 2>/dev/null || true
+fi
 
 say_session() {   # $1 = message for the user at session start
   python3 -c 'import json,sys; m=sys.argv[1]; print(json.dumps({"systemMessage": m, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "Deus Witness warning for the user: " + m}}))' "$1" 2>/dev/null \

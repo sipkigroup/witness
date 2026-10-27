@@ -298,14 +298,17 @@ def render(r: dict) -> str:
     return "\n".join(lines)
 
 
-SUBCOMMANDS = ("doctor", "try")
+SUBCOMMANDS = ("doctor", "try", "run")
 USAGE = ("deus-witness try [--project DIR] [--no-browser] [--force]\n"
+         "       deus-witness run [--] claude <args...>\n"
          "       deus-witness doctor [--json] [--no-network] [--project DIR]\n"
          "       deus-witness [--url U] [--no-verify-aar] -- <upstream MCP server command...>")
 EPILOG = """commands:
   try       a trial account in one command: agent key saved locally, two passkey touches in the browser when the agent first needs you;
             run again, it replaces the previous trial while that has no passkey; --force: replace any saved key (see: deus-witness try --help)
   doctor    where can the agent go around the witness (reads client configs, changes nothing)
+  run       run Claude Code (CI, cron) and fail when the Witness hook did not run in it: refuses --bare / CLAUDE_CODE_SIMPLE
+            before the run, exit 3 after it when no Witness hook ran (see: deus-witness run --help)
   --        run the MCP proxy in front of an upstream MCP server (same as deus-witness-mcp --):
               uvx deus-witness -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox
             needs DEUS_WITNESS_KEY in the environment (the agent key, shown once on the Agents page of https://witness.sipkigroup.com)
@@ -328,6 +331,9 @@ def main(argv=None) -> int:
 
 def cli() -> None:
     argv = sys.argv[1:]
+    if argv[:1] == ["run"]:                   # 0.2.41: deus_witness/run.py (before the `--` proxy form: `run -- claude ...`)
+        from .run import run as run_run
+        sys.exit(run_run(argv[1:]))
     if argv[:1] == ["try"]:                   # 0.2.28: deus_witness/trial.py
         from .trial import run as trial_run
         sys.exit(trial_run(argv[1:]))
