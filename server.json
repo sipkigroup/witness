@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.sipkigroup/witness",
   "title": "Deus Witness",
-  "description": "Checks every MCP tool call of your agent with an independent witness and gives signed receipts.",
-  "version": "0.2.41",
+  "description": "MCP proxy: holds risky tool calls for passkey approval; signed receipts you can check offline.",
+  "version": "0.2.42",
   "repository": {
     "url": "https://github.com/sipkigroup/witness",
     "source": "github"
@@ -13,7 +13,7 @@
     {
       "registryType": "pypi",
       "identifier": "deus-witness",
-      "version": "0.2.41",
+      "version": "0.2.42",
       "runtimeHint": "uvx",
       "transport": { "type": "stdio" },
       "packageArguments": [
