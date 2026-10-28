@@ -160,7 +160,7 @@ if [ -z "$configured" ]; then
   python3 -c '
 import json, os, re, sys, tempfile
 try:
-    ev = json.loads(sys.stdin.read(1 << 20) or "{}")
+    ev = json.loads(sys.stdin.read(1048576) or "{}")
 except ValueError:
     ev = {}
 sid = re.sub(r"[^A-Za-z0-9_-]", "", str(ev.get("session_id") or "nosession"))[:80] or "nosession"
