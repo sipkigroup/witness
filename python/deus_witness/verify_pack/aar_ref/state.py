@@ -41,12 +41,18 @@ def ceiling_payload(principal, cid, amount, currency, window_s):
     return cbor2.dumps({"v": V, "id": cid, "principal": principal, "amount": amount, "currency": currency, "window_s": window_s}, canonical=True)
 
 
-def approval_payload(mandate: dict, action: dict, rid: str, approved: bool = True):
+def approval_payload(mandate: dict, action: dict, rid: str, approved: bool = True, view=None):
     """Principal-signed approval (typ application/aar-approval+cbor), -01 Section 6.6: bound to the mandate hash, the action hash
-    and the id of the deferred receipt (so it cannot be reused for a second, identical request)."""
+    and the id of the deferred receipt (so it cannot be reused for a second, identical request).
+    pv2810 (presentation hash): view = SHA-256 of the JCS of the signing view (what the approval page showed), bstr 32; it is a member
+    of the signed map only when given, so an approval without it is byte for byte the 0.1 payload."""
     import cbor2
-    return cbor2.dumps({"v": V, "t": "approval", "receipt": rid, "mandate": mandate_hash(mandate), "action": request_hash(action),
-                        "approved": approved}, canonical=True)
+    p = {"v": V, "t": "approval", "receipt": rid, "mandate": mandate_hash(mandate), "action": request_hash(action), "approved": approved}
+    if view is not None:
+        if not (isinstance(view, bytes) and len(view) == 32):
+            raise TypeError("view must be 32 bytes")
+        p["view"] = view
+    return cbor2.dumps(p, canonical=True)
 
 
 def revocation_payload(mandate: dict):

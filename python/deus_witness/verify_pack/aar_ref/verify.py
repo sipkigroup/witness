@@ -77,7 +77,7 @@ def verify_file(path, witness_keys, operator_kids, registry, principal, checkpoi
                 return registry.check(principal, None, c, want, cose.TYP_CEILING) is None
             if typ == "APPROVAL":
                 rc = S.receipts[body["receipt"]]
-                want = approval_payload(S.mandates[rc["mandate"]], rc["action"], body["receipt"], body.get("approved", True))
+                want = approval_payload(S.mandates[rc["mandate"]], rc["action"], body["receipt"], body.get("approved", True), body.get("view"))
                 return registry.check(principal, None, c, want, cose.TYP_APPROVAL) is None
             if typ == "REVOCATION":
                 return registry.check(principal, None, c, revocation_payload(S.mandates[body["mandate"]]), cose.TYP_REVOCATION) is None

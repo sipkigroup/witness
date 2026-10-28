@@ -288,6 +288,8 @@ def _main(argv):
             ok = False
     if r["result"] == "valid":
         print("ledger: valid (%d entries)" % len(entries))
+        for line in _view_lines(entries):      # pv2810: what the approval page showed, as the owner's signature names it
+            print(line)
         trust.append("verdicts: the witness's allow/deny/defer decisions are NOT replayed here (the decision rules are not in this package); the signatures, hash chain, Merkle roots, key registry and anchors are checked")
     else:
         print("ledger: invalid %s@%s" % (r.get("reason"), r.get("at", "-")))
@@ -904,7 +906,7 @@ def _second_pass(wq, org, entries, principal, entry):
                 rc = receipts[b["receipt"]]
                 action = rc["action"]
                 agent = mandates[rc["mandate"]].get("agent")
-                typ, pay = wa.TYP_APPROVAL, approval_payload(mandates[rc["mandate"]], action, b["receipt"], b.get("approved", True))
+                typ, pay = wa.TYP_APPROVAL, approval_payload(mandates[rc["mandate"]], action, b["receipt"], b.get("approved", True), b.get("view"))
         except (KeyError, TypeError):
             return good, total, ("WQ_MALFORMED", seq), len(wbs), sum(wbs.values())
         ver = wq.policy_at(ch, t)
@@ -1122,6 +1124,29 @@ def _recoveries(wq, org, rp):
     return out
 
 
+def _view_lines(entries, cap=50):
+    """pv2810: each signed APPROVAL names the presentation hash (SHA-256 of the JCS signing view the page showed) or is marked
+    'view not signed' (an approval from a page older than pv2810, a team quorum or a batch). The signature check is in the ledger pass."""
+    out, n_v, n_old = [], 0, 0
+    for e in entries:
+        b = e["body"] if isinstance(e.get("body"), dict) else {}
+        if e.get("type") != "APPROVAL" or "cose" not in b:
+            continue
+        v = b.get("view")
+        what = "approved" if b.get("approved", True) is not False else "refused"
+        if isinstance(v, bytes) and len(v) == 32:
+            n_v += 1
+            line = "approval %s (%s): view sha256 %s (the page's signing view, signed)" % (b.get("receipt"), what, v.hex())
+        else:
+            n_old += 1
+            line = "approval %s (%s): view not signed (older approval page or a team / batch signature)" % (b.get("receipt"), what)
+        if len(out) < cap:
+            out.append(line)
+    if n_v or n_old:
+        out.append("approval views: %d signed, %d not signed%s" % (n_v, n_old, "" if n_v + n_old <= cap else " (first %d listed)" % cap))
+    return out
+
+
 def _declared(root, wq, org, principal, entry):
     """coverage/<agent>.json (operator statement, never fails the pack) and advisory/<rid>.json (release signatures, checked)."""
     out = []
@@ -1146,15 +1171,23 @@ def _declared(root, wq, org, principal, entry):
         try:
             a = _read_json(p)
             env = bytes.fromhex(a["envelope_hex"])
-            pay = wq.release_payload(a["rid"], a["args_sha256"], a["release"])
+            vh = a.get("view_sha256")                     # pv2810: the presentation hash the release names (absent = not signed)
+            try:
+                pay = wq.release_payload(a["rid"], a["args_sha256"], a["release"], vh) if vh is not None else \
+                    wq.release_payload(a["rid"], a["args_sha256"], a["release"])
+            except TypeError:                             # a checker whose wq_profile predates pv2810
+                pay, code = None, "VIEW_UNSUPPORTED"
             reg = keys.get(cbor2.loads(env)["kid"])
-            code = "KEY_MISMATCH" if reg is None or a["rid"] != rid else wa.verify_envelope(env, wq.TYP_RELEASE, pay, reg)
+            code = "VIEW_UNSUPPORTED" if pay is None else "KEY_MISMATCH" if reg is None or a["rid"] != rid else \
+                wa.verify_envelope(env, wq.TYP_RELEASE, pay, reg)
         except Exception:   # noqa: BLE001
             code = "MALFORMED"
         if code:
             out.append(("advisory %s: %s" % (rid, code), True))
         else:
             n += 1
+            out.append(("advisory %s: %s, view %s" % (rid, "released" if a["release"] else "rejected",
+                                                      ("sha256 " + vh) if vh else "not signed (older page)"), False))
     out.append(("advisory: %d/%d releases signed (the L3 advice itself is not evidence)" % (n, len(adv)), n != len(adv)))
     return out
 

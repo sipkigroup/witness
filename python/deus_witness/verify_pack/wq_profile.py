@@ -110,13 +110,19 @@ def make_wb(items, kid, authData, clientDataJSON, der_sig, normalize=True, typ=w
                 "clientDataJSON": clientDataJSON, "sig": sig})
 
 
-def release_payload(rid, args_sha256, release) -> bytes:
-    """CDE {rid, args_sha256 (bstr 32; a 64-char hex string is accepted and converted), release: bool}, typ application/dw-release+cbor."""
+def release_payload(rid, args_sha256, release, view=None) -> bytes:
+    """CDE {rid, args_sha256 (bstr 32; a 64-char hex string is accepted and converted), release: bool}, typ application/dw-release+cbor.
+    pv2810: view (bstr 32 or 64 hex) = SHA-256 of the JCS of the signing view the page showed; a member only when given."""
     if isinstance(args_sha256, str):
         args_sha256 = bytes.fromhex(args_sha256)
-    if not _b32(args_sha256) or not isinstance(rid, str) or not isinstance(release, bool):
+    if isinstance(view, str):
+        view = bytes.fromhex(view)
+    if not _b32(args_sha256) or not isinstance(rid, str) or not isinstance(release, bool) or (view is not None and not _b32(view)):
         raise ValueError("MALFORMED")
-    return cde({"rid": rid, "args_sha256": args_sha256, "release": release})
+    p = {"rid": rid, "args_sha256": args_sha256, "release": release}
+    if view is not None:
+        p["view"] = view
+    return cde(p)
 
 
 # ---------------------------------------------------------------- policy

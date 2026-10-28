@@ -157,6 +157,8 @@ def validate_body(typ, b, own_seq=None):
         return "CHECKPOINT seq"                          # Section 7.1: seq < own seq
     if typ == "APPROVAL" and not isinstance(b["approved"], bool):
         return "approved"
+    if typ == "APPROVAL" and "view" in b and not (isinstance(b["view"], bytes) and len(b["view"]) == 32):
+        return "view"                                    # pv2810: the presentation hash, when present, is bstr .size 32
     if typ == "ALLOWANCE" and (not isinstance(b["mandate"], str) or validate_allowance(b["allowance"])):
         return "ALLOWANCE member"
     if typ == "ALLOWANCE_END" and not (isinstance(b["allowance"], str) and b["cause"] in ALLOWANCE_END_CAUSES):
