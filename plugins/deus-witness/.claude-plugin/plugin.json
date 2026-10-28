@@ -3,11 +3,21 @@
   "displayName": "Deus Witness",
   "version": "0.2.42",
   "description": "An outside witness for your agent: every tool call (Bash, Edit, Write, Read, WebFetch, MCP...) is decided by Deus Witness before it runs, with a signed receipt you can check offline.",
-  "author": {"name": "Sipki LLC", "url": "https://witness.sipkigroup.com"},
+  "author": {
+    "name": "Sipki LLC",
+    "url": "https://witness.sipkigroup.com"
+  },
   "homepage": "https://witness.sipkigroup.com",
   "repository": "https://github.com/sipkigroup/witness",
   "license": "Apache-2.0",
-  "keywords": ["security", "audit", "hooks", "approval", "receipts", "agent-safety"],
+  "keywords": [
+    "security",
+    "audit",
+    "hooks",
+    "approval",
+    "receipts",
+    "agent-safety"
+  ],
   "userConfig": {
     "agent_key": {
       "type": "string",
@@ -27,5 +37,9 @@
       "description": "On: while no agent key is set, every matched tool call is denied. Off (default): the plugin does nothing until configured.",
       "default": false
     }
-  }
+  },
+  "documentationUrl": "https://witness.sipkigroup.com/dl/docs/quickstart.html",
+  "privacyPolicyUrl": "https://witness.sipkigroup.com/privacy.html",
+  "termsOfServiceUrl": "https://witness.sipkigroup.com/terms.html",
+  "supportUrl": "https://github.com/sipkigroup/witness/issues"
 }
