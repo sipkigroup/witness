@@ -177,10 +177,14 @@ ALLOWANCE_END_CAUSES = ("revoked",)
 def validate_allowance(a):
     """CDDL of the allowance map (= the signed payload, typ application/aar-allowance+cbor):
       { v: "deus-aar-0.1", t: "allowance", id: tstr (1..64), mandate: bstr .size 32 (hash of the mandate it extends), class: "command",
-        commands: [1*8 tstr (1..200, no "*")], project: tstr (absolute path, 1..1024), nbf: uint, exp: uint (nbf < exp <= nbf + 90 days) }
-    Exactly these members. -> None or the first offending member."""
-    if not isinstance(a, dict) or set(a) != ALLOWANCE_KEYS:
+        commands: [1*8 tstr (1..200, no "*")], project: tstr (absolute path, 1..1024), nbf: uint, exp: uint (nbf < exp <= nbf + 90 days),
+        ? view: bstr .size 32 }
+    Exactly these members (pv2: `view`, the presentation hash of the approval page that offered it, is the one optional member).
+    -> None or the first offending member."""
+    if not isinstance(a, dict) or set(a) - {"view"} != ALLOWANCE_KEYS:
         return "members"
+    if "view" in a and not (isinstance(a["view"], bytes) and len(a["view"]) == 32):
+        return "view"
     if a["v"] != "deus-aar-0.1" or a["t"] != "allowance" or a["class"] != "command":
         return "v/t/class"
     if not (isinstance(a["id"], str) and 0 < len(a["id"]) <= 64):

@@ -200,7 +200,7 @@ def _main(argv):
     kw = {} if keyring is None or keyring["error"] else {"keys": keyring["records"]}
     if org is None:
         registry = WaRegistry.for_account(principal, entry, **kw)
-        if keyring is not None and QuorumRegistry is not None and q_args:      # a batch revocation (wb) of a solo account
+        if QuorumRegistry is not None and q_args:      # a batch (wb: revocation, approval, later runs) of a solo account; pv2: also with one pinned key (was: only after key changes -> MANDATE_KEY)
             registry = QuorumRegistry.for_account(principal, entry, (), True, **kw)
     else:
         registry = QuorumRegistry.for_account(principal, entry, org["chain"], *(q_args or (_rp(entry),)), **kw)
@@ -1126,20 +1126,25 @@ def _recoveries(wq, org, rp):
 
 def _view_lines(entries, cap=50):
     """pv2810: each signed APPROVAL names the presentation hash (SHA-256 of the JCS signing view the page showed) or is marked
-    'view not signed' (an approval from a page older than pv2810, a team quorum or a batch). The signature check is in the ledger pass."""
+    'view not signed' (an approval from a page older than pv2810 / pv2). pv2: a team quorum, a batch, an approval for later runs and a
+    project permission (ALLOWANCE: `allowance <id>: ...`) name it too. The signature check is in the ledger pass."""
     out, n_v, n_old = [], 0, 0
     for e in entries:
         b = e["body"] if isinstance(e.get("body"), dict) else {}
-        if e.get("type") != "APPROVAL" or "cose" not in b:
+        if e.get("type") == "ALLOWANCE" and isinstance(b.get("allowance"), dict):
+            v = b["allowance"].get("view")
+            label = "allowance %s" % b["allowance"].get("id")
+        elif e.get("type") == "APPROVAL" and "cose" in b:
+            v = b.get("view")
+            label = "approval %s (%s)" % (b.get("receipt"), "approved" if b.get("approved", True) is not False else "refused")
+        else:
             continue
-        v = b.get("view")
-        what = "approved" if b.get("approved", True) is not False else "refused"
         if isinstance(v, bytes) and len(v) == 32:
             n_v += 1
-            line = "approval %s (%s): view sha256 %s (the page's signing view, signed)" % (b.get("receipt"), what, v.hex())
+            line = "%s: view sha256 %s (the page's signing view, signed)" % (label, v.hex())
         else:
             n_old += 1
-            line = "approval %s (%s): view not signed (older approval page or a team / batch signature)" % (b.get("receipt"), what)
+            line = "%s: view not signed (an older approval page)" % label
         if len(out) < cap:
             out.append(line)
     if n_v or n_old:
