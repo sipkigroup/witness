@@ -20,7 +20,7 @@ set -u
 
 SPEC="deus-witness==0.2.42"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
-TRY="/deus-witness:try (or in your terminal: uvx --from \"$SPEC\" deus-witness try)"
+TRY="/deus-witness:try (or in your terminal: uvx --from \"deus-witness==0.2.42\" deus-witness try)"
 
 # Plugin options (userConfig) arrive as CLAUDE_PLUGIN_OPTION_<KEY>; a variable already set in the environment wins.
 export DEUS_WITNESS_KEY="${DEUS_WITNESS_KEY:-${CLAUDE_PLUGIN_OPTION_AGENT_KEY:-}}"
@@ -116,7 +116,7 @@ preflight() {
   if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
     p="$p Note: $INPROJ_MSG."
   elif [ ${#runner[@]} -eq 0 ]; then
-    p="$p First install uv (https://docs.astral.sh/uv/): without it /deus-witness:try cannot run (or: pip install \"$SPEC\" with Python 3.10+ in a venv)."
+    p="$p First install uv (https://docs.astral.sh/uv/): without it /deus-witness:try cannot run (or: pip install \"deus-witness==0.2.42\" with Python 3.10+ in a venv)."
   fi
   v="$("${CLAUDE_CODE_EXECPATH:-claude}" --version 2>/dev/null </dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [ -n "$v" ]; then
@@ -144,7 +144,7 @@ if [ "$mode" = "--session-start" ]; then
     exit 0
   fi
   if [ ${#runner[@]} -eq 0 ]; then
-    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"$SPEC\" (Python 3.10+ in a venv)"
+    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"deus-witness==0.2.42\" (Python 3.10+ in a venv)"
     exit 0
   fi
   exec "${runner[@]}" --session-start </dev/null
@@ -178,6 +178,6 @@ if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
 fi
 if [ ${#runner[@]} -eq 0 ]; then
   cat >/dev/null
-  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"$SPEC\" (Python 3.10+ in a venv)"
+  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"deus-witness==0.2.42\" (Python 3.10+ in a venv)"
 fi
 exec "${runner[@]}"
