@@ -82,7 +82,7 @@ elif [ -n "$dropped" ]; then
   done
 fi
 if [ ${#runner[@]} -eq 0 ] && command -v uvx >/dev/null 2>&1; then
-  runner=(uvx --quiet --from "$SPEC" deus-witness-hook)
+  runner=(uvx --quiet --from "deus-witness==0.2.42" deus-witness-hook)   # literal pin: the directory validator must see it
 fi
 INPROJ_MSG="the deus-witness-hook on PATH ($inproj) is inside the project (or resolves there), where the agent may write, so it is not used. Install uv (https://docs.astral.sh/uv/), or install the client outside the project (a venv elsewhere)"
 
