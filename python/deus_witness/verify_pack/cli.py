@@ -28,8 +28,19 @@ def _unzip(zpath, dest):
         z.extractall(base)
 
 
+HELP = """usage: deus-witness-verify-pack <pack.zip | unpacked folder> [flags]
+Offline check of a Deus Witness evidence pack. Flags (one per argument, value flags are --name=value):
+  --offline  --use-pack-code  --require-anchors  --witness-kid=<hex>  --owner-kid=<hex>  --tsa-ca=<dir>  (more: see the README)
+example: deus-witness-verify-pack evidence-pack.zip --offline
+exit: 0 pack VALID (also for -h / --help), 1 INVALID, 64 wrong usage (a bad argument is an error, not help)
+"""
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if any(a in ("-h", "--help") for a in argv):
+        print(HELP)
+        return 0
     from . import verify_pack as V
     pos = [i for i, a in enumerate(argv) if not a.startswith("--")]
     if len(pos) == 1 and os.path.isfile(argv[pos[0]]):

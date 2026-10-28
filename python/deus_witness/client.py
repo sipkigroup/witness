@@ -398,9 +398,12 @@ class Witness:
             self.check(res, sent=(tool, args or {}))
         return res
 
-    def get(self, rid: str, wait: int = 0) -> ActionResult:
+    def get(self, rid: str, wait: int = 0, final: bool = False) -> ActionResult:
+        """final (0.2.43, server 0.2.43b): this is the caller's last poll; if it ends with the call still waiting, the caller gives up and
+        the witness marks the call "not run: timeout" in the journal (an older witness ignores the parameter)."""
         wait = max(0, min(int(wait), 25))
-        return ActionResult.from_json(self._call("GET", "/v1/actions/%s" % rid, params={"wait": wait}, timeout=wait + 15))
+        params = {"wait": wait, "final": 1} if final else {"wait": wait}
+        return ActionResult.from_json(self._call("GET", "/v1/actions/%s" % rid, params=params, timeout=wait + 15))
 
     def wait(self, rid: str, timeout: float = 50.0, verify: Optional[bool] = None, sent: Optional[tuple] = None) -> ActionResult:
         """Long-poll until the action leaves pending_approval or `timeout` seconds pass (then returns the pending result)."""

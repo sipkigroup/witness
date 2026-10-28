@@ -424,8 +424,21 @@ class Proxy:
         return self.up.returncode or 0
 
 
+HELP = """usage: deus-witness-mcp [--url U] [--no-verify-aar] -- <upstream MCP server command...>
+Witness proxy: stands between the agent and an upstream MCP server; every tool call is judged first.
+  --url U            witness address (default: the hosted one)
+  --no-verify-aar    do not verify the signed receipts
+  needs DEUS_WITNESS_KEY in the environment
+example: DEUS_WITNESS_KEY=... deus-witness-mcp -- npx -y some-mcp-server
+exit: 0 for -h / --help; 2 wrong usage
+"""
+
+
 def main(argv=None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if any(a in ("-h", "--help") for a in (argv[:argv.index("--")] if "--" in argv else argv)):
+        sys.stdout.write(HELP)
+        sys.exit(0)
     if "--" not in argv:
         sys.stderr.write("usage: deus-witness-mcp [--url U] [--no-verify-aar] -- <upstream MCP server command...>\n")
         sys.exit(2)

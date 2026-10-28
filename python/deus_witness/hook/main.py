@@ -68,7 +68,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import failsafe, fingerprint, gitref, sandbox_fact, selfpath
+from . import failsafe, fingerprint, gitref, mask, sandbox_fact, selfpath
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -79,7 +79,10 @@ RESERVED = "_witness"
 ENV_KEYS = ("CLAUDE_PROJECT_DIR", "HOME", "DEUS_WITNESS_EXEC_SCAN")
 MAX_ROUNDS = 8                 # fact rounds per call; the witness asks what its classifier needs (usually one round, two with a project scan)
 MAX_ASKED = 4096               # paths answered per round
-CLIENT = {"name": "deus-witness-hook", "version": VERSION}
+# 0.2.43 (server 0.2.43b): "preview" = answers need.preview (a changed executed file's masked text), "final" = marks its last long poll
+CLIENT = {"name": "deus-witness-hook", "version": VERSION, "caps": ["preview", "final"]}
+PREVIEW_MAX = 4096             # characters of a previewed file (the witness shows them; secrets masked here first, mask.py)
+MAX_PREVIEWS = 8
 HINTS = {k: v[1] for k, v in LOCAL.items() if v[0] == "deny"}
 TRIAL_REASON = "ESCALATE_TRIAL_CLAIM"       # 0.2.28 (server 0.2.38): a trial account waits for its first touch
 TRIAL_OPEN_EVERY_S = 600
@@ -556,6 +559,7 @@ class Facts:
         self.env = {k: env[k] for k in ENV_KEYS if isinstance(env.get(k), str)}
         self.fs = {"realpath": {}, "isdir": {}, "exists": {}, "gitref": {}}    # gitref (0.2.37): the witness may ask what a ref switch rewrites
         self.exec = "off" if self.env.get("DEUS_WITNESS_EXEC_SCAN") == "0" else None
+        self.spec = None                              # the fingerprint list of the last walk (a preview's digest is made with it)
         self.nonce = secrets.token_urlsafe(24)        # R9-01: 192 bits, fresh for every call (and for a re-judge)
         cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and _is_abs(ev.get("cwd")) else self.proc_cwd
         p = self.env.get("CLAUDE_PROJECT_DIR")
@@ -621,9 +625,31 @@ class Facts:
         except Exception:      # noqa: BLE001  a bad cache: the witness asks, as without one
             lst = None
         if isinstance(lst, dict) and tool_name in (lst.get("prescan_tools") or ()):
-            spec = fingerprint.Spec(lst)
+            spec = self.spec = fingerprint.Spec(lst)
             rep = fingerprint.scan(self.root, spec)
             self.exec = dict(fingerprint.with_gitcfg(fingerprint.with_sizes(rep, self.root), self.root, spec), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
+
+    def previews(self, asked):
+        """0.2.43 (server 0.2.43b, O2): need.preview = [absolute paths] -> facts.exec.preview = {path: {"text", "cut", "digest"}}.
+        Only files of this hook's own report (the witness names nothing else), only regular files that are not links and lie inside the
+        project root (git's own files: where the report found them); the text is cut to PREVIEW_MAX characters and masked (mask.py)
+        before it leaves the machine. A file that cannot be read so is left out (the witness then says "approve blind", as before)."""
+        rep = self.exec if isinstance(self.exec, dict) else None
+        if not isinstance(asked, list) or len(asked) > MAX_PREVIEWS or not all(isinstance(p, str) and 0 < len(p) <= 4096 for p in asked):
+            raise Fail("HOOK_ERROR", "(bad witness answer)")
+        if rep is None or not isinstance(rep.get("files"), dict) or self.root is None:
+            raise Fail("HOOK_ERROR", "(the witness asked for a preview without a report)")
+        known = {self.root.rstrip("/") + "/" + rel: dg for rel, dg in rep["files"].items()}
+        git = rep.get("git") if isinstance(rep.get("git"), dict) else {}
+        known.update(git)
+        if not all(p in known for p in asked):
+            raise Fail("HOOK_ERROR", "(the witness asked about a file it was not told about)")
+        out = {}
+        for p in asked:
+            x = _preview(p, self.root, p in git, self.spec)
+            if x is not None:
+                out[p] = x
+        self.exec = dict(rep, preview=out)
 
     def body(self, ev, part=None):
         return {"v": 1, "event": {k: ev.get(k) for k in ("tool_name", "tool_input", "cwd") if k in ev},
@@ -658,12 +684,46 @@ class Facts:
             raise Fail("HOOK_ERROR", "(the witness asked about a path unrelated to this call)")
         for top, ref in refs:                         # 0.2.37: what switching that repository to `ref` rewrites (git plumbing only, gitref.py)
             self.fs["gitref"][top + "\n" + ref] = gitref.answer(top, ref, avoid=(self.root,))
+        if "preview" in need:                         # 0.2.43: the witness shows a changed file it could not read (asked once)
+            self.previews(need["preview"])
         if "scan" in need:
             if need["scan"] != self.root or self.root is None:
                 raise Fail("HOOK_ERROR", "(the witness asked for another directory)")
-            spec = fingerprint.Spec(w.scan_list(need.get("scan_rev")))
+            spec = self.spec = fingerprint.Spec(w.scan_list(need.get("scan_rev")))
             rep = fingerprint.scan(self.root, spec)
             self.exec = dict(fingerprint.with_gitcfg(fingerprint.with_sizes(rep, self.root), self.root, spec), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
+
+
+def _preview(p, root, is_git, spec):
+    """-> {"text", "cut", "digest"} of one file, or None (a link, not a regular file, outside the root, unreadable)."""
+    import stat as _st
+    try:
+        if os.path.islink(p):
+            return None
+        rr = _realpath(root)
+        if not is_git and not _under(_realpath(p), rr):
+            return None
+        fd = os.open(p, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+        try:
+            st = os.fstat(fd)
+            if not _st.S_ISREG(st.st_mode):
+                return None
+            data = b""
+            while len(data) < 4 * PREVIEW_MAX + 4:
+                b = os.read(fd, 4 * PREVIEW_MAX + 4 - len(data))
+                if not b:
+                    break
+                data += b
+        finally:
+            os.close(fd)
+        text = data.decode("utf-8", "replace")
+        cut = st.st_size > len(data) or len(text) > PREVIEW_MAX
+        dg = fingerprint.file_digest(p, spec) if spec is not None else None
+        if dg is None or dg == "unreadable":
+            return None
+        return {"text": mask.mask_value(text, PREVIEW_MAX), "cut": bool(cut), "digest": dg}
+    except (OSError, ValueError):
+        return None
 
 
 class Part:
@@ -779,9 +839,16 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 while res.status == "pending_approval" and time.monotonic() < end:
                     if res.reason == TRIAL_REASON and _replaced(s):
                         return deny("TRIAL_REPLACED", res.rid, detail=REPLACED_TEXT)
-                    res = w.get(rid, wait=int(max(1, min(25 if res.reason != TRIAL_REASON else 10, end - time.monotonic()))))
+                    cap = 25 if res.reason != TRIAL_REASON else 10
+                    left = end - time.monotonic()
+                    last = left <= cap                    # 0.2.43 (server 0.2.43b, C): this poll ends where this hook gives up: it says so
+                    # the last poll is rounded UP (it ends at most 1 s after `end`, which is >= 1 s before the deadline): a hook that stops
+                    # after it never gives up earlier than it said
+                    res = _poll(w, rid, int(max(1, min(cap, -(-left // 1) if last else left))), last)
                     if res.rid != rid:
                         raise Fail("REQUEST_MISMATCH", "(an answer about another receipt)")
+                    if last and res.status == "pending_approval":
+                        break                             # told the witness this was the last poll: the call is refused now
                 if res.status != "covered" or not isinstance(m.i, int) or rejudged >= 2 or time.monotonic() >= deadline - 2.0:
                     break
                 # 0.2.10: the owner answered with "allow in this project" (a signed allowance, not an approval of THIS receipt), or
@@ -881,6 +948,16 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 w.close()
             except Exception:
                 pass
+
+
+def _poll(w, rid, wait, last):
+    """One long poll; `final=1` on the last one (a Witness without the parameter, e.g. a test double, is asked as before)."""
+    try:
+        import inspect
+        takes = "final" in inspect.signature(w.get).parameters
+    except (TypeError, ValueError):
+        takes = False
+    return w.get(rid, wait=wait, final=True) if (last and takes) else w.get(rid, wait=wait)
 
 
 def _why(m, res, texts) -> str:

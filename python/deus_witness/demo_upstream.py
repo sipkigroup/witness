@@ -67,7 +67,23 @@ def read_file(
     return "demo contents of %s" % path
 
 
-def main() -> None:
+HELP = """usage: deus-witness-demo-tools
+Demo MCP server over stdio (tools: send_email, read_file, ...). Takes no arguments; nothing real happens,
+every call is appended to $DEUS_DEMO_OUT/effects.jsonl.
+example: deus-witness-mcp -- deus-witness-demo-tools
+exit: 0 for -h / --help; 2 for any other argument
+"""
+
+
+def main(argv=None) -> None:
+    import sys
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv:
+        if argv in (["-h"], ["--help"]):
+            sys.stdout.write(HELP)
+            sys.exit(0)
+        sys.stderr.write("deus-witness-demo-tools: unknown argument %r (see --help)\n" % argv[0])
+        sys.exit(2)
     mcp.run(transport="stdio")
 
 
