@@ -1,7 +1,7 @@
 {
   "name": "deus-witness",
   "displayName": "Deus Witness",
-  "version": "0.2.45",
+  "version": "0.2.46",
   "description": "An outside witness for your agent: every tool call (Bash, Edit, Write, Read, WebFetch, MCP...) is decided by Deus Witness before it runs, with a signed receipt you can check offline.",
   "author": {
     "name": "Sipki LLC",

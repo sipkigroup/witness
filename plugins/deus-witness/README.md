@@ -10,7 +10,7 @@ rate limit) are kept only in the server database.
 
 Before a matched tool call runs, the hook sends the tool input as given (the full command line, file paths, the text being written) to the witness server at <https://witness.sipkigroup.com> (operated by Sipki LLC), or to the `witness_url` you set. Along with it go the working directory, the project and home directory paths, answers to file-system questions the witness asks about paths named in the call (does it exist, its real path), SHA-256 hashes and paths of project files the call could execute, and, for shell calls, how Claude Code's sandbox is configured. Your conversation (prompts and replies) is not sent. Masked previews shrink to ~80 characters once the call is decided and to a hash after 30 days; a trial account you don't keep is erased after 7 days. Full details: <https://witness.sipkigroup.com/privacy.html>
 
-The plugin needs uv; it runs `uvx --from deus-witness==0.2.45 deus-witness-hook` (a pinned PyPI package whose source is in this repository under `python/`).
+The plugin needs uv; it runs `uvx --from deus-witness==0.2.46 deus-witness-hook` (a pinned PyPI package whose source is in this repository under `python/`).
 
 ## Install
 
@@ -26,9 +26,9 @@ From the shell: `claude plugin marketplace add sipkigroup/witness && claude plug
 
 The plugin is a thin wrapper. The hook itself is the Python client `deus-witness` (PyPI, Apache-2.0, >= 0.2.34). The plugin finds it:
 
-1. [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) - then the plugin runs `uvx --from "deus-witness==0.2.45" deus-witness-hook`
+1. [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) - then the plugin runs `uvx --from "deus-witness==0.2.46" deus-witness-hook`
    (first call downloads the client into the uv cache, about 30 packages). This is the way we test.
-2. `deus-witness-hook` on your PATH - `pip install "deus-witness==0.2.45"`, only with Python 3.10+ in a venv (the stock macOS Python 3.9 and
+2. `deus-witness-hook` on your PATH - `pip install "deus-witness==0.2.46"`, only with Python 3.10+ in a venv (the stock macOS Python 3.9 and
    PEP 668 system Pythons refuse it). Put that venv OUTSIDE the project: the agent may write inside the project, so the plugin does not
    use a `deus-witness-hook` (or any program) found on PATH inside the project - it falls back to uvx, or blocks the call without uv.
 
@@ -36,7 +36,7 @@ Requirements: Claude Code 2.1.295+ (it honours `"onFailure": "block"`) and uv (`
 
 ## Set up in 2 minutes (trial, no sign-up form)
 
-In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness==0.2.45" deus-witness try`).
+In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness==0.2.46" deus-witness try`).
 It prints what the hook sends to the witness, saves a trial agent key to `~/.config/deus-witness/agent-key.json` (mode 600; the plugin
 picks it up at once) and opens a page in your browser. The first call of the agent that needs you waits; on that page ONE button asks
 for two passkey touches (Touch ID / Windows Hello / phone): one makes your passkey, one signs the recommended rules for the project. The
@@ -76,14 +76,14 @@ working defaults. Set `agent_key` only if you already have a full account (below
 | Owner approval pending (`defer`) | Waits up to 600 s for your approval in Witness, then denied | - |
 | Trial account, nobody has touched the page yet | Waits 90 s, then denied (`TRIAL_NOT_CLAIMED`) | "touch the passkey, then ask again" |
 
-Check your setup: `uvx --from "deus-witness==0.2.45" deus-witness-hook --doctor` - from 0.2.41 on it finds the plugin from a plain shell too (Claude Code's plugin registry and `enabledPlugins`) and the key file `try` saved; when no settings file says whether the plugin is enabled it says "CANNOT TELL" instead of guessing. Inside Claude Code the session-start message is the authoritative check.
+Check your setup: `uvx --from "deus-witness==0.2.46" deus-witness-hook --doctor` - from 0.2.41 on it finds the plugin from a plain shell too (Claude Code's plugin registry and `enabledPlugins`) and the key file `try` saved; when no settings file says whether the plugin is enabled it says "CANNOT TELL" instead of guessing. Inside Claude Code the session-start message is the authoritative check.
 
-CI and cron: `claude --bare` (and `CLAUDE_CODE_SIMPLE=1`) skips the hooks of plugins, so this plugin does not run and nothing says so; Claude Code's docs say `--bare` will become the default for `claude -p` in a future release. Run `uvx --from "deus-witness==0.2.45" deus-witness run -- claude -p "..."`: it refuses `--bare` before the run and exits non-zero after it when no Witness hook ran.
+CI and cron: `claude --bare` (and `CLAUDE_CODE_SIMPLE=1`) skips the hooks of plugins, so this plugin does not run and nothing says so; Claude Code's docs say `--bare` will become the default for `claude -p` in a future release. Run `uvx --from "deus-witness==0.2.46" deus-witness run -- claude -p "..."`: it refuses `--bare` before the run and exits non-zero after it when no Witness hook ran.
 
 ## MCP servers
 
 The plugin does not add an MCP server: `deus-witness-mcp` is a proxy in front of *your* MCP server, so it needs your server's command.
-Put it in your own `.mcp.json`: `"command": "uvx", "args": ["--from", "deus-witness==0.2.45", "deus-witness-mcp", "--", "<your server command>", "..."]`.
+Put it in your own `.mcp.json`: `"command": "uvx", "args": ["--from", "deus-witness==0.2.46", "deus-witness-mcp", "--", "<your server command>", "..."]`.
 MCP tool calls are already covered by the hook (`mcp__.*` in the matcher).
 
 ## Honest limits
