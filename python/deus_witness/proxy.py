@@ -185,6 +185,9 @@ class Proxy:
             if res.verdict == "defer" and res.status == "pending_approval":
                 return "block", held_text(res.approval_url or w.url, res.rid)
             reason = res.reason if res.verdict == "deny" else {"refused": "APPROVAL_REFUSED", "expired": "RECEIPT_EXPIRED"}.get(res.status, res.reason or res.status)
+            if res.status == "refused" or res.reason == "ADVISORY_REJECTED":     # R1 29.10 (0.2.47): the owner said No in Witness: say so
+                return "block", "Blocked by Deus Witness: %s (receipt %s) - refused by the owner in Witness." % (
+                    "APPROVAL_REFUSED" if res.status == "refused" else res.reason, res.rid)
             return "block", "Blocked by Deus Witness: %s (receipt %s)" % (reason, res.rid)
         except AARError as e:
             log("tool=%s AAR rejected: %s" % (name, e))

@@ -84,6 +84,7 @@ CLIENT = {"name": "deus-witness-hook", "version": VERSION, "caps": ["preview", "
 PREVIEW_MAX = 4096             # characters of a previewed file (the witness shows them; secrets masked here first, mask.py)
 MAX_PREVIEWS = 8
 HINTS = {k: v[1] for k, v in LOCAL.items() if v[0] == "deny"}
+WAIT_STATUSES = ("pending_approval", "held")    # R1 29.10 (0.2.47): a held call is waited for like a question
 TRIAL_REASON = "ESCALATE_TRIAL_CLAIM"       # 0.2.28 (server 0.2.38): a trial account waits for its first touch
 TRIAL_OPEN_EVERY_S = 600
 TRIAL_WAIT_S = 90.0                          # 0.2.34: a trial account nobody has touched yet is waited for this long (an owner's question: DEUS_WITNESS_HOOK_WAIT)
@@ -286,7 +287,7 @@ def _ro_scan(cmd):
     if any(ch in cmd for ch in "\n\r\0"):
         return False
     q = None
-    for ch in cmd:
+    for i, ch in enumerate(cmd):
         if q == "'":
             q = None if ch == "'" else q
         elif q == '"':
@@ -295,9 +296,25 @@ def _ro_scan(cmd):
             q = None if ch == '"' else q
         elif ch in "'\"":
             q = ch
+        elif ch == "*":                                   # 0.2.48 (R7): `cat .claude/*.json` - see _ro_star_ok
+            if not _ro_star_ok(cmd, i):
+                return False
         elif ch in _RO_UNQUOTED_BAD:
             return False
     return q is None
+
+
+def _ro_star_ok(cmd, i):
+    """0.2.48 (R7): an unquoted `*` at cmd[i] is allowed for reading only when its word is plain characters, does not start with `-`
+    (so the expansion can never become an option) and the `*` follows a `/` (`.claude/*.json`, `./.claude/*.md`). Writes are unaffected:
+    the programs here only read, and any other command with `.claude` in it still needs the owner."""
+    j = i
+    while j > 0 and cmd[j - 1] not in " \t;&|":
+        j -= 1
+    w = cmd[j:i]
+    return bool(w) and w[-1] == "/" and w[0] != "-" and re.fullmatch(r"[\w.@%+=:,/-]+", w) is not None
+
+
 
 
 def _ro_git_no_drivers(args):
@@ -827,16 +844,22 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             return deny(str(r["refuse"]), detail=str(r.get("detail") or ""), texts=texts)
         got, tools = _bound(w, r, body, None, r.get("parts"), inp, tool_name, w.verify)
         results = []
+        waited = {}                                       # R1 29.10: index of a part -> (the wait limit the hook set, the status it waited on, its reason)
         for m in got:
             res = m.res
             rejudged = 0
-            while res.verdict == "defer" and res.status == "pending_approval" and s.wait > 0:
+            while res.verdict == "defer" and res.status in WAIT_STATUSES and s.wait > 0:
                 if res.reason == TRIAL_REASON:
                     _trial_open(res.approval_url, s.env)          # 0.2.28: the trial page (the claim is in that browser, never here)
                 wait_s = min(s.wait, _num(s.env.get("DEUS_WITNESS_TRIAL_WAIT"), TRIAL_WAIT_S, 1.0, 900.0)) if res.reason == TRIAL_REASON else s.wait
-                end = min(deadline - 1.0, time.monotonic() + wait_s)
+                t_wait = time.monotonic()
+                end = min(deadline - 1.0, t_wait + wait_s)
                 rid = res.rid
-                while res.status == "pending_approval" and time.monotonic() < end:
+                # R1 29.10 (series 8): a call HELD by the witness (status held: ESCALATE_WRITTEN_RUN, ESCALATE_SECRET_SEEN ...) is waited for
+                # like a question: the owner's Release turns it into allow/allowed (server actions.release -> the core's decision), and THIS
+                # call runs; before 0.2.47 the hook refused it at once ("nobody approved it within 120 s") and the owner's Release ran nothing
+                waited[len(results)] = (max(0.0, end - t_wait), res.status, res.reason)
+                while res.status in WAIT_STATUSES and time.monotonic() < end:
                     if res.reason == TRIAL_REASON and _replaced(s):
                         return deny("TRIAL_REPLACED", res.rid, detail=REPLACED_TEXT)
                     cap = 25 if res.reason != TRIAL_REASON else 10
@@ -847,7 +870,7 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                     res = _poll(w, rid, int(max(1, min(cap, -(-left // 1) if last else left))), last)
                     if res.rid != rid:
                         raise Fail("REQUEST_MISMATCH", "(an answer about another receipt)")
-                    if last and res.status == "pending_approval":
+                    if last and res.status in WAIT_STATUSES:
                         break                             # told the witness this was the last poll: the call is refused now
                 if res.status != "covered" or not isinstance(m.i, int) or rejudged >= 2 or time.monotonic() >= deadline - 2.0:
                     break
@@ -867,27 +890,33 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             results.append((m, res))
             if res.verdict == "deny" or res.status in ("refused", "expired"):
                 break                                     # the first refusal decides; nothing is consumed
-        for m, res in results:
+        for k, (m, res) in enumerate(results):
+            if k in waited and (res.status == "refused" or res.reason == "ADVISORY_REJECTED"):
+                # R1 29.10: the owner answered No while the hook waited: say so (the code stays for the logs)
+                code = "APPROVAL_REFUSED" if res.status == "refused" else res.reason
+                return deny(code, res.rid, detail="- %s was refused by the owner in Witness (%s %s)" % (
+                    m.summary, "held by the witness:" if waited[k][1] == "held" else "asked:", waited[k][2]), texts=texts, hint=False)
             if res.verdict == "deny":
                 return deny(res.reason or "DENIED", res.rid, texts=texts)
             if res.status in ("refused", "expired") or res.verdict not in ("allow", "pass", "defer"):
                 return deny({"refused": "APPROVAL_REFUSED", "expired": "RECEIPT_EXPIRED"}.get(res.status, res.reason or res.status or "UNKNOWN"), res.rid, texts=texts)
-        pending = [(m, res) for m, res in results if res.verdict == "defer"]
+        pending = [(k, m, res) for k, (m, res) in enumerate(results) if res.verdict == "defer"]
         if pending:
-            for m, r_ in pending:
+            for _, m, r_ in pending:
                 if r_.reason == TRIAL_REASON:
                     return deny("TRIAL_NOT_CLAIMED", r_.rid, detail=TRIAL_UNCLAIMED_TEXT, texts=texts, hint=False)   # 0.2.40: said once
-            if s.wait > 0 and s.on_defer == "deny":         # 27.10 (polygon O9): the hook waited and gives up: say refused, not "waiting"
-                return decision("deny", " ".join(
-                    "Deus Witness refused %s: nobody approved it in Witness within %.0f s (%s, receipt %s)%s%s." % (
-                        m.summary, s.wait, r_.reason, r_.rid, _why(m, r_, texts), _changed(r_)) for m, r_ in pending) +
-                    " The request stays open in Witness until it expires: approve it at %s, then rerun the SAME call."
-                    % ", ".join(r_.approval_url for _, r_ in pending) + " Do not try to reach the same effect another way.")
-            msg = " ".join("Deus Witness: %s is waiting for the owner's approval in Witness (%s, receipt %s)%s%s: %s ." % (
-                m.summary, r_.reason, r_.rid, _why(m, r_, texts), _changed(r_), r_.approval_url) for m, r_ in pending) + \
+            if s.on_defer == "deny" and all(k in waited for k, _, _ in pending):    # 27.10 (polygon O9): the hook waited and gives up: say refused
+                # R1 29.10: the seconds are the limit the hook really waited (not the setting), and a held call is called held
+                return decision("deny", " ".join(_gave_up(m, r_, waited[k], texts) for k, m, r_ in pending) +
+                    " The request stays open in Witness until it expires: decide it at %s, then rerun the SAME call."
+                    % ", ".join(r_.approval_url or "" for _, _, r_ in pending) + " Do not try to reach the same effect another way.")
+            msg = " ".join("Deus Witness: %s is %s in Witness (%s, receipt %s)%s%s: %s ." % (
+                m.summary, "held by the witness for the owner's review" if r_.status == "held" else "waiting for the owner's approval",
+                r_.reason, r_.rid, _why(m, r_, texts), _changed(r_), r_.approval_url) for _, m, r_ in pending) + \
                 " After the owner approves there, retry the SAME call."
-            if s.wait > 0:
-                msg += " (No answer from the owner within %.0f s.)" % s.wait
+            lim = [waited[k][0] for k, _, _ in pending if k in waited]
+            if lim:
+                msg += " (No answer from the owner within %.0f s.)" % max(lim)
             if s.on_defer == "ask":
                 return decision("ask", msg + " Answering yes here runs it WITHOUT a witness receipt; the safe answer is No: "
                                 "approve in Witness, then retry.")
@@ -948,6 +977,16 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 w.close()
             except Exception:
                 pass
+
+
+def _gave_up(m, res, wt, texts) -> str:
+    """R1 29.10: the text of a call the hook waited for and gave up on: wt = (wait limit s, status waited on, reason)."""
+    lim, st, why = wt
+    if res.status == "held":
+        head = "held by the witness (%s) and not released within %.0f s (receipt %s)" % (res.reason or why, lim, res.rid)
+    else:
+        head = "nobody approved it in Witness within %.0f s (%s, receipt %s)" % (lim, res.reason, res.rid)
+    return "Deus Witness refused %s: %s%s%s." % (m.summary, head, _why(m, res, texts), _changed(res))
 
 
 def _poll(w, rid, wait, last):

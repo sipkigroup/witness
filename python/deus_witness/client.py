@@ -406,7 +406,8 @@ class Witness:
         return ActionResult.from_json(self._call("GET", "/v1/actions/%s" % rid, params=params, timeout=wait + 15))
 
     def wait(self, rid: str, timeout: float = 50.0, verify: Optional[bool] = None, sent: Optional[tuple] = None) -> ActionResult:
-        """Long-poll until the action leaves pending_approval or `timeout` seconds pass (then returns the pending result)."""
+        """Long-poll until the action leaves pending_approval / held or `timeout` seconds pass (then returns the waiting result).
+        0.2.47 (R1): a call held by the witness (status held) is waited for too; the owner's Release makes it allow/allowed."""
         end = time.monotonic() + timeout
         pause = 0.5
         while True:
@@ -421,7 +422,7 @@ class Witness:
                 time.sleep(max(e.retry_after or 0.0, pause))     # respect Retry-After, else exponential pause
                 pause = min(pause * 2, 8.0)
                 continue
-            if res.status != "pending_approval" or time.monotonic() >= end:
+            if res.status not in ("pending_approval", "held") or time.monotonic() >= end:
                 break
             if time.monotonic() - t_req < 0.5:                   # the server answered at once: back off exponentially
                 time.sleep(min(pause, max(0.0, end - time.monotonic())))
