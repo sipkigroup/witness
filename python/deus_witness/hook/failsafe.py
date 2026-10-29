@@ -32,8 +32,13 @@ OPTIONAL = ("PowerShell", "NotebookRead", "LS", "ReadMcpResourceTool", "ListMcpR
 MATCHER = "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*"
 
 
+# 29.10 (ReDoS, OTCHET-REDOS-AUDIT-2910 #3): `(\d+)\.` was retried from every digit of a long run ('0' x 32 000: 3 s, quadratic). A number
+# is now tried only from its first digit (the lookbehind): the same leftmost match as before, linear.
+VERSION_RE = re.compile(r"(?<!\d)(\d+)\.(\d+)\.(\d+)")
+
+
 def parse_version(text: str | None):
-    m = re.search(r"(\d+)\.(\d+)\.(\d+)", text or "")
+    m = VERSION_RE.search(text or "")
     return tuple(int(x) for x in m.groups()) if m else None
 
 

@@ -39,7 +39,41 @@ DEFAULT_SAFE_COMMANDS = ["ls", "pwd", "cd", "cat", "head", "tail", "wc", "echo",
 DEFAULT_SANDBOXED = "allow"
 
 
-def default_form(project_dir: str, web_domains=None, safe_commands=None) -> dict:
+class ProjectRefused(ValueError):
+    """29.10 (RT-BASHRC-2910, the "mine"): the directory given as the project is the whole machine or the home directory (or a folder
+    above it). The recommended form lets the agent write anywhere inside the project, so such a form would let it rewrite ~/.bashrc,
+    ~/.ssh/authorized_keys, LaunchAgents ... without a question once the owner signs it. Refused, never silently narrowed."""
+
+
+def _expand(p: str, home=None) -> str:
+    """A leading ~ names `home` when given (the hook's own HOME), else this process' ~."""
+    if home and (p == "~" or p.startswith("~/")):
+        return home + p[1:]
+    return os.path.expanduser(p)
+
+
+def refuse_reason(project_dir: str, home=None) -> str | None:
+    """-> None when `project_dir` may be a project; else why not (one English sentence). `home`: the home directory to compare with
+    (default: this process' ~). '/', a drive root, the home directory itself and any folder above it are refused (as realpaths)."""
+    proj = os.path.realpath(_expand(project_dir, home))
+    try:
+        h = os.path.realpath(home or os.path.expanduser("~"))
+    except (OSError, ValueError):
+        h = None
+    if os.path.dirname(proj) == proj:
+        what = "the root of the file system"
+    elif h and proj == h:
+        what = "your home directory"
+    elif h and (h + os.sep).startswith(proj.rstrip(os.sep) + os.sep):
+        what = "a folder that contains your home directory"
+    else:
+        return None
+    return ("%s is %s, not a project: the recommended mandate lets the agent write anywhere inside the project, so it could rewrite "
+            "~/.bashrc, ~/.ssh or LaunchAgents without asking. Run this from the project's own folder or name that folder."
+            % (proj, what))
+
+
+def default_form(project_dir: str, web_domains=None, safe_commands=None, home=None) -> dict:
     """Recommended mandate form for a Claude Code agent (the 'default rules'):
       - writes (Write/Edit/NotebookEdit/Bash redirections) only inside the project and the temp dir; elsewhere deny RESOURCE;
         0.2.32 (K1): EXCEPT the agent's own harness (<proj>/.claude/**, <proj>/.mcp.json, <proj>/.git/hooks/**, ~/.claude/**, the Deus
@@ -48,8 +82,12 @@ def default_form(project_dir: str, web_domains=None, safe_commands=None) -> dict
       - shell commands: the listed read-only commands run, any other is asked, a dangerous one is always asked; reading a credential
         file is asked;
       - WebFetch only to the listed domains; elsewhere deny RECIPIENT;
-      - no purchases."""
-    proj = os.path.realpath(project_dir)
+      - no purchases.
+    29.10: raises ProjectRefused for '/', the home directory or a folder above it (see refuse_reason)."""
+    why = refuse_reason(project_dir, home)
+    if why:
+        raise ProjectRefused(why)
+    proj = os.path.realpath(_expand(project_dir, home))
     tmp = os.path.realpath(tempfile.gettempdir())
     return {"currency": "USD", "valid_days": 30, "purchase": None,
             "message": {"domains": list(DEFAULT_WEB_DOMAINS if web_domains is None else web_domains), "to": []},

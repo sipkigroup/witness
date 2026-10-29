@@ -226,7 +226,11 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
                     "trial account that already has your passkey (default: refuse and change nothing)")
     ap.add_argument("--internal", action="store_true", help=argparse.SUPPRESS)       # our own test runs: never counted by the witness
     o = ap.parse_args(argv)
-    from .hook.form import default_form
+    from .hook.form import default_form, refuse_reason
+    why = refuse_reason(o.project, e.get("HOME"))    # 29.10 (RT-BASHRC-2910): before anything is made or retired
+    if why:
+        print("deus-witness try: %s Run it inside the project's folder or pass --project /path/to/project; nothing changed." % why, file=out)
+        return 2
     path = key_path(e)
     old = load_key(e)
     if old is not None and not old.get("trial") and not o.force:
@@ -250,7 +254,7 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
             if rc is not None:
                 return rc
     kept = later                               # the previous trial is still there (and its page works) until the retire below
-    body = {"form": default_form(o.project), "client": {"name": "deus-witness", "version": __version__}}
+    body = {"form": default_form(o.project, home=e.get("HOME")), "client": {"name": "deus-witness", "version": __version__}}
     if o.internal or e.get("DEUS_WITNESS_INTERNAL") == "1":
         body["internal"] = True
     try:

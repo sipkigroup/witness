@@ -1075,7 +1075,11 @@ def main(argv=None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["--print-form"]:
         rest = [a for a in argv[1:] if a != "--no-irreversible"]
-        form = default_form(rest[0] if rest else os.getcwd())
+        try:
+            form = default_form(rest[0] if rest else os.getcwd())
+        except ValueError as x:          # 29.10 (RT-BASHRC-2910): '/', ~ or a folder above ~ is not a project
+            print("deus-witness-hook --print-form: %s Usage: deus-witness-hook --print-form /path/to/project" % x, file=sys.stderr)
+            raise SystemExit(2)
         if "--no-irreversible" in argv:
             form["delete"]["allow_irreversible"] = False      # read-only mandate: Write/Edit/redirections are refused everywhere
         print(json.dumps(form, indent=1))
