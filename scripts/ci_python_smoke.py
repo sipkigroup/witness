@@ -69,12 +69,18 @@ def main():
     check(r.returncode == 0, "import deus_witness.verify_pack.cli", r.stdout + r.stderr)
 
     # 3. hook --print-form
-    r = run([exe("deus-witness-hook"), "--print-form", home], env=env)
+    proj = os.path.join(home, "proj")  # the project is a folder inside HOME: the hook refuses HOME itself as a project (0.2.46)
+    os.makedirs(proj, exist_ok=True)
+    r = run([exe("deus-witness-hook"), "--print-form", proj], env=env)
     try:
         form = json.loads(r.stdout)
         check(r.returncode == 0 and isinstance(form, dict) and "delete" in form, "deus-witness-hook --print-form is JSON")
     except Exception as e:  # noqa
         check(False, "deus-witness-hook --print-form is JSON", repr(e) + r.stdout[:300] + r.stderr[:300])
+
+    # 3a. hook --print-form refuses HOME itself as the project (exit 2, nothing on stdout)
+    r = run([exe("deus-witness-hook"), "--print-form", home], env=env)
+    check(r.returncode == 2 and not r.stdout.strip(), "deus-witness-hook --print-form refuses HOME as the project", r.stdout + r.stderr)
 
     # 3b. hook without key: must DENY (fail closed), rc 0
     ev = json.dumps({"tool_name": "Bash", "tool_input": {"command": "ls"}, "cwd": home})
