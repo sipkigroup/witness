@@ -10,7 +10,7 @@
 #   2. `uvx --from "deus-witness==0.2.49" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
-# (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json; the client reads it itself).
+# (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json, or a fallback place - see below; the client reads it itself).
 # Not configured (no key anywhere) = calls are not witnessed yet, and the plugin SAYS so: at session start, and once per session on
 # the first tool call ("run /deus-witness:try": a trial account, two passkey touches, no sign-up form). With the plugin option
 # `strict` on, every matched call is denied until a key is set.
@@ -30,9 +30,31 @@ export DEUS_WITNESS_HOOK_WAIT="${DEUS_WITNESS_HOOK_WAIT:-600}"         # wait fo
 export DEUS_WITNESS_HOOK_ON_DEFER="${DEUS_WITNESS_HOOK_ON_DEFER:-deny}"
 STRICT="${CLAUDE_PLUGIN_OPTION_STRICT:-false}"
 [ -n "$DEUS_WITNESS_KEY" ] || unset DEUS_WITNESS_KEY
-KEYFILE="${DEUS_WITNESS_KEY_FILE:-${DEUS_WITNESS_HOME:-$HOME/.config/deus-witness}/agent-key.json}"
+# 0.2.50 (N22): the key file is looked for where `deus-witness try` (0.2.50+) may save it, in its order: DEUS_WITNESS_KEY_FILE; else
+# DEUS_WITNESS_HOME; else $XDG_CONFIG_HOME/deus-witness, ~/.config/deus-witness, ~/Library/Application Support/deus-witness (macOS),
+# ~/.deus-witness (a ~/.config owned by root after `sudo npm` / `sudo brew` sends the key to the next place).
+if [ -n "${DEUS_WITNESS_KEY_FILE:-}" ]; then
+  keyfiles=("$DEUS_WITNESS_KEY_FILE")
+elif [ -n "${DEUS_WITNESS_HOME:-}" ]; then
+  keyfiles=("$DEUS_WITNESS_HOME/agent-key.json")
+else
+  keyfiles=()
+  case "${XDG_CONFIG_HOME:-}" in /*) keyfiles+=("$XDG_CONFIG_HOME/deus-witness/agent-key.json") ;; esac
+  keyfiles+=("$HOME/.config/deus-witness/agent-key.json" "$HOME/Library/Application Support/deus-witness/agent-key.json" "$HOME/.deus-witness/agent-key.json")
+fi
 configured=""
-if [ -n "${DEUS_WITNESS_KEY:-}" ] || [ -s "$KEYFILE" ]; then configured=1; fi
+[ -n "${DEUS_WITNESS_KEY:-}" ] && configured=1
+for KEYFILE in "${keyfiles[@]}"; do
+  [ -s "$KEYFILE" ] && { configured=1; break; }
+done
+# 0.2.50 (N22): `deus-witness try` leaves this mark when it starts and removes it once the key is saved. A mark and no key = a `try` that
+# did not finish (no place to save the key, the witness unreachable, interrupted): calls are then REFUSED with a loud message - the person
+# asked for the witness, so nothing runs unwitnessed by surprise. Removing the mark (the message names it) goes back to "not set up".
+TRYMARK="${TMPDIR:-/tmp}"
+TRYMARK="${TRYMARK%/}/deus-witness-try-$(id -u 2>/dev/null || echo u)${HOME//[^A-Za-z0-9]/_}"
+trybroken=""
+if [ -z "$configured" ] && [ -f "$TRYMARK" ]; then trybroken=1; fi
+BROKEN_MSG="DEUS WITNESS IS NOT WORKING: \`deus-witness try\` was started but saved no agent key (its last lines say why), so this call is BLOCKED instead of running unwitnessed. Run $TRY again in your terminal. To use Claude Code without the witness instead: rm \"$TRYMARK\""
 
 mode="${1:-pretool}"
 
@@ -130,6 +152,10 @@ preflight() {
 
 if [ "$mode" = "--session-start" ]; then
   cat >/dev/null
+  if [ -n "$trybroken" ]; then
+    say_session "$BROKEN_MSG"
+    exit 0
+  fi
   if [ -z "$configured" ]; then
     pre="$(preflight)"
     if [ "$STRICT" = "true" ]; then
@@ -151,6 +177,12 @@ if [ "$mode" = "--session-start" ]; then
 fi
 
 # PreToolUse
+if [ -n "$trybroken" ]; then
+  cat >/dev/null
+  python3 -c 'import json,sys; print(json.dumps({"systemMessage": sys.argv[1], "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": sys.argv[1]}}))' "$BROKEN_MSG" 2>/dev/null \
+    || { echo "$BROKEN_MSG" >&2; exit 2; }
+  exit 0
+fi
 if [ -z "$configured" ]; then
   if [ "$STRICT" = "true" ]; then
     cat >/dev/null
