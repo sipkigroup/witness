@@ -26,6 +26,9 @@ Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_HOME (key pin d
                                 defer: print mode / Agent SDK only - interactive Claude Code ignores it. Anything else: deny,
      DEUS_WITNESS_HOOK_ALLOW    allow | neutral, default allow (neutral: a witnessed allow still goes through Claude Code's prompts),
      DEUS_WITNESS_VERIFY=0      do not check receipts (not recommended). 0.2.32: ignored once the URL has a pinned key.
+     DEUS_WITNESS_HOOK_OFFLINE  read | strict, default read (0.2.48, offline.py): while the witness cannot be reached (network, 5xx,
+                                timeout) a call that only reads a non-secret file of the project is not blocked (journal offline.log,
+                                one notice); everything else is refused. strict (or any other value): every call refused, as before.
 0.2.32 (K1): the URL is the one the key file (`deus-witness try`) was set up for; DEUS_WITNESS_URL may only repeat it (else a deny,
 WITNESS_URL_MISMATCH). A URL without a pinned key is pinned at first use only when nothing is pinned yet (or it is the key file's URL);
 otherwise a deny, WITNESS_URL_UNPINNED (`deus-witness-hook --trust URL` in a terminal pins it). A call that touches the agent's own
@@ -68,7 +71,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import failsafe, fingerprint, gitref, mask, sandbox_fact, selfpath
+from . import archlinks, failsafe, fingerprint, gitref, mask, offline, samefile, sandbox_fact, selfpath
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -575,6 +578,10 @@ class Facts:
         self.home = _compat.home()
         self.env = {k: env[k] for k in ENV_KEYS if isinstance(env.get(k), str)}
         self.fs = {"realpath": {}, "isdir": {}, "exists": {}, "gitref": {}}    # gitref (0.2.37): the witness may ask what a ref switch rewrites
+        # 0.2.73 (N13): samefile {path: the credential file it is a hard link of}; archive {path: archlinks.answer}. Sent (empty) with every
+        # call: the witness asks an `archive` question only of a hook that can answer it (an older hook is never asked)
+        self.fs["samefile"], self.fs["archive"] = {}, {}
+        self._secrets, self._env_all = None, env
         self.exec = "off" if self.env.get("DEUS_WITNESS_EXEC_SCAN") == "0" else None
         self.spec = None                              # the fingerprint list of the last walk (a preview's digest is made with it)
         self.nonce = secrets.token_urlsafe(24)        # R9-01: 192 bits, fresh for every call (and for a re-judge)
@@ -632,6 +639,23 @@ class Facts:
                     return True                       # (a quoted word may hold blanks: `eval 'cd /etc'` asks about "<cwd>/cd /etc")
         return False
 
+    def alias(self, real):
+        """0.2.73 (N13): the credential file (of the project root or the home directory) that `real` is a hard link of, or None. The walk
+        is made only for a regular file with more than one name, once per call."""
+        if samefile.links(real) is None:
+            return None
+        if self._secrets is None:
+            try:
+                from ..trial import key_path
+                extra = (key_path(self._env_all),)
+            except Exception:      # noqa: BLE001
+                extra = ()
+            self._secrets = samefile.Secrets(self.root, self.env.get("HOME") or self.home, offline._secret, extra)
+        try:
+            return self._secrets.alias(real)
+        except Exception:      # noqa: BLE001  no fact: judged by its name, as before
+            return None
+
     def prescan(self, w, tool_name):
         """With a cached list that names this tool: walk the project root now, so the witness need not ask (one round less). Never a
         network call, never another directory than the hook's own root."""
@@ -685,7 +709,10 @@ class Facts:
                 n += 1
                 if not isinstance(p, str) or len(p) > 4096 or n > MAX_ASKED:
                     raise Fail("EVENT_TOO_LARGE")
-        if not all(self.related(p) for kind, _fn in kinds for p in need.get(kind) or []):
+        arch = need.get("archive") or []
+        if not isinstance(arch, list) or len(arch) > 16 or not all(isinstance(p, str) and 0 < len(p) <= 4096 for p in arch):
+            raise Fail("HOOK_ERROR", "(bad witness answer)")
+        if not all(self.related(p) for kind, _fn in kinds for p in need.get(kind) or []) or not all(self.related(p) for p in arch):
             raise Fail("HOOK_ERROR", "(the witness asked about a path unrelated to this call)")   # R9-05: nothing about the rest of the machine
         for kind, fn in kinds:
             for p in need.get(kind) or []:
@@ -693,6 +720,11 @@ class Facts:
                 self.fs[kind][p] = v
                 if kind == "realpath" and isinstance(v, str):
                     self.bases.add(v)                 # the classifier goes on from where a link of the call points
+                    a = self.alias(v)
+                    if a is not None:
+                        self.fs["samefile"][p] = a    # 0.2.73 (N13): a hard link of a credential file is judged as that file
+        for p in arch:                                # 0.2.73 (N13): the links an extraction makes (headers only, archlinks.py)
+            self.fs["archive"][p] = archlinks.answer(p)
         refs = need.get("gitref") or []
         if not isinstance(refs, list) or len(refs) > 16 or not all(isinstance(x, list) and len(x) == 2 and all(isinstance(y, str) and 0 < len(y) <= 4096 for y in x)
                                                                   for x in refs):
@@ -802,9 +834,46 @@ def _bound(w, r, body, part, parts, inp, tool_name, verify, tools=None):
     return got, names
 
 
-def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | None = None) -> dict:
-    """One PreToolUse event -> hook output. Never raises: anything unexpected is a deny."""
+def _pinned(w) -> bool:
+    """0.2.48: the witness URL has a pinned key on this machine (it answered here before)."""
+    try:
+        return isinstance(getattr(w, "url", None), str) and w.url in w._read_pins()
+    except Exception:      # noqa: BLE001  a test double without pins, an unreadable pin file: not pinned
+        return False
+
+
+def unreachable(ev, s, state, code, strict) -> dict:
+    """0.2.48 (offline.py): the witness could not be reached (network, 5xx, timeout) -> the hook output. A read of a project file runs
+    outside the witness (no decision, journal line, one notice) when the mode is on, the URL is pinned and the witness gave no verdict on
+    this call; anything else is `strict` (the deny of before 0.2.48), with a word on why a read was not let through."""
+    st = state or {}
+    if not offline.enabled(s.env) or not st.get("pinned") or st.get("answered"):
+        return strict
+    try:
+        why = offline.local_read(ev, s.env)
+    except Exception as e:      # noqa: BLE001
+        why = "the hook could not check it (%s)" % type(e).__name__
+    if why is not None:
+        offline.journal(ev, s.env, code, False)
+        log("witness unreachable (%s): refused, %s" % (code, why))
+        h = strict.get("hookSpecificOutput") or {}
+        r = h.get("permissionDecisionReason", "")
+        if r:
+            h["permissionDecisionReason"] = r + " While the witness cannot be reached only reading files of the project runs; this call: %s." % why
+        return strict
+    path = offline.journal(ev, s.env, code, True)
+    if path is None:
+        log("witness unreachable (%s): the local journal cannot be written, refused" % code)
+        return strict
+    log("witness unreachable (%s): local read allowed tool=%s" % (code, ev.get("tool_name")))
+    return {"systemMessage": offline.message(code, path)} if offline.notice_due(s.env) else {}
+
+
+def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | None = None, state: dict | None = None) -> dict:
+    """One PreToolUse event -> hook output. Never raises: anything unexpected is a deny.
+    state (0.2.48): filled with {"pinned": the URL has a pinned key, "answered": the witness gave a verdict on this call}."""
     deadline = deadline or (time.monotonic() + s.timeout)
+    state = {} if state is None else state
     try:
         tool_name, inp = _envelope(ev)
     except Fail as e:
@@ -818,6 +887,7 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                     "(agent-key.json). The hook sends only to the witness the key was set up for. Unset DEUS_WITNESS_URL, or run "
                     "`uvx --from deus-witness deus-witness try --url URL` in your own terminal to move to another witness)" % s.url_conflict)
     w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()), pin_new=False)
+    state["pinned"] = _pinned(w)
     if own and s.run_nonce:
         w.run_nonce = s.run_nonce
     texts = {}
@@ -838,6 +908,7 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             w.witness_info()                              # the pinned key first: the answer is checked against it
         facts.prescan(w, tool_name)
         r, body = _ask(w, ev, facts)
+        state["answered"] = True                          # 0.2.48: from here a lost connection never lets a read through (unreachable)
         texts = r.get("texts") if isinstance(r.get("texts"), dict) else {}
         if r.get("refuse"):
             log("refused by the witness: %s" % r["refuse"])
@@ -967,7 +1038,10 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             return deny("BAD_KEY", detail=TRIAL_GONE_TEXT)  # 27.10 (polygon O6): a trial user never saw an Agents page
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
             return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `uvx --from deus-witness deus-witness try`)")
-        return deny("WITNESS_UNAVAILABLE", detail=e.code)
+        out = deny("WITNESS_UNAVAILABLE", detail=e.code)
+        if e.status == 0 or 500 <= (e.status or 0) <= 599:   # 0.2.48: the network or the witness itself is down (not a refusal, not 4xx)
+            return unreachable(ev, s, state, "WITNESS_UNAVAILABLE %s" % e.code, out)
+        return out
     except Exception as e:      # noqa: BLE001  whatever goes wrong while judging, the call does not run
         log("cannot judge (%s)" % type(e).__name__)
         return deny("HOOK_ERROR", detail=type(e).__name__)
@@ -1019,17 +1093,19 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
         return deny("EVENT_MALFORMED")
     if isinstance(ev, dict) and ev.get("hook_event_name") not in (None, "PreToolUse"):
         return None
-    out = {}
+    out, state = {}, {}
     deadline = time.monotonic() + s.timeout
 
     def work():
-        out["r"] = judge(ev, s, deadline=deadline)
+        out["r"] = judge(ev, s, deadline=deadline, state=state)
     t = threading.Thread(target=work, daemon=True)
     t.start()
     t.join(s.timeout)
     if "r" not in out:
         log("no decision within %.0f s" % s.timeout)
-        return deny("WITNESS_TIMEOUT", detail="(no answer within %.0f s)" % s.timeout)
+        strict = deny("WITNESS_TIMEOUT", detail="(no answer within %.0f s)" % s.timeout)
+        # 0.2.48: a witness that hangs is unreachable too; a read decided here never waits for the thread (it may still be judging)
+        return unreachable(ev, s, dict(state), "WITNESS_TIMEOUT", strict) if isinstance(ev, dict) else strict
     return out["r"]
 
 
