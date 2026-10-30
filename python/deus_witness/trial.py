@@ -43,14 +43,129 @@ SENT = ("the tool name and the full input of every call the hook sees (shell com
         "answers to the witness' questions about paths of that call and SHA-256 fingerprints of project files a command runs")
 
 
-def home_dir(env=None) -> str:
+def key_dirs(env=None) -> list:
+    """0.2.50 (sandbox «живой человек», N22): where the agent key may live, in this order: DEUS_WITNESS_HOME (when set: only there), else
+    $XDG_CONFIG_HOME/deus-witness, ~/.config/deus-witness, ~/Library/Application Support/deus-witness (macOS), ~/.deus-witness.
+    A ~/.config that is not yours (root-owned after `sudo npm` / `sudo brew`) used to stop `try` with a Traceback after the page had opened;
+    now the key goes to the next place, and `try` says where. The plugin's launcher and the hook look in the same places, in the same order."""
     e = os.environ if env is None else env
-    return e.get("DEUS_WITNESS_HOME") or os.path.join(_compat.home(), ".config", "deus-witness")
+    if e.get("DEUS_WITNESS_HOME"):
+        return [e["DEUS_WITNESS_HOME"]]
+    home = _compat.home(e)
+    out = []
+    x = e.get("XDG_CONFIG_HOME")
+    if x and os.path.isabs(x):
+        out.append(os.path.join(x, "deus-witness"))
+    out.append(os.path.join(home, ".config", "deus-witness"))
+    if sys.platform == "darwin":
+        out.append(os.path.join(home, "Library", "Application Support", "deus-witness"))
+    out.append(os.path.join(home, ".deus-witness"))
+    return list(dict.fromkeys(out))
+
+
+def _found(env=None):
+    """-> the key file in use: of the places that hold one, the newest (a later `try` that had to use another place wins over a key left
+    where it could not write any more); equal times -> the first in key_dirs() order. None when there is none."""
+    best = None
+    for i, d in enumerate(key_dirs(env)):
+        p = os.path.join(d, KEY_FILE)
+        try:
+            m = os.stat(p).st_mtime
+        except OSError:
+            continue
+        if os.path.isfile(p) and (best is None or m > best[0]):
+            best = (m, p)
+    return best[1] if best else None
+
+
+def home_dir(env=None) -> str:
+    """The directory of the key in use (where the hook keeps its marks): the one that holds the key, else the first place."""
+    e = os.environ if env is None else env
+    if e.get("DEUS_WITNESS_HOME"):
+        return e["DEUS_WITNESS_HOME"]
+    f = _found(e)
+    return os.path.dirname(f) if f else key_dirs(e)[0]
 
 
 def key_path(env=None) -> str:
     e = os.environ if env is None else env
-    return e.get("DEUS_WITNESS_KEY_FILE") or os.path.join(home_dir(e), KEY_FILE)
+    return e.get("DEUS_WITNESS_KEY_FILE") or _found(e) or os.path.join(key_dirs(e)[0], KEY_FILE)
+
+
+def try_mark(env=None) -> str:
+    """0.2.50 (N22): `try` leaves this mark when it starts and removes it once a key is saved (or one is already there). A mark with no key
+    = a `try` that did not finish: the plugin's launcher and the hook then REFUSE calls with a loud message instead of letting them run
+    unwitnessed. In the temp directory: the one place that is writable when no config place is."""
+    import re
+    import tempfile
+    e = os.environ if env is None else env
+    base = e.get("TMPDIR") or tempfile.gettempdir()
+    who = re.sub(r"[^A-Za-z0-9]", "_", _compat.home(e))        # one mark per home directory (the plugin builds the same name)
+    return os.path.join(base, "deus-witness-try-%s%s" % (os.getuid() if hasattr(os, "getuid") else "u", who))
+
+
+def _mark_try(env, project) -> None:
+    try:
+        with open(try_mark(env), "w", encoding="utf-8") as f:
+            json.dump({"started": int(time.time()), "project": os.path.realpath(project)}, f)
+    except OSError:
+        pass
+
+
+def _unmark_try(env) -> None:
+    try:
+        os.remove(try_mark(env))
+    except OSError:
+        pass
+
+
+class KeyNotSaved(Exception):
+    """No place in key_dirs() could hold the key; .tried = [(path, reason)]."""
+
+    def __init__(self, tried):
+        super().__init__("; ".join("%s (%s)" % t for t in tried))
+        self.tried = tried
+
+
+def _why(x) -> str:
+    return {13: "permission denied", 30: "read-only file system", 28: "no space left", 1: "not permitted"}.get(getattr(x, "errno", None), type(x).__name__)
+
+
+def writable_place(env=None, prefer=None):
+    """-> (directory, [(path, reason) of places skipped before it]); KeyNotSaved when none can hold a file. Tried for real (a temp file is
+    written and removed), BEFORE anything is made at the witness. DEUS_WITNESS_KEY_FILE: only its directory."""
+    e = os.environ if env is None else env
+    if e.get("DEUS_WITNESS_KEY_FILE"):
+        cands = [os.path.dirname(e["DEUS_WITNESS_KEY_FILE"]) or "."]
+    else:
+        cands = key_dirs(e)
+        if prefer and os.path.dirname(prefer) in cands:            # the place of the key that is there already comes first
+            cands = [os.path.dirname(prefer)] + [c for c in cands if c != os.path.dirname(prefer)]
+    tried = []
+    for d in cands:
+        try:
+            os.makedirs(d, mode=0o700, exist_ok=True)
+            if hasattr(os, "getuid") and os.stat(d).st_uid != os.getuid():
+                raise PermissionError(13, "owned by another user")
+            t = os.path.join(d, ".write-test-%d" % os.getpid())
+            fd = os.open(t, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, stat.S_IRUSR | stat.S_IWUSR)
+            os.close(fd)
+            os.remove(t)
+            return d, tried
+        except OSError as x:
+            tried.append((d, x.strerror if x.strerror == "owned by another user" else _why(x)))
+    raise KeyNotSaved(tried)
+
+
+def _tilde(p, env=None) -> str:
+    h = _compat.home(env)
+    return "~" + p[len(h):] if h and (p == h or p.startswith(h.rstrip(os.sep) + os.sep)) else p
+
+
+NOT_SAVED_TEXT = ("Nothing was made at the witness, and your calls are NOT witnessed. While this lasts the Claude Code plugin REFUSES the "
+                  "calls it checks (so nothing runs unwitnessed by surprise). Fix: make one of these places yours and writable (for ~/.config "
+                  "owned by root after `sudo npm` or `sudo brew`: sudo chown -R \"$USER\" ~/.config), or set DEUS_WITNESS_HOME to a writable "
+                  "folder; then run `%s` again. To use Claude Code without the witness instead: rm %s")
 
 
 def load_key(env=None) -> dict | None:
@@ -231,11 +346,23 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
     if why:
         print("deus-witness try: %s Run it inside the project's folder or pass --project /path/to/project; nothing changed." % why, file=out)
         return 2
+    _mark_try(e, o.project)                    # 0.2.50 (N22): removed once a key is saved (or one is already there)
     path = key_path(e)
     old = load_key(e)
     if old is not None and not old.get("trial") and not o.force:
+        _unmark_try(e)
         print("deus-witness try: %s already holds an agent key of a full account; nothing changed (use --force to replace it)." % path, file=out)
         return 2
+    # 0.2.50 (N22): where the key will be saved is found BEFORE anything is made at the witness and before the page opens
+    try:
+        place, skipped = writable_place(e, prefer=path if old is not None else None)
+    except KeyNotSaved as x:
+        print("deus-witness try: could not save the agent key anywhere: %s." % "; ".join("%s (%s)" % (_tilde(d, e), w) for d, w in x.tried), file=out)
+        print(NOT_SAVED_TEXT % (TRY_CMD, try_mark(e)), file=out)
+        return 1
+    old_path = path
+    if not e.get("DEUS_WITNESS_KEY_FILE"):
+        path = os.path.join(place, KEY_FILE)
     url = o.url.rstrip("/")
     retired = []
     later = False                              # 2710u: retire the previous trial only once the new one exists and its link was shown
@@ -245,12 +372,13 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
         # with a witness that says the state first, nothing is erased before the new account exists.
         st = _status(old, url, transport)
         if st == "claimed" and not o.force:
-            _say_claimed(path, old.get("url") or url, out)
+            _unmark_try(e)
+            _say_claimed(key_path(e), old.get("url") or url, out)
             return 2
         if st in ("claimed", "unclaimed"):
             later = True
         elif st is None:                       # an older witness: the old order (retire first), with the honest text on a refusal
-            rc = _retire(old, url, transport, o.force, path, out, retired)
+            rc = _retire(old, url, transport, o.force, old_path, out, retired)
             if rc is not None:
                 return rc
     kept = later                               # the previous trial is still there (and its page works) until the retire below
@@ -262,6 +390,8 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
             r = h.post("/v1/trial", json=body)
     except httpx.HTTPError as x:
         print("deus-witness try: cannot reach %s (%s)" % (url, type(x).__name__), file=out)
+        if load_key(e) is not None:
+            _unmark_try(e)                     # a working key is still there: nothing to warn about
         return 1
     try:
         j = r.json()
@@ -282,7 +412,9 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
         if retired and not (r.status_code == 429 and ra):
             print("deus-witness try: your previous trial account (no passkey yet) was erased before this refusal; run this again later.", file=out)
         if kept:                               # 2710u: nothing was erased
-            print("deus-witness try: your previous trial account is kept as it was (key: %s); its page keeps working%s" % (path, ": press its button again." if ra and not retired else "."), file=out)
+            print("deus-witness try: your previous trial account is kept as it was (key: %s); its page keeps working%s" % (old_path, ": press its button again." if ra and not retired else "."), file=out)
+        if load_key(e) is not None:
+            _unmark_try(e)
         return 1
     # N4 (27.10): what the hook sends is said once there is an account to send it to
     print("Deus Witness trial. The hook will send to %s:" % url, file=out)
@@ -301,29 +433,42 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
         _withdraw(j["api_key"], url, transport)
         if old is not None and old.get("trial") and not kept:
             try:
-                os.remove(path)
+                os.remove(old_path)
             except OSError:
                 pass
+        _unmark_try(e)                         # nothing was saved on purpose and it says so: the hook keeps "not set up"
         print("No browser here, and no terminal to show the link in (the link claims the account: it is shown only to a person, never "
               "to this output). Nothing was saved and the trial account was withdrawn, so your calls are not held. Run `%s` "
               "yourself in a terminal (SSH is fine: the link is shown there, and you can open it on your phone or laptop)." % TRY_CMD, file=out)
         if kept:
-            print("Your previous trial account is kept as it was (key: %s)." % path, file=out)
+            print("Your previous trial account is kept as it was (key: %s)." % old_path, file=out)
         return 3
     if later:
-        rc = _retire(old, url, transport, o.force, path, out, retired)
+        rc = _retire(old, url, transport, o.force, old_path, out, retired)
         if rc is not None:                     # its passkey was made meanwhile (on the older page): that one is the person's
             _withdraw(j["api_key"], url, transport)
             print("The page that just opened belongs to a new trial account that was withdrawn again: close it.", file=out)
             return rc
-    _save(path, {"key": j["api_key"], "url": url, "agent_id": j.get("agent_id"), "trial": True, "expires_at": j.get("expires_at"),
-                 "project": os.path.realpath(o.project), "created_at": int(time.time())})
+    try:
+        _save(path, {"key": j["api_key"], "url": url, "agent_id": j.get("agent_id"), "trial": True, "expires_at": j.get("expires_at"),
+                     "project": os.path.realpath(o.project), "created_at": int(time.time())})
+    except OSError as x:                       # 0.2.50 (N22): the place changed after the check: say it, withdraw, no Traceback
+        _withdraw(j["api_key"], url, transport)
+        print("deus-witness try: could not save the agent key to %s (%s); the trial account was withdrawn, and the page that opened "
+              "no longer works (close it)." % (_tilde(path, e), _why(x)), file=out)
+        print(NOT_SAVED_TEXT % (TRY_CMD, try_mark(e)), file=out)
+        return 1
+    _unmark_try(e)
     if opened:
         _mark_opened(e)                        # 0.2.39: the hook does not open a second tab for the same account right away
     if retired:
         print(REPLACED_TEXT, file=out)         # N3 (27.10): said only now that the new account exists
     print("Trial account ready (expires %s; %d calls a day)." % (time.strftime("%Y-%m-%d", time.gmtime(j.get("expires_at") or 0)), j.get("quota_per_day") or 0), file=out)
     print("Agent key saved to %s (mode 600). The Claude Code plugin and deus-witness-hook use it when DEUS_WITNESS_KEY is not set." % path, file=out)
+    if skipped:                                # 0.2.50 (N22): said, never silent: where it could not go, and where it went
+        print("Note: could not save it to %s, so it is in %s instead. The Claude Code plugin and deus-witness-hook (0.2.50 or newer) look "
+              "there too; an older plugin does NOT (update it: /plugin update deus-witness)." % ("; ".join("%s (%s)" % (_tilde(d, e), w) for d, w in skipped),
+                                                                                                 _tilde(os.path.dirname(path), e)), file=out)
     page = "the browser page that just opened" if opened else "the page at the link above"     # 0.2.40: --no-browser shows a link
     touches = (page + " asks for two passkey touches (Touch ID / Windows Hello / phone): one makes the passkey, one signs the rules - "
                "nothing is allowed before that, and the agent cannot do it for you.")

@@ -265,10 +265,10 @@ _GIT_WORDS = (r"|(?:^|(?<=[\s/'\"=:;&|(]))\.git(?:[/\\](?!(?:objects|refs|logs|i
               r"|(?:^|(?<=[\s;&|(]))git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S*)?)*\s+config(?![\w-])"
               # a template directory's `config` and `git clone -c/--config` land in the new repository's .git/config
               r"|--template(?![\w-])|GIT_TEMPLATE_DIR|(?:^|(?<=[\s;&|(]))git\s(?:[^;&|]*\s)?clone\s(?:[^;&|]*\s)?(?:-c|--config)(?=[\s=]|$)")
-_CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|"
+_CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|"
                            r"agent-key\.json|deus-witness-hook\s+--trust" + _GIT_WORDS + ")", re.I)
 # 0.2.33: the Deus Witness key files stay owner-only even for a read (the key itself); .claude / .mcp.json / .git/hooks do not (below)
-_KEY_WORDS = re.compile(r"(\.deus-witness|config[/\\]deus-witness|agent-key\.json|deus-witness-hook\s+--trust)", re.I)
+_KEY_WORDS = re.compile(r"(\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|agent-key\.json|deus-witness-hook\s+--trust)", re.I)
 
 # 0.2.33 (friction of K1, residual risk 3): `cat .claude/settings.json`, `ls .git/hooks`, `git diff .mcp.json` were refused with no way to
 # approve them. A Bash command that can only READ is not the agent's harness being changed: it goes the normal way (the witness judges
@@ -402,7 +402,8 @@ def _config_places(facts, env):
     for h in {facts.home, env.get("HOME")} - {None, ""}:
         out |= {os.path.join(h, n) for n in (".claude", ".claude.json", ".deus-witness", os.path.join(".config", "deus-witness"),
                                               ".gitconfig", os.path.join(".config", "git"))}
-    out |= {home_dir(env), os.path.dirname(key_path(env))} | _git_config_files(facts, env)
+    from ..trial import key_dirs
+    out |= {home_dir(env), os.path.dirname(key_path(env))} | set(key_dirs(env)) | _git_config_files(facts, env)   # 0.2.50: every place of the key
     out |= selfpath.places(env, facts.home)          # 0.2.40 (HN rehearsal 6, K1): this client's own install (venv, package, executable)
     return {x for p in out for x in (os.path.normpath(p), _realpath(p)) if isinstance(x, str)}
 
@@ -880,6 +881,15 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         log("refused before the witness: %s" % e.code)
         return deny(e.code)
     if not s.key and witness is None:
+        try:
+            from ..trial import try_mark
+            begun = os.path.exists(try_mark(s.env))
+        except Exception:      # noqa: BLE001
+            begun = False
+        if begun:                                         # 0.2.50 (N22): a `try` that saved no key - said as such, not as "never set up"
+            return deny("WITNESS_NOT_CONFIGURED", detail="(the witness is NOT working: `deus-witness try` was started but saved no agent key "
+                        "(see its last lines). Run `uvx --from deus-witness deus-witness try` again in your terminal; to use Claude Code "
+                        "without the witness, remove %s)" % try_mark(s.env))
         return deny("WITNESS_NOT_CONFIGURED", detail="(run `uvx --from deus-witness deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
     own = witness is None
     if own and s.url_conflict:                            # 0.2.32 (K1): fail-closed, and the key is not sent anywhere
