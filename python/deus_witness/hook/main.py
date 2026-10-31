@@ -427,6 +427,31 @@ def _in_git_dir(p):
     return any(c.rstrip(". ").lower() == ".git" for c in parts)          # NTFS opens `.git.` / `.GIT` as .git
 
 
+def _hooks_dirs_local(root, home):
+    """0.2.77b (red team R2-2): the core.hooksPath directories of the project's repository (every value in config / config.worktree of
+    the git dir and the common git dir, as the server reads them from the report's `gitcfg`), for the project and its real path."""
+    if not isinstance(root, str) or not root:
+        return []
+    out = []
+    spec = type("_Spec", (), {"max_bytes": 4 * 1024 * 1024})()
+    for r in dict.fromkeys((root, _realpath(root) or root)):
+        try:
+            gd, common = fingerprint._git_dirs(r)
+        except Exception:      # noqa: BLE001
+            continue
+        if gd is None:
+            continue
+        vals = [fingerprint._git_config_value(os.path.join(b, n), "core", "hooksPath", spec)
+                for b in dict.fromkeys((gd, common)) for n in ("config", "config.worktree")]
+        try:                                              # 0.2.77c (round 2b): the global / system core.hooksPath and included files
+            seeds = [os.path.join(b, n) for b in dict.fromkeys((gd, common)) for n in ("config", "config.worktree")]
+            vals += samefile.global_hooks_values(home, dict(os.environ), fingerprint.read_git_config, seeds=seeds)
+        except Exception:      # noqa: BLE001
+            pass
+        out += samefile.hooks_dirs(r, [v for v in vals if v], home)
+    return list(dict.fromkeys(out))
+
+
 def agent_config_target(ev, facts, env):
     """-> what makes this call touch the agent's own harness (a path or the word of a command), or None."""
     tool, inp = ev.get("tool_name"), ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
@@ -440,6 +465,12 @@ def agent_config_target(ev, facts, env):
         for c in {os.path.normpath(a), _realpath(a)} - {None}:
             if any(_under(c, d) for d in places) or _in_git_dir(c):
                 return c
+        cs = [c for c in {os.path.normpath(a), _realpath(a)} - {None} if samefile.hooks_gate(c)]
+        if cs:                                            # 0.2.77b (red team R2-2): core.hooksPath (husky, .githooks), the server's rule
+            hd = _hooks_dirs_local(facts.root, env.get("HOME") or facts.home)
+            for c in cs:
+                if samefile.hooks_path_hit(c, hd):
+                    return c
         return None
     if tool in SHELL_TOOLS:
         cmd = inp.get("command")
@@ -651,7 +682,7 @@ class Facts:
                 extra = (key_path(self._env_all),)
             except Exception:      # noqa: BLE001
                 extra = ()
-            self._secrets = samefile.Secrets(self.root, self.env.get("HOME") or self.home, offline._secret, extra)
+            self._secrets = samefile.Secrets(self.root, self.env.get("HOME") or self.home, offline._secret, extra, protected=True)   # 0.2.51: + H3
         try:
             return self._secrets.alias(real)
         except Exception:      # noqa: BLE001  no fact: judged by its name, as before

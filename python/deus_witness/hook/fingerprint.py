@@ -444,7 +444,24 @@ def with_gitcfg(rep, root, spec: Spec):
     rep = dict(rep, gitcfg=g)
     if cut:
         rep["gitcfg_cut"] = True
+    hp = global_hookspath(root)
+    if hp:
+        rep["hookspath"] = hp           # 0.2.77c (round 2b): core.hooksPath of the global / system config and of included files
     return rep
+
+
+def global_hookspath(root):
+    """0.2.77c (round 2b): samefile.global_hooks_values for this hook's HOME and environment, the repository's config files as seeds
+    (their include.path files are read too). [] when there is no git dir or nothing is set; never raises."""
+    from . import samefile
+    try:
+        gd, common = _git_dirs(root)
+        if gd is None:
+            return []
+        seeds = [os.path.join(b, n) for b in dict.fromkeys((gd, common)) for n in ("config", "config.worktree")]
+        return samefile.global_hooks_values(os.path.expanduser("~"), dict(os.environ), read_git_config, seeds=seeds)
+    except Exception:      # noqa: BLE001  never a crash in the hook
+        return []
 
 
 def scan(root, spec: Spec):
