@@ -290,7 +290,7 @@ def verify_entries(entries, witness_key, operator_keys, principal_ok, checkpoint
             if body["mandate"] not in S.mandates and not (body["verdict"] == "deny" and body.get("reason") == "NO_MANDATE"):
                 return {"result": "invalid", "reason": "MANDATE_UNKNOWN", "at": at}
             _, v, why = S.decide_for(body["mandate"], body["action"], t)
-            if v is not None and (v != body["verdict"] or ("reason" in body and why != body["reason"])):
+            if v != body["verdict"] or ("reason" in body and why != body["reason"]):
                 return {"result": "invalid", "reason": "VERDICT_NOT_REPRODUCIBLE", "at": at}
         elif typ == "CONSUME":                                                                 # step 6
             if S.check_present(body["receipt"], t) is not None:

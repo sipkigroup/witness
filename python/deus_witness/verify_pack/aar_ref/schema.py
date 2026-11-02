@@ -86,7 +86,7 @@ def validate_mandate(m):
             continue
         ok = {"message": lambda: _rcpt_ok(p), "file": lambda: _rcpt_ok(p), "disclosure": lambda: _rcpt_ok(p, True),
               "meeting": lambda: p is True, "refund": lambda: p is True,
-              "purchase": lambda: isinstance(p, dict) and all(p.get(x) is None or _is_uint(p[x]) for x in ("max_per_action", "budget")),
+              "purchase": lambda: _purchase_ok(p),
               "sale": lambda: isinstance(p, dict) and (p.get("min_price") is None or _is_uint(p["min_price"])),
               "delete": lambda: isinstance(p, dict) and _is_strs(p.get("targets", [])) and (p.get("allow_irreversible") is None or isinstance(p["allow_irreversible"], bool)),
               "publish": lambda: isinstance(p, dict) and _is_strs(p.get("channels", [])),
@@ -102,9 +102,25 @@ def validate_mandate(m):
 
 
 SUB_KEYS = {"message": {"to", "domains"}, "file": {"to", "domains"}, "disclosure": {"to", "domains", "data"},
-            "purchase": {"max_per_action", "budget"}, "sale": {"min_price"}, "meeting": set(), "refund": set(),
+            "purchase": {"max_per_action", "budget", "min_per_action", "allowed_payees"}, "sale": {"min_price"}, "meeting": set(), "refund": set(),
             "delete": {"targets", "allow_irreversible"}, "publish": {"channels"}, "command": {"allow", "unlisted", "sandboxed"},
             "http": {"allow", "unlisted"}}
+
+
+MAX_PAYEES = 200
+
+
+def _purchase_ok(p):
+    """0.2.83 (Mandate Receipt; Verifiable Intent amount_range.min / allowed_payees): max_per_action, budget, min_per_action = null or uint
+    (min_per_action <= max_per_action when both are set); allowed_payees = null or 1..200 distinct payee identifiers (tstr, compared
+    byte-exact with action.recipient). 0.2.84 (R5-P4): the length of a payee id is counted in UTF-8 bytes, 1..512, the one unit of the
+    page, the server form, this schema and the Swift verifier."""
+    if not isinstance(p, dict) or not all(p.get(x) is None or _is_uint(p[x]) for x in ("max_per_action", "budget", "min_per_action")):
+        return False
+    if p.get("min_per_action") is not None and p.get("max_per_action") is not None and p["min_per_action"] > p["max_per_action"]:
+        return False
+    ap = p.get("allowed_payees")
+    return ap is None or (_is_strs(ap) and 1 <= len(ap) <= MAX_PAYEES and len(set(ap)) == len(ap) and all(0 < len(x.encode("utf-8", "surrogatepass")) <= 512 for x in ap))
 
 
 def _http_rules_ok(x):

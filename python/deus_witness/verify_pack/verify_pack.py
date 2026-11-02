@@ -24,7 +24,14 @@ after a good chain), --no-node2-pin-write, --node2-expect=<json file> {policy_sh
 TEE (Intel TDX, only when the pack has tee/ or an anchor record with a `tee` member; cloud/tee/DIZAIN-TDX.md): `tee <batch>: OK ...` |
 `tee <batch>: NO QUOTE (...)` (not credited) | `tee <batch>: <FAILURE> (TEE_QUOTE_MISSING | TEE_QUOTE_INVALID | TEE_BINDING_MISMATCH |
 TEE_MEASUREMENT_UNKNOWN)` (INVALID) | `tee: KEY OUTLIVED CODE (TEE_KEY_OUTLIVED_CODE ...)` (INVALID) | `tee: N of M anchored checkpoints ...`.
-Flags: --tee-expect=<expect.json>, --tee-intel-root=<pem>, --tee-collateral=<dir>, --tee-now=<unix t>, --require-tee."""
+Flags: --tee-expect=<expect.json>, --tee-intel-root=<pem>, --tee-collateral=<dir>, --tee-now=<unix t>, --require-tee.
+0.2.52 (deus-witness client): `decisions: N/N replayed against the signed mandate` -- every verdict re-decided by aar_ref/decide.py (a different
+one is `ledger: invalid VERDICT_NOT_REPRODUCIBLE`); `decisions: NOT_REPLAYABLE ...` for `command` actions (their fields come from the server's
+shell parser). views/<rid>.json (views/allowance-<id>.json): the shown object; `VIEW_MISMATCH` / `VIEW_NOT_SIGNED` are INVALID; a signed
+presentation hash without its object is `warning VIEW_UNVERIFIABLE` (INVALID with --require-views).
+0.2.54 (R5): every signed record is walked (APPROVAL, ALLOWANCE, signed release advisory/<rid>.json): a withheld release object is
+VIEW_UNVERIFIABLE, a release page that signed no hash VIEW_NOT_SIGNED (warning; INVALID with --require-views); a repeated member name in
+a view file is MALFORMED (I-JSON); files under views/ that are not read are `warning VIEW_EXTRA_FILE`."""
 import glob
 import hashlib
 import json
@@ -36,7 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 _FLAGS_BOOL = ["--offline", "--require-anchors", "--require-tee", "--require-node2", "--use-pack-code", "--no-node2-pin-write",
-              "--tee-second-verifier-strict"]
+              "--tee-second-verifier-strict", "--require-views"]
 _FLAGS_VAL = ["--witness-kid", "--owner-kid", "--tsa-ca", "--tee-expect", "--tee-intel-root", "--tee-collateral", "--tee-now", "--tee-second-verifier",
               "--node2-amd-ark", "--node2-expect", "--node2-genesis", "--node2-pin"]
 
@@ -290,7 +297,37 @@ def _main(argv):
         print("ledger: valid (%d entries)" % len(entries))
         for line in _view_lines(entries):      # pv2810: what the approval page showed, as the owner's signature names it
             print(line)
-        trust.append("verdicts: the witness's allow/deny/defer decisions are NOT replayed here (the decision rules are not in this package); the signatures, hash chain, Merkle roots, key registry and anchors are checked")
+        import mandate_check as MC             # 0.2.52: verdicts replayed (aar_ref/decide.py, inside the ledger pass), shown objects checked
+        dl, dw = MC.decide_lines(entries)
+        for line in dl:
+            print(line)
+        trust.append("the action fields (class, recipient, data tags) are the witness's classification of each tool call; the verdict is "
+                     "replayed from them against the signed mandate, the classification is not%s"
+                     % ("" if not dw else " (NOT_REPLAYABLE: `command` fields come from the server's shell parser)"))
+        try:
+            pviews = MC.pack_views(root)
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            pviews = {}
+            print("views: MALFORMED (a views/*.json file is not I-JSON: %s)" % ("a repeated member name" if "I-JSON" in str(e) else "not JSON"))
+            ok = False
+        req = "--require-views" in argv
+        vl, vwhy, vw = MC.view_checks(entries, pviews, req)
+        if not vwhy:                           # 0.2.84 (R5-V1/V2): every signed release, not only the objects present
+            rl, vwhy, rw = MC.release_view_checks(root, pviews, req)
+            vl += rl
+            vw += rw
+        xl, xw = MC.views_extra(root, man["files"].keys())     # 0.2.84 (R5-V4): files under views/ that are not read are named
+        vl += xl
+        for line in vl:
+            print(line)
+        if vwhy:
+            ok = False
+        elif "VIEW_UNVERIFIABLE" in vw or "VIEW_NOT_SIGNED" in vw:
+            trust.append("what %d approval / allowance / release page(s) showed: this pack does not tie it to the signature (no view object to "
+                         "recompute the signed hash, or an older page that signed none: VIEW_UNVERIFIABLE / VIEW_NOT_SIGNED; --require-views makes "
+                         "this INVALID)" % (vw.count("VIEW_UNVERIFIABLE") + vw.count("VIEW_NOT_SIGNED")))
+        if xw:
+            trust.append("files under views/ that no check read (VIEW_EXTRA_FILE above): they are not evidence of what was shown")
     else:
         print("ledger: invalid %s@%s" % (r.get("reason"), r.get("at", "-")))
         ok = False

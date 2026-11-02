@@ -30,7 +30,8 @@ def _unzip(zpath, dest):
 
 HELP = """usage: deus-witness-verify-pack <pack.zip | unpacked folder> [flags]
 Offline check of a Deus Witness evidence pack. Flags (one per argument, value flags are --name=value):
-  --offline  --use-pack-code  --require-anchors  --witness-kid=<hex>  --owner-kid=<hex>  --tsa-ca=<dir>  (more: see the README)
+  --offline  --use-pack-code  --require-anchors  --require-views  --witness-kid=<hex>  --owner-kid=<hex>  --tsa-ca=<dir>  (more: see the README)
+A folder with bundle.cbor + vector.json is a Mandate Receipt v0 conformance bundle: RESULT: VALID | UNPROVEN <codes> (exit 3) | INVALID <code>
 example: deus-witness-verify-pack evidence-pack.zip --offline
 exit: 0 pack VALID (also for -h / --help), 1 INVALID, 64 wrong usage (a bad argument is an error, not help)
 """
@@ -43,6 +44,14 @@ def main(argv=None):
         return 0
     from . import verify_pack as V
     pos = [i for i, a in enumerate(argv) if not a.startswith("--")]
+    if len(pos) == 1:                # 0.2.52: a Mandate Receipt v0 conformance bundle (bundle.cbor + vector.json with the trust anchors)
+        from . import mandate_check as MC
+        if MC.is_bundle(argv[pos[0]]):
+            bad = [a for a in argv if a.startswith("--") and a not in ("--require-views", "--offline")]
+            if bad:
+                print("verify_pack: a conformance bundle takes only --require-views (got %s)" % ", ".join(map(repr, bad)))
+                return 64
+            return MC.main_bundle(argv)
     if len(pos) == 1 and os.path.isfile(argv[pos[0]]):
         with tempfile.TemporaryDirectory(prefix="dw-verify-") as tmp:
             try:

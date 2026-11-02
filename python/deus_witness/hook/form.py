@@ -37,6 +37,14 @@ DEFAULT_SAFE_COMMANDS = ["ls", "pwd", "cd", "cat", "head", "tail", "wc", "echo",
 # never widened: the core allows OK_SANDBOXED only when the signed mandate says "allow" (svidetel_v4/decide.py). Same value: the Mandate
 # page's recommended section (web/js/mandate_form.js RECOMMENDED_SANDBOXED); a test keeps them equal.
 DEFAULT_SANDBOXED = "allow"
+# 0.2.53 (pair of server 0.2.82, the irreversibility gate): the option "Code in Claude Code's strict sandbox: run without asking" = this
+# reserved ENTRY of the signed command.allow list (the core's CDDL has no member for it; the core is shared with the offline checker).
+# It names no command (the witness refuses a command of that name) and widens nothing alone: it needs command.sandboxed = "allow" in the
+# same signed mandate and the hook's strict-sandbox fact for the call. Network, remote git, money, writes outside the project, the agent's
+# settings and secrets stay asked. A mandate signed without the entry is never widened. Same value and default as the server's
+# (server/app/hookjudge/mapping.py SANDBOXED_CODE, DEFAULT_SANDBOXED_CODE); a test keeps them equal.
+SANDBOXED_CODE = "(code in the strict sandbox)"
+DEFAULT_SANDBOXED_CODE = True
 
 
 class ProjectRefused(ValueError):
@@ -82,6 +90,7 @@ def default_form(project_dir: str, web_domains=None, safe_commands=None, home=No
       - shell commands: the listed read-only commands run, any other is asked, a dangerous one is always asked; reading a credential
         file is asked;
       - WebFetch only to the listed domains; elsewhere deny RECIPIENT;
+      - 0.2.53: code in Claude Code's strict sandbox runs without a question (SANDBOXED_CODE + sandboxed "allow"); exits stay asked;
       - no purchases.
     29.10: raises ProjectRefused for '/', the home directory or a folder above it (see refuse_reason)."""
     why = refuse_reason(project_dir, home)
@@ -93,5 +102,6 @@ def default_form(project_dir: str, web_domains=None, safe_commands=None, home=No
             "message": {"domains": list(DEFAULT_WEB_DOMAINS if web_domains is None else web_domains), "to": []},
             "forbidden_data": [], "publish": None,
             "delete": {"targets": [proj + "/*", tmp + "/*"], "allow_irreversible": True},
-            "command": {"allow": list(DEFAULT_SAFE_COMMANDS if safe_commands is None else safe_commands), "unlisted": "ask",
+            "command": {"allow": list(DEFAULT_SAFE_COMMANDS if safe_commands is None else safe_commands)
+                                 + ([SANDBOXED_CODE] if DEFAULT_SANDBOXED_CODE else []), "unlisted": "ask",
                         "sandboxed": DEFAULT_SANDBOXED}}

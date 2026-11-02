@@ -191,8 +191,15 @@ deus-witness-verify-pack deus-witness-evidence-<account>-<time>.zip --offline   
 ```
 Last line `RESULT: VALID` (exit 0) or `RESULT: INVALID` (exit 1). The checker comes from this package, not from the pack, so a doctored pack cannot bring its own checker.
 It verifies signatures (COSE / EdDSA / ES256 / WebAuthn), the hash chain, Merkle roots and inclusion, the key registry, team policy and quorum, the manifest and the anchors
-(RFC 3161 tokens and the Bitcoin proof need `pip install "deus-witness[verify]"`; `--offline` skips the explorers). It does NOT replay the witness's allow/deny/defer decisions:
-the decision rules are not in this package, and the output says `trust: verdicts ... NOT replayed`. Pass `--witness-kid=<hex>` with the key id you fetched yourself from `https://<service>/v1/witness`.
+(RFC 3161 tokens and the Bitcoin proof need `pip install "deus-witness[verify]"`; `--offline` skips the explorers).
+Since 0.2.52 it also replays every allow/deny/defer decision against the signed mandate (expiry, revocation, recipients, limits and budget, classes):
+`decisions: N/N replayed ...`, and a verdict the rules do not give is `VERDICT_NOT_REPRODUCIBLE` (INVALID). The action fields themselves are the
+witness's classification of the tool call (a `trust:` line); for `command` actions they come from the server's shell parser, which is not in this
+package (`decisions: NOT_REPLAYABLE ...`). A shown object `views/<rid>.json` is hashed against the owner's signed presentation hash
+(`VIEW_MISMATCH`); without it the line is `warning VIEW_UNVERIFIABLE`, INVALID with `--require-views` (0.2.54: for every signed approval, allowance and release, walked from the signed records; a repeated member name in a view file is `MALFORMED`). A folder with `bundle.cbor` + `vector.json`
+is checked as a Mandate Receipt v0 conformance bundle (`RESULT: VALID | UNPROVEN <codes> | INVALID <code>`).
+Since 0.2.53 it knows the purchase members `allowed_payees` (byte-exact payee list) and `min_per_action` (server 0.2.83); older checkers call such a mandate malformed.
+Pass `--witness-kid=<hex>` with the key id you fetched yourself from `https://<service>/v1/witness`.
 Full flags and output lines: `docs/verify.md`.
 
 ## Demo tools
