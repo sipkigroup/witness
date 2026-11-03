@@ -630,12 +630,20 @@ class Facts:
         self.words = set()
         inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
         self.sandbox = None                           # V3: how Claude Code's sandbox is set up for this Bash call (the witness judges it)
+        self.settings = None                          # 0.2.56: the settings digest of a non-Bash call (the witness's first view of a session)
+        sid = ev.get("session_id")
+        self.session_id = sid if isinstance(sid, str) and 0 < len(sid) <= 128 else None
         if ev.get("tool_name") == "Bash":
             try:
                 self.sandbox = sandbox_fact.fact(inp, self.root, env, self.env.get("HOME") or self.home,
                                                 transcript=ev.get("transcript_path"), permission_mode=ev.get("permission_mode"))
             except Exception:      # noqa: BLE001  no fact = the witness asks as before
                 self.sandbox = None
+        else:
+            try:
+                self.settings = sandbox_fact.settings_view(self.root, env, self.env.get("HOME") or self.home, ev.get("transcript_path"))[1]
+            except Exception:      # noqa: BLE001  no view: the witness then sees the session first at a Bash call
+                self.settings = None
         self.text = "\0".join(_strings([inp.get(k) for k in _PATH_FIELDS], []))    # a ref asked about must be written in the call
         # only the fields that name paths (not the text of a Write or an Edit: words of a file's content name nothing to look up)
         for t in _strings([inp.get(k) for k in _PATH_FIELDS], []):
@@ -727,8 +735,10 @@ class Facts:
     def body(self, ev, part=None):
         return {"v": 1, "event": {k: ev.get(k) for k in ("tool_name", "tool_input", "cwd") if k in ev},
                 "facts": dict({"home": self.home, "proc_cwd": self.proc_cwd, "env": self.env, "fs": self.fs, "exec": self.exec},
-                              **({"sandbox": self.sandbox} if self.sandbox is not None else {})),
-                "client": CLIENT, "part": part, "nonce": self.nonce}
+                              **({"sandbox": self.sandbox} if self.sandbox is not None else {}),
+                              **({"settings": self.settings} if self.settings is not None else {})),
+                "client": CLIENT, "part": part, "nonce": self.nonce,
+                **({"session_id": self.session_id} if self.session_id is not None else {})}
 
     def answer(self, need, w):
         n = 0

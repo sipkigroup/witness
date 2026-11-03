@@ -199,6 +199,7 @@ package (`decisions: NOT_REPLAYABLE ...`). A shown object `views/<rid>.json` is 
 (`VIEW_MISMATCH`); without it the line is `warning VIEW_UNVERIFIABLE`, INVALID with `--require-views` (0.2.54: for every signed approval, allowance and release, walked from the signed records; a repeated member name in a view file is `MALFORMED`). A folder with `bundle.cbor` + `vector.json`
 is checked as a Mandate Receipt v0 conformance bundle (`RESULT: VALID | UNPROVEN <codes> | INVALID <code>`).
 Since 0.2.53 it knows the purchase members `allowed_payees` (byte-exact payee list) and `min_per_action` (server 0.2.83); older checkers call such a mandate malformed.
+Since 0.2.55 it reads `runs/<id>.cose`, the CI run context the witness signed (server 0.2.85+): it checks the witness signature, the ledger position and every linked decision, and prints whether the values were `VERIFIED` by the witness from a GitHub Actions OIDC token or `DECLARED` by the CI job, with repository, commit, run, workflow_ref, actor and how many decisions are linked. A member written by a later server is `warning RUN_CONTEXT_UNKNOWN_FIELD`, not INVALID.
 Pass `--witness-kid=<hex>` with the key id you fetched yourself from `https://<service>/v1/witness`.
 Full flags and output lines: `docs/verify.md`.
 

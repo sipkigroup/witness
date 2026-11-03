@@ -31,7 +31,11 @@ shell parser). views/<rid>.json (views/allowance-<id>.json): the shown object; `
 presentation hash without its object is `warning VIEW_UNVERIFIABLE` (INVALID with --require-views).
 0.2.54 (R5): every signed record is walked (APPROVAL, ALLOWANCE, signed release advisory/<rid>.json): a withheld release object is
 VIEW_UNVERIFIABLE, a release page that signed no hash VIEW_NOT_SIGNED (warning; INVALID with --require-views); a repeated member name in
-a view file is MALFORMED (I-JSON); files under views/ that are not read are `warning VIEW_EXTRA_FILE`."""
+a view file is MALFORMED (I-JSON); files under views/ that are not read are `warning VIEW_EXTRA_FILE`.
+0.2.55: runs/<id>.cose, the CI run context the witness signed (server 0.2.85+; run_context.py, the same bytes as the server's checker):
+signature, ledger position, linked RECEIPT entries (RUN_CONTEXT_SIG / _MALFORMED / _CHAIN / _LINK are INVALID); prints whether the values
+were VERIFIED by the witness from a GitHub OIDC token or DECLARED by the CI job, the repository, commit, run, workflow_ref, actor and how
+many decisions are linked. A member from a later server is `warning RUN_CONTEXT_UNKNOWN_FIELD`, not INVALID."""
 import glob
 import hashlib
 import json
@@ -328,6 +332,29 @@ def _main(argv):
                          "this INVALID)" % (vw.count("VIEW_UNVERIFIABLE") + vw.count("VIEW_NOT_SIGNED")))
         if xw:
             trust.append("files under views/ that no check read (VIEW_EXTRA_FILE above): they are not evidence of what was shown")
+        if os.path.isdir(os.path.join(root, "runs")):     # 0.2.55: the CI run context the witness signed (run_context.py, server 0.2.85+)
+            import run_context as RC                       # beside this file (the same bytes as the server's packtools/run_context.py)
+            try:
+                rcl, rcbad, rcn = RC.run_lines(root, wk, entries, cose, tolerant=True)
+            except TypeError:                              # --use-pack-code with a pack of server 0.2.85/0.2.86 (strict, no `tolerant`)
+                rcl, rcbad, rcn = RC.run_lines(root, wk, entries, cose)
+            for line in rcl:
+                print(line)
+            if rcbad:
+                ok = False
+            elif rcn:
+                if any("DECLARED by the CI job: repository" in ln for ln in rcl):
+                    trust.append("the CI run context (repository, commit, run id, workflow, actor, start time) was DECLARED by the CI job that held "
+                                 "the owner's export token; the witness signed that it received it at that ledger position, not that it is true")
+                if any("VERIFIED by the witness from a GitHub OIDC token" in ln for ln in rcl):
+                    trust.append("a VERIFIED CI run context: the witness checked a GitHub Actions OIDC token (signature against GitHub's key set, "
+                                 "issuer, audience, validity) and signed its claims; the token is not in the pack, so offline this rests on the "
+                                 "witness's signature, not on GitHub's; start time and session ids are still declared by the CI job")
+                if any("RUN_CONTEXT_TEST_JWKS" in ln for ln in rcl):
+                    trust.append("run context(s) verified against a TEST key set (RUN_CONTEXT_TEST_JWKS above): not evidence about GitHub")
+                if any("RUN_CONTEXT_UNKNOWN_FIELD" in ln for ln in rcl):
+                    trust.append("run context member(s) from a later server that this checker does not read (RUN_CONTEXT_UNKNOWN_FIELD above): "
+                                 "update deus-witness to see what they say")
     else:
         print("ledger: invalid %s@%s" % (r.get("reason"), r.get("at", "-")))
         ok = False

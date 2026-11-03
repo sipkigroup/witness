@@ -20,11 +20,25 @@ Keys read (code.claude.com/docs/en/sandboxing, settings-reference):
   tool_input.dangerouslyDisableSandbox (this call asks to run outside the sandbox),
   the event's permission_mode (0.2.57; the witness accepts only the modes checked at L2).
 A layer that exists but is not a JSON object is reported "bad": Claude Code skips it, the merged view is then not what Claude Code uses,
-and the witness treats the fact as unknown. An MDM plist (macOS) is reported "unread"."""
+and the witness treats the fact as unknown. An MDM plist (macOS) is reported "unread".
+
+0.2.56 client (server 0.2.88), freshness -- the fact must describe the settings Claude Code really runs with (fail closed):
+  settings_digest  SHA-256 over every layer's status and its sandbox-relevant part (the whole `sandbox` object, the Read(...) deny rules,
+                   the WebFetch(domain:) allow rules, permissions.additionalDirectories). Other permission rules ("Yes, don't ask again" for
+                   a command or an MCP tool, which Claude Code writes into settings.local.json mid-session) do not change it. The witness
+                   keeps the first digest of a session and treats the session as not strict from the first change on (until a new session).
+  since_start      the layers whose file was modified after the session started (start = birth time of the session's transcript); the
+                   witness uses it only for the FIRST fact it sees of a session. "session start unknown" when there is no readable
+                   transcript birth time.
+  doubt            reasons the fact cannot be collected unambiguously -> the witness never calls it strict: Claude Code started with
+                   --settings / --setting-sources / --add-dir (read from the process's command line, `ps`; unreadable -> doubt), or settings
+                   that let sandboxed code write outside the project (sandbox.filesystem.allowWrite, permissions.additionalDirectories)."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import subprocess
 import sys
 
 from . import failsafe
@@ -97,14 +111,115 @@ def _transcript_config_dir(transcript):
     return os.path.dirname(d) if os.path.basename(d) == "projects" else None
 
 
-def layers(project, env, home, transcript=None):
+# 0.2.56 client: Claude Code command-line flags that change the settings the hook cannot see (code.claude.com/docs/en/cli-reference):
+# --settings (a whole layer above project/user), --setting-sources (which layers are loaded at all), --add-dir (more writable directories).
+CLI_FLAGS = ("--settings", "--setting-sources", "--add-dir")
+ANCESTRY_OVERRIDE = None      # TESTS ONLY: [command line, ...] of the hook's ancestors, nearest first; "unreadable" = ps failed
+
+
+def _ancestry():
+    """-> the command lines of the hook's ancestor processes, nearest first (the hook's parent shell, Claude Code, ...), or None."""
+    if ANCESTRY_OVERRIDE is not None:
+        return None if ANCESTRY_OVERRIDE == "unreadable" else list(ANCESTRY_OVERRIDE)
+    if os.name != "posix":
+        return None
+    ps = "/bin/ps" if os.path.exists("/bin/ps") else "ps"
+    try:
+        r = subprocess.run([ps, "-ww", "-A", "-o", "pid=,ppid=,args="], capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if r.returncode != 0:
+        return None
+    tab = {}
+    for line in r.stdout.splitlines():
+        p = line.split(None, 2)
+        if len(p) >= 2 and p[0].isdigit() and p[1].isdigit():
+            tab[int(p[0])] = (int(p[1]), p[2] if len(p) > 2 else "")
+    out, pid, seen = [], os.getppid(), set()
+    while pid > 1 and pid in tab and pid not in seen and len(out) < 64:
+        seen.add(pid)
+        pid, args = tab[pid][0], tab[pid][1]
+        out.append(args)
+    return out or None
+
+
+def _claude_like(args) -> bool:
+    w = args.split()
+    return bool(w) and (os.path.basename(w[0]).lower() == "claude" or (len(w) > 1 and os.path.basename(w[1]).lower() in ("claude", "cli.js")
+                                                                      and "claude" in w[1].lower()) or "@anthropic-ai/claude-code" in w[0])
+
+
+def cli_doubts(chain):
+    """Flags of the Claude Code process (and of the processes between it and the hook) that the hook cannot read the effect of. The walk
+    stops at the first process that looks like Claude Code; without one every ancestor counts (fail closed)."""
+    if chain is None:
+        return ["Claude Code's command line is not readable (ps): --settings / --setting-sources / --add-dir cannot be ruled out"]
+    found = []
+    for args in chain:
+        for t in args.split():
+            k = t.split("=", 1)[0]
+            if k in CLI_FLAGS and k not in found:
+                found.append(k)
+        if _claude_like(args):
+            break
+    return ["Claude Code was started with %s: the hook cannot read what it sets" % f for f in found]
+
+
+def _session_start(transcript):
+    """Birth time of the session's transcript (Claude Code creates it when the session starts), or None."""
+    if not isinstance(transcript, str) or not os.path.isabs(transcript):
+        return None
+    try:
+        b = getattr(os.stat(transcript), "st_birthtime", None)
+    except OSError:
+        return None
+    return b if isinstance(b, (int, float)) and b > 0 else None
+
+
+def _relevant(d):
+    """The part of one settings layer the sandbox fact depends on (see the module doc, settings_digest)."""
+    if not isinstance(d, dict):
+        return None
+    p = d.get("permissions") if isinstance(d.get("permissions"), dict) else {}
+    return {"sandbox": d.get("sandbox"),
+            "deny": [r for r in _strs(p.get("deny")) if r.startswith("Read(")],
+            "allow": [r for r in _strs(p.get("allow")) if r.startswith("WebFetch(")],
+            "dirs": p.get("additionalDirectories")}
+
+
+def settings_view(project, env, home, transcript=None):
+    """0.2.56 client: -> (layers, {"settings_digest", "since_start"}) -- also sent with every non-Bash call (facts.settings), so that the
+    witness has the session's first view before the first Bash call."""
+    paths = []
+    L = layers(project, env, home, transcript, paths)
+    raw = json.dumps([[n, st, _relevant(d)] for n, st, d in L], sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
+    start = _session_start(transcript)
+    since = []
+    if start is None:
+        since = ["session start unknown"]
+    else:
+        for n, p in paths:
+            try:
+                if os.stat(p).st_mtime > start and n not in since:
+                    since.append(n)
+            except OSError:
+                pass
+    return L, {"settings_digest": hashlib.sha256(raw.encode()).hexdigest(), "since_start": since[:MAX_LIST]}
+
+
+def layers(project, env, home, transcript=None, paths=None):
     """[(name, status, dict)] highest precedence first.
     0.2.56: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB removes CLAUDE_CONFIG_DIR from the hook's environment (env-vars, "What the subprocess
     environment scrub removes"), so the hook may not see where Claude Code keeps the user settings. The event's transcript_path names the
     directory Claude Code really uses: when it is not the one read here, the user layer is reported "unread" (the witness then asks)."""
     out = []
+    paths = [] if paths is None else paths           # 0.2.56 client: (layer, file) of every file read, for since_start
+
+    def load(n, p):
+        paths.append((n, p))
+        return _load(p)
     for p in reversed(failsafe.managed_files()):
-        st, d = _load(p)
+        st, d = load("managed", p)
         if st != "absent":
             out.append(("managed", st, d))
     for p in MDM_PLISTS:
@@ -113,10 +228,10 @@ def layers(project, env, home, transcript=None):
     if project:
         root = _git_root(project)
         if root and root != project:                  # Claude Code 2.1.211+: the local file lives at the repository root (and an older one
-            st, d = _load(os.path.join(root, ".claude", "settings.local.json"))     # in the starting directory is read too; root wins a key)
+            st, d = load("local-root", os.path.join(root, ".claude", "settings.local.json"))   # in the starting directory is read too; root wins)
             out.append(("local-root", st, d))
         for n, f in (("local", "settings.local.json"), ("project", "settings.json")):
-            st, d = _load(os.path.join(project, ".claude", f))
+            st, d = load(n, os.path.join(project, ".claude", f))
             out.append((n, st, d))
     cfg = env.get("CLAUDE_CONFIG_DIR")
     udir = cfg if cfg and os.path.isabs(cfg) else os.path.join(home, ".claude")
@@ -124,7 +239,7 @@ def layers(project, env, home, transcript=None):
     if real is not None and os.path.realpath(real) != os.path.realpath(udir):
         out.append(("user", "unread", None))          # the user settings live elsewhere ($CLAUDE_CONFIG_DIR hidden from the hook)
         return out
-    st, d = _load(os.path.join(udir, "settings.json"))
+    st, d = load("user", os.path.join(udir, "settings.json"))
     out.append(("user", st, d))
     return out
 
@@ -132,7 +247,7 @@ def layers(project, env, home, transcript=None):
 def fact(tool_input, project, env=None, home=None, platform=None, transcript=None, permission_mode=None) -> dict:
     env = os.environ if env is None else env
     home = home or os.path.expanduser("~")
-    L = layers(project, env, home, transcript)
+    L, fresh = settings_view(project, env, home, transcript)
     ok = [d for _, st, d in L if st == "ok"]
 
     def scalar(*path):
@@ -216,6 +331,12 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
         except OSError:
             envf = []
     ti = tool_input if isinstance(tool_input, dict) else {}
+    # 0.2.56 client: what the hook cannot see or what breaks the "no write outside the project" premise -> doubt (never strict)
+    doubt = cli_doubts(_ancestry())
+    if any(_get(d, "sandbox", "filesystem", "allowWrite") not in (None, []) for d in ok):
+        doubt.append("sandbox.filesystem.allowWrite is set: sandboxed code may write outside the project")
+    if any(_get(d, "permissions", "additionalDirectories") not in (None, []) for d in ok):
+        doubt.append("permissions.additionalDirectories is set: sandboxed code may write outside the project")
     return {
         "v": 1, "platform": plat,
         "sources": dict({n: st for n, st, _ in L}, **{"relative-" + n: "unread" for n in unknown}),
@@ -239,4 +360,5 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
         "strict_allowlist": strict_allow if isinstance(strict_allow, bool) else None,
         "managed_domains_only": managed_only,
         "permission_mode": permission_mode[:32] if isinstance(permission_mode, str) and permission_mode else None,
+        "settings_digest": fresh["settings_digest"], "since_start": fresh["since_start"], "doubt": doubt[:MAX_LIST],
     }
