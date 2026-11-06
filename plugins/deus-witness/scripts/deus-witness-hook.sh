@@ -5,9 +5,9 @@
 #   deus-witness-hook.sh --session-start   SessionStart: warns when the hook can be bypassed or is not configured
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness==0.2.56"; Python 3.10+ in a venv OUTSIDE the project: one found inside
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness==0.2.58"; Python 3.10+ in a venv OUTSIDE the project: one found inside
 #      the project, as found or resolved, is not used - the agent may write there)
-#   2. `uvx --from "deus-witness==0.2.56" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   2. `uvx --from "deus-witness==0.2.58" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the plugin option agent_key, else the key file `deus-witness try` saved
 # (${DEUS_WITNESS_HOME:-~/.config/deus-witness}/agent-key.json, or a fallback place - see below; the client reads it itself).
@@ -18,15 +18,18 @@
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness==0.2.56"
+SPEC="deus-witness==0.2.58"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
-TRY="/deus-witness:try (or in your terminal: uvx --from \"deus-witness==0.2.56\" deus-witness try)"
+TRY="/deus-witness:try (or in your terminal: uvx --from \"deus-witness==0.2.58\" deus-witness try)"
 
 # Plugin options (userConfig) arrive as CLAUDE_PLUGIN_OPTION_<KEY>; a variable already set in the environment wins.
 export DEUS_WITNESS_KEY="${DEUS_WITNESS_KEY:-${CLAUDE_PLUGIN_OPTION_AGENT_KEY:-}}"
 export DEUS_WITNESS_URL="${DEUS_WITNESS_URL:-${CLAUDE_PLUGIN_OPTION_WITNESS_URL:-https://witness.sipkigroup.com}}"
-export DEUS_WITNESS_HOOK_TIMEOUT="${DEUS_WITNESS_HOOK_TIMEOUT:-610}"   # hooks.json "timeout" is 620: 5+ s above this
-export DEUS_WITNESS_HOOK_WAIT="${DEUS_WITNESS_HOOK_WAIT:-600}"         # wait for the owner's approval in Witness
+# 0.2.57 (friction 03.11): wait 45 s, not 600. Claude Code shows nothing while a hook runs; the client notifies at once (desktop notification,
+# the approval page in the browser) and the refusal says where to approve. A later approval still works: the request stays open in Witness
+# and the agent reruns the same call.
+export DEUS_WITNESS_HOOK_TIMEOUT="${DEUS_WITNESS_HOOK_TIMEOUT:-55}"    # hooks.json "timeout" is 65: 5+ s above this
+export DEUS_WITNESS_HOOK_WAIT="${DEUS_WITNESS_HOOK_WAIT:-45}"          # wait for the owner's approval in Witness
 export DEUS_WITNESS_HOOK_ON_DEFER="${DEUS_WITNESS_HOOK_ON_DEFER:-deny}"
 STRICT="${CLAUDE_PLUGIN_OPTION_STRICT:-false}"
 [ -n "$DEUS_WITNESS_KEY" ] || unset DEUS_WITNESS_KEY
@@ -54,6 +57,30 @@ TRYMARK="${TMPDIR:-/tmp}"
 TRYMARK="${TRYMARK%/}/deus-witness-try-$(id -u 2>/dev/null || echo u)${HOME//[^A-Za-z0-9]/_}"
 trybroken=""
 if [ -z "$configured" ] && [ -f "$TRYMARK" ]; then trybroken=1; fi
+# 0.2.57 (QA 03.11, D7/D15): "not set up" (calls run unwitnessed, said once) only on a machine where the witness was never set up and nothing
+# points elsewhere. A project's .claude/settings.json can set "env" for hooks, so DEUS_WITNESS_KEY_FILE / DEUS_WITNESS_HOME pointing at
+# nothing, a key file of 0 bytes, or no key while a DEFAULT place of the REAL home (not one the environment names) shows the witness was set
+# up (agent-key.json, the pinned witness key witness.json, scanlist.json) = the key is MISSING: every call is REFUSED, loudly.
+# (absolute programs only: PATH is not filtered yet here)
+REALHOME="$(/usr/bin/dscl . -read "/Users/$(/usr/bin/id -un 2>/dev/null)" NFSHomeDirectory 2>/dev/null | /usr/bin/sed -n 's/^NFSHomeDirectory: //p')"
+[ -n "$REALHOME" ] || REALHOME="$( { /usr/bin/getent passwd "$(/usr/bin/id -u 2>/dev/null)" || /bin/getent passwd "$(/usr/bin/id -u 2>/dev/null)"; } 2>/dev/null | /usr/bin/cut -d: -f6)"
+[ -n "$REALHOME" ] || REALHOME="${HOME:-}"
+lost=""
+if [ -z "$configured" ] && [ -z "$trybroken" ]; then
+  for d in "$REALHOME/.config/deus-witness" "$REALHOME/Library/Application Support/deus-witness" "$REALHOME/.deus-witness"; do
+    for f in agent-key.json witness.json scanlist.json; do
+      [ -e "$d/$f" ] && lost="the witness was set up on this machine: $d/$f"
+    done
+  done
+  for KEYFILE in "${keyfiles[@]}"; do
+    [ -e "$KEYFILE" ] && [ ! -s "$KEYFILE" ] && lost="the key file $KEYFILE is empty"
+  done
+  [ -n "${DEUS_WITNESS_HOME:-}" ] && lost="DEUS_WITNESS_HOME names $DEUS_WITNESS_HOME, where there is no agent key"
+  [ -n "${DEUS_WITNESS_KEY_FILE:-}" ] && lost="DEUS_WITNESS_KEY_FILE names $DEUS_WITNESS_KEY_FILE, which holds no agent key"
+fi
+LOST_MSG="DEUS WITNESS: the agent key is MISSING ($lost), so every tool call is BLOCKED instead of running unwitnessed. If a project's .claude/settings.json (or settings.local.json) sets DEUS_WITNESS_* in \"env\", remove it. Set up again: $TRY . To stop the witness on purpose: in your own terminal, claude plugin disable deus-witness@sipkigroup"
+# 0.2.57 (QA D9): the client compares its version and the plugin's at session start (an old plugin pins an old client and nobody notices)
+export DEUS_WITNESS_PLUGIN_VERSION="${SPEC#deus-witness==}"
 BROKEN_MSG="DEUS WITNESS IS NOT WORKING: \`deus-witness try\` was started but saved no agent key (its last lines say why), so this call is BLOCKED instead of running unwitnessed. Run $TRY again in your terminal. To use Claude Code without the witness instead: rm \"$TRYMARK\""
 
 mode="${1:-pretool}"
@@ -62,6 +89,9 @@ mode="${1:-pretool}"
 # direnv `PATH_add bin`, a relative PATH entry. Those PATH entries are dropped (as given and resolved) before ANY command is looked up -
 # the client, uvx, and python3 / head / sed below. A client found elsewhere that resolves (symlink) or whose interpreter points into the
 # project is not used either. (A project that is the home directory itself is not filtered: the agent can write all of it anyway.)
+# 0.2.57: the PATH Claude Code runs Bash commands with, before the filter below (the client resolves `python3` on it: does a line run the
+# project's .venv? server 0.2.89 asks EXEC_CHANGED about a changed venv file only then). Read only; never used to find a program here.
+export DEUS_WITNESS_CALLER_PATH="${DEUS_WITNESS_CALLER_PATH:-${PATH:-}}"
 roots=()
 for d in "${CLAUDE_PROJECT_DIR:-}" "$PWD"; do
   [ -n "$d" ] && [ "${d%/}" != "${HOME%/}" ] || continue
@@ -104,7 +134,7 @@ elif [ -n "$dropped" ]; then
   done
 fi
 if [ ${#runner[@]} -eq 0 ] && command -v uvx >/dev/null 2>&1; then
-  runner=(uvx --quiet --from "deus-witness==0.2.56" deus-witness-hook)   # literal pin: the directory validator must see it
+  runner=(uvx --quiet --from "deus-witness==0.2.58" deus-witness-hook)   # literal pin: the directory validator must see it
 fi
 INPROJ_MSG="the deus-witness-hook on PATH ($inproj) is inside the project (or resolves there), where the agent may write, so it is not used. Install uv (https://docs.astral.sh/uv/), or install the client outside the project (a venv elsewhere)"
 
@@ -138,7 +168,7 @@ preflight() {
   if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
     p="$p Note: $INPROJ_MSG."
   elif [ ${#runner[@]} -eq 0 ]; then
-    p="$p First install uv (https://docs.astral.sh/uv/): without it /deus-witness:try cannot run (or: pip install \"deus-witness==0.2.56\" with Python 3.10+ in a venv)."
+    p="$p First install uv (https://docs.astral.sh/uv/): without it /deus-witness:try cannot run (or: pip install \"deus-witness==0.2.58\" with Python 3.10+ in a venv)."
   fi
   v="$("${CLAUDE_CODE_EXECPATH:-claude}" --version 2>/dev/null </dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [ -n "$v" ]; then
@@ -156,6 +186,10 @@ if [ "$mode" = "--session-start" ]; then
     say_session "$BROKEN_MSG"
     exit 0
   fi
+  if [ -n "$lost" ]; then
+    say_session "$LOST_MSG"
+    exit 0
+  fi
   if [ -z "$configured" ]; then
     pre="$(preflight)"
     if [ "$STRICT" = "true" ]; then
@@ -170,7 +204,7 @@ if [ "$mode" = "--session-start" ]; then
     exit 0
   fi
   if [ ${#runner[@]} -eq 0 ]; then
-    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"deus-witness==0.2.56\" (Python 3.10+ in a venv)"
+    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"deus-witness==0.2.58\" (Python 3.10+ in a venv)"
     exit 0
   fi
   exec "${runner[@]}" --session-start </dev/null
@@ -181,6 +215,12 @@ if [ -n "$trybroken" ]; then
   cat >/dev/null
   python3 -c 'import json,sys; print(json.dumps({"systemMessage": sys.argv[1], "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": sys.argv[1]}}))' "$BROKEN_MSG" 2>/dev/null \
     || { echo "$BROKEN_MSG" >&2; exit 2; }
+  exit 0
+fi
+if [ -n "$lost" ]; then
+  cat >/dev/null
+  python3 -c 'import json,sys; print(json.dumps({"systemMessage": sys.argv[1], "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": sys.argv[1]}}))' "$LOST_MSG" 2>/dev/null \
+    || { echo "$LOST_MSG" >&2; exit 2; }
   exit 0
 fi
 if [ -z "$configured" ]; then
@@ -210,6 +250,6 @@ if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
 fi
 if [ ${#runner[@]} -eq 0 ]; then
   cat >/dev/null
-  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"deus-witness==0.2.56\" (Python 3.10+ in a venv)"
+  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"deus-witness==0.2.58\" (Python 3.10+ in a venv)"
 fi
 exec "${runner[@]}"
