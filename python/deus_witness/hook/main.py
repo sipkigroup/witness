@@ -19,8 +19,10 @@ Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_HOME (key pin d
      DEUS_WITNESS_HOOK_TIMEOUT  seconds for the whole decision, default 20, at most 900 (keep it at least 5 s BELOW the hook
                                 `timeout` in settings.json: a hook that Claude Code cancels for time gives no decision),
      DEUS_WITNESS_HOOK_WAIT     seconds to wait for the owner on defer before answering, default 0, cut to TIMEOUT - 5
-                                (to wait the whole approval window: WAIT 600, TIMEOUT 610, settings `timeout` 620),
-     DEUS_WITNESS_HOOK_ON_DEFER deny | ask | defer, default deny (0.2.22; was ask). A held call waits for the OWNER in Witness (phone);
+                                (the plugin 0.2.57: WAIT 45, TIMEOUT 55, hooks.json `timeout` 65 -- a late approval still works: the
+                                request stays open in Witness, the agent reruns the same call; before 0.2.57: 600 / 610 / 620),
+     DEUS_WITNESS_HOOK_ON_DEFER deny | ask | defer, default deny (0.2.22; was ask). 0.2.57: `ask` is ignored by the hook Claude Code runs
+                                (deny instead: a project's settings can set env for hooks; a terminal "yes" ran the call without a receipt). A held call waits for the OWNER in Witness (phone);
                                 the person at the terminal must not approve in the owner's place. `ask` shows a yes/no prompt in
                                 the terminal - yes runs the call WITHOUT a witness receipt - so it is an explicit choice only.
                                 defer: print mode / Agent SDK only - interactive Claude Code ignores it. Anything else: deny,
@@ -57,9 +59,12 @@ parents, and paths built from the words of the tool_input; any other question is
                                                 it cannot tell
   deus-witness-hook --session-start             for a SessionStart hook: a loud warning when the hook can be bypassed
   deus-witness-hook --trust URL                 pin the key of another witness (asks you to type yes; a terminal only)
+  deus-witness-hook --undo PATH [--list]        0.2.58: put back the shadow copy kept before the agent wrote PATH outside the project
+  deus-witness-hook --setup-strict [--dry-run]  0.2.58: write the strict Claude Code sandbox into ~/.claude/settings.json (backup + diff); --undo-strict restores
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import ntpath
 import os
@@ -71,7 +76,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import archlinks, failsafe, fingerprint, gitref, mask, offline, samefile, sandbox_fact, selfpath
+from . import archlinks, failsafe, fingerprint, gitref, mask, offline, samefile, sandbox_fact, selfpath, shadow
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -116,6 +121,100 @@ def _trial_open(url, env) -> None:
         pass
 
 
+ANNOUNCE_OPEN_EVERY_S = 60.0                  # 0.2.57: the approval page is opened in the browser at most once a minute
+ANNOUNCE_KEEP_S = 3600.0                      # a receipt announced within the hour is not announced again (one rid = one notification)
+ANNOUNCE_MAX = 200
+
+
+def _off(env, name) -> bool:
+    return (env or {}).get(name) == "0" or os.environ.get(name) == "0"
+
+
+ANNOUNCE_REPEAT_S = 120.0        # 0.2.58: the same rid is announced again when the agent repeats the call after this long
+
+
+def _announce(res, s, reasons=None) -> list:
+    """0.2.57 (friction 03.11): the owner learns of a question at once, on THIS computer: a desktop notification (macOS: osascript; Linux:
+    notify-send) and the approval page opened in the browser, once per receipt id. Claude Code shows nothing while a hook runs, so this is
+    the only signal before the hook answers. Only for an https approval URL of the witness this hook asks (a local or test witness: never,
+    unless DEUS_WITNESS_OPEN_BROWSER=1). The notification names no argument of the call (the screen may be shared). DEUS_WITNESS_OPEN_BROWSER=0
+    / DEUS_WITNESS_NOTIFY=0: off. -> the local channels used, e.g. ["notification", "browser"]; never raises."""
+    url, done = getattr(res, "approval_url", None), []
+    try:
+        base = (getattr(s, "url", None) or "").rstrip("/")
+        forced = (s.env or {}).get("DEUS_WITNESS_OPEN_BROWSER") == "1"
+        if not isinstance(url, str) or not base or not url.startswith(base + "/") or not (url.startswith("https://") or forced):
+            return done
+        from ..trial import home_dir
+        mark = os.path.join(home_dir(s.env), "announced.json")
+        try:
+            with open(mark) as f:
+                seen = json.load(f)
+            seen = seen if isinstance(seen, dict) else {}
+        except (OSError, ValueError):
+            seen = {}
+        now = time.time()
+        seen = {k: v for k, v in seen.items() if isinstance(v, (int, float)) and now - v < ANNOUNCE_KEEP_S}
+        rid = str(getattr(res, "rid", "") or "")
+        if not rid or (rid in seen and now - seen[rid] < ANNOUNCE_REPEAT_S):
+            return done                                   # 0.2.58 (L2 chel01, p.5): the same receipt asked again after a while is announced again
+        last_open = seen.get("_open", 0) if isinstance(seen.get("_open"), (int, float)) else 0
+        seen[rid] = now
+        if not _off(s.env, "DEUS_WITNESS_NOTIFY"):
+            import subprocess
+            # 0.2.58b (L3 04.11): ONE call is ONE notification that names every reason the witness asked about (a line `curl ..; echo ..`
+            # is judged in parts; the owner used to get a notification per part)
+            rs = list(dict.fromkeys(r_ for r_ in (reasons or []) if isinstance(r_, str) and r_)) or [getattr(res, "reason", "") or "question"]
+            text = "A tool call waits for your approval (%s). The approval page is opening." % ", ".join(rs)
+            cmd = None
+            if sys.platform == "darwin":
+                cmd = ["/usr/bin/osascript", "-e", "on run argv", "-e", 'display notification (item 1 of argv) with title "Deus Witness" sound name "Glass"',
+                       "-e", "end run", text]
+            else:
+                import shutil
+                ns = shutil.which("notify-send")
+                cmd = [ns, "Deus Witness", text] if ns else None
+            if cmd and os.path.exists(cmd[0]):
+                subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                done.append("notification")
+        if not _off(s.env, "DEUS_WITNESS_OPEN_BROWSER") and now - last_open >= ANNOUNCE_OPEN_EVERY_S:
+            import webbrowser
+            if webbrowser.open(url, new=2):
+                seen["_open"] = now
+                done.append("browser")
+        if len(seen) > ANNOUNCE_MAX:
+            seen = dict(sorted(seen.items(), key=lambda kv: kv[1])[-ANNOUNCE_MAX:])
+        os.makedirs(os.path.dirname(mark), exist_ok=True)
+        with open(mark, "w") as f:
+            json.dump(seen, f)
+    except Exception:      # noqa: BLE001  a notification never decides a call
+        pass
+    return done
+
+
+def notify_text(info, local=()) -> str:
+    """0.2.57: who was told about the question, in one sentence. info = the witness' `notify` member (server 0.2.89: {"push": devices,
+    "channels": [kinds], "muted": bool}); None = an older witness that does not say. local = what this computer did (_announce)."""
+    loc = {"notification": "a notification on this computer", "browser": "the approval page opened in your browser"}
+    here = [loc[x] for x in local if x in loc]
+    if isinstance(info, dict):
+        far = []
+        n = info.get("push")
+        if isinstance(n, int) and not isinstance(n, bool) and n > 0 and not info.get("muted"):
+            far.append("phone push (%d device%s)" % (n, "" if n == 1 else "s"))
+        far += [str(k) for k in (info.get("channels") or []) if isinstance(k, str)][:4]
+        if far:
+            t = "Notification: sent via " + ", ".join(far)
+        elif info.get("muted"):
+            t = "Notification: NOT sent (this agent's notifications are muted in Witness)"
+        else:
+            t = ("Notification: NOT sent - this account has no phone push and no Telegram / Slack / e-mail channel (add one: "
+                 "open Witness Settings on your phone, Add to Home Screen, allow notifications)")
+    else:
+        t = "Notification: unknown (this witness does not report it)"
+    return t + ("; " + " and ".join(here) if here else "") + "."
+
+
 REPLACED_TEXT = ("(`deus-witness try` was run again: this call belonged to the previous trial account, which no longer exists. Nothing ran. "
                  "Retry the SAME call: it now goes to the new trial account, and its page asks for the passkey)")
 
@@ -143,6 +242,131 @@ def trial_key_gone(env=None, transport=None, timeout=5.0):
             r = h.get("/v1/salt", headers={"Authorization": "Bearer " + s.key})
         return msg if r.status_code == 401 else None
     except Exception:      # noqa: BLE001  unreachable / anything else: not "gone"
+        return None
+
+
+OVERRIDE_PREFIXES = ("DEUS_WITNESS_", "CLAUDE_PLUGIN_OPTION_")
+
+
+def project_env_overrides(project, plugin=True):
+    """0.2.57 (QA 03.11, D7): Witness settings a PROJECT sets for hooks ("env" of <project>/.claude/settings.json / settings.local.json:
+    a cloned repository can carry them) -> the sorted names, or []. plugin=False (the hook installed in settings.json, not the plugin):
+    a settings file that installs deus-witness-hook itself is the person's own set-up (its env is the documented way), not counted.
+    Never raises."""
+    out = set()
+    if not isinstance(project, str) or not project:
+        return []
+    for n in ("settings.json", "settings.local.json"):
+        try:
+            with open(os.path.join(project, ".claude", n), encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        env = d.get("env") if isinstance(d, dict) else None
+        if not plugin and "deus-witness-hook" in json.dumps(d.get("hooks") if isinstance(d, dict) else None):
+            continue
+        if isinstance(env, dict):
+            out |= {k for k in env if isinstance(k, str) and k.startswith(OVERRIDE_PREFIXES)}
+    return sorted(out)
+
+
+def _vtuple(v):
+    try:
+        return tuple(int(x) for x in str(v).split(".")[:3])
+    except ValueError:
+        return None
+
+
+def version_warnings(env, latest=None):
+    """0.2.57 (QA 03.11, D9): an old plugin pins an old client and nobody notices. -> the warnings (the plugin 0.2.57+ exports its version;
+    `latest` = the newest client the witness knows, from GET /v1/hook/status)."""
+    e = env or {}
+    w = []
+    pv = e.get("DEUS_WITNESS_PLUGIN_VERSION")
+    if e.get("CLAUDE_PLUGIN_ROOT") and not pv:
+        w.append("the Deus Witness plugin is older than 0.2.57 (it waits 600 s per question and pins an old client). Fix: /plugin -> "
+                 "deus-witness -> Update (or: claude plugin update deus-witness@sipkigroup)")
+    elif pv and _vtuple(pv) and _vtuple(VERSION) and _vtuple(pv) != _vtuple(VERSION):
+        w.append("plugin %s runs client %s (a deus-witness-hook on PATH wins over the plugin's pin). Fix: update both to the same version "
+                 "(/plugin update; pip install -U deus-witness)" % (pv, VERSION))
+    if isinstance(latest, str) and _vtuple(latest) and _vtuple(VERSION) and _vtuple(VERSION) < _vtuple(latest):
+        w.append("client %s is older than %s, the newest this witness knows. Fix: /plugin -> deus-witness -> Update" % (VERSION, latest))
+    return w
+
+
+def session_warnings(project, env=None, transport=None, timeout=5.0):
+    """0.2.57 (friction 03.11): SessionStart, a configured hook: say LOUDLY what will make this session ask or refuse, each with one fix:
+      - the key is a trial key `deus-witness try` made for another folder (its mandate then covers that folder, not this one);
+      - the signed mandate does not cover this folder (every Write / Edit here is refused, RESOURCE);
+      - no notification channel (a question reaches nobody: no phone push, no Telegram / Slack / e-mail).
+    The witness answers GET /v1/hook/status (server 0.2.89; an older one: only what the key file says). The key goes only where judge()
+    sends it (the key file's witness, or a pinned one). -> the text, or None. Never raises."""
+    try:
+        s = Settings(env)
+        if not s.key or s.url_conflict or not s.url:
+            return None
+        e = s.env
+        pj = os.path.realpath(project) if isinstance(project, str) and project else None
+        warn = []
+        st = None
+        try:
+            w = Witness(s.url, s.key, verify=False, timeout=timeout, pin_new=False, **({"transport": transport} if transport is not None else {}))
+            try:
+                pins = w._read_pins()
+                if s.file_url == w.url or w.url in pins:
+                    q = {"client": VERSION}
+                    if pj:
+                        q["project"] = pj
+                    if isinstance(e.get("DEUS_WITNESS_PLUGIN_VERSION"), str):
+                        q["plugin"] = e["DEUS_WITNESS_PLUGIN_VERSION"][:32]
+                    st = w._call("GET", "/v1/hook/status", params=q)
+            finally:
+                w.close()
+        except Exception:      # noqa: BLE001  an older witness (404), unreachable: what the key file says only
+            st = None
+        st = st if isinstance(st, dict) else {}
+        kp = None
+        if s.key_from_file or s.key_trial:
+            try:
+                from ..trial import load_key
+                kp = (load_key(e) or {}).get("project")
+            except Exception:      # noqa: BLE001
+                kp = None
+        trial = st.get("trial") if isinstance(st.get("trial"), bool) else s.key_trial
+        trial_other = None
+        fix_try = "in your terminal: cd %s && uvx --from \"deus-witness==%s\" deus-witness try" % (pj or "<project>", VERSION)
+        if trial:
+            other = isinstance(kp, str) and pj and os.path.realpath(kp) != pj
+            trial_other = kp if other else None
+            if not other:
+                warn.append("the agent key is a TRIAL key")
+        cov = None
+        m = st.get("mandate")
+        if isinstance(m, dict):
+            cov = m.get("covers") if isinstance(m.get("covers"), bool) else None
+            if m.get("active") is False:
+                warn.append("this agent has NO signed mandate: every call is refused or asked. Fix: sign one (%s)" % fix_try)
+                cov = True                                # said already
+        elif trial and isinstance(kp, str) and pj and os.path.realpath(kp) != pj:
+            cov = False                                   # an older witness: the trial mandate is the one made for the key file's folder
+        if cov is False and pj:
+            warn.append("the signed mandate does NOT cover this folder (%s): every Write / Edit here is refused (RESOURCE). Fix: %s "
+                        "(a mandate for this folder), or add this folder on %s/mandate.html" % (pj, fix_try, s.url))
+        if trial_other:
+            # the agent key is shared; only the signed mandate decides what is allowed here
+            warn.append("the agent key is a TRIAL key created in %s. That is fine if the mandate of this agent covers this folder"
+                        " (nothing to do)%s" % (trial_other, "" if cov is not False else "; it does not, see the next item"))
+        n = st.get("notify")
+        if isinstance(n, dict) and not (isinstance(n.get("push"), int) and n.get("push", 0) > 0) and not n.get("channels"):
+            warn.append("no notification channel: a question to the owner reaches nobody (no phone push, no Telegram / Slack / e-mail), the "
+                        "agent waits %s s and is refused. Fix: open %s/app.html (Dashboard) on your phone, Add to Home Screen, press Enable notifications "
+                        "(or connect Telegram there)" % (int(s.wait) if s.wait else "0", s.url))
+        lat = st.get("latest") if isinstance(st.get("latest"), dict) else {}
+        warn += version_warnings(e, lat.get("client"))
+        if not warn:
+            return None
+        return "DEUS WITNESS: " + "; ".join("(%d) %s" % (k + 1, t) for k, t in enumerate(warn)) + "."
+    except Exception:      # noqa: BLE001  a warning only
         return None
 
 
@@ -189,6 +413,9 @@ def decision(kind: str | None, reason: str = "") -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": kind, "permissionDecisionReason": reason}}
 
 
+USER_SEES = {"APPROVAL_RATE", "AGENT_FROZEN", "RESOURCE", "PERSIST_PLACE", "AGENT_CONFIG_UNAPPROVED", "WITNESS_UNAVAILABLE", "BAD_KEY", "RECIPIENT"}
+
+
 def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None = None, hint: bool = True) -> dict:
     """texts: {code: [kind, text]} from the witness' answer; the hook's own codes are in messages.LOCAL.
     hint=False (0.2.40): the detail already says what to do; the code's hint would repeat it."""
@@ -199,7 +426,10 @@ def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None
         text += " %s" % (detail.rstrip(".") if hint is None else detail)
     if hint:
         text += ". " + hint
-    return decision("deny", text + ". Do not try to reach the same effect another way.")
+    out = decision("deny", text + ". Do not try to reach the same effect another way.")
+    if code in USER_SEES:                                 # 0.2.58 (L2 chel01, p.2): shown in the Claude Code window, not only to the model
+        out["systemMessage"] = "Deus Witness refused a call: %s%s" % (code, (" - " + detail.strip("()")[:240]) if detail else (" - " + hint if hint else ""))
+    return out
 
 
 class Settings:
@@ -211,6 +441,13 @@ class Settings:
         self.wait = min(_num(e.get("DEUS_WITNESS_HOOK_WAIT"), 0.0, 0.0, 900.0), max(0.0, self.timeout - failsafe.MARGIN_S))
         v = e.get("DEUS_WITNESS_HOOK_ON_DEFER", "deny")
         self.on_defer = v if v in ("ask", "deny", "defer") else "deny"       # 0.2.22: deny by default; ask only when set explicitly
+        if self.on_defer == "ask" and env is None:
+            # 0.2.57 (QA 03.11, D16): the hook Claude Code runs (settings from the process environment) never answers `ask`: a project's
+            # .claude/settings.json can set "env" for hooks, and a "yes" at the terminal ran the call WITHOUT a receipt. The owner decides in
+            # Witness. (A program that embeds the hook and passes its own settings dict may still ask.)
+            self.on_defer = "deny"
+            self.ask_ignored = True
+        self.ask_ignored = getattr(self, "ask_ignored", False)
         self.allow = "neutral" if e.get("DEUS_WITNESS_HOOK_ALLOW") == "neutral" else "allow"
         # 0.2.32 (K1): DEUS_WITNESS_VERIFY=0 is only a request; judge() keeps the check on when this URL already has a pinned key
         self.verify_off = e.get("DEUS_WITNESS_VERIFY") == "0"
@@ -265,10 +502,13 @@ _GIT_WORDS = (r"|(?:^|(?<=[\s/'\"=:;&|(]))\.git(?:[/\\](?!(?:objects|refs|logs|i
               r"|(?:^|(?<=[\s;&|(]))git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S*)?)*\s+config(?![\w-])"
               # a template directory's `config` and `git clone -c/--config` land in the new repository's .git/config
               r"|--template(?![\w-])|GIT_TEMPLATE_DIR|(?:^|(?<=[\s;&|(]))git\s(?:[^;&|]*\s)?clone\s(?:[^;&|]*\s)?(?:-c|--config)(?=[\s=]|$)")
-_CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|"
+_CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)(?!/projects/[^/\s]+/memory/)|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|"
                            r"agent-key\.json|deus-witness-hook\s+--trust" + _GIT_WORDS + ")", re.I)
 # 0.2.33: the Deus Witness key files stay owner-only even for a read (the key itself); .claude / .mcp.json / .git/hooks do not (below)
 _KEY_WORDS = re.compile(r"(\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|agent-key\.json|deus-witness-hook\s+--trust)", re.I)
+# 0.2.58c: an exclusion pattern (`find ... -not -path '*/.git/*'`, `! -name .git`, `--exclude-dir=.git`) only names what to skip: single-quoted or
+# plain word, nothing a shell would expand or run. Removed before the .git words are searched (never for .claude / .mcp.json / keys).
+_FIND_EXCLUDE = re.compile(r"(?:(?:!|-not)\s+-(?:i?path|i?wholename|i?name)\s+|--exclude(?:-dir)?(?:=|\s+))(?:'[^']*'|[^\s'\"`$;&|<>()\\]+)")
 
 # 0.2.33 (friction of K1, residual risk 3): `cat .claude/settings.json`, `ls .git/hooks`, `git diff .mcp.json` were refused with no way to
 # approve them. A Bash command that can only READ is not the agent's harness being changed: it goes the normal way (the witness judges
@@ -277,8 +517,20 @@ _KEY_WORDS = re.compile(r"(\.deus-witness|config[/\\]deus-witness|Support[/\\]de
 # redirection except to /dev/null (`2>/dev/null`, `2>&1`); none of $ ` ( ) { } < * ? [ ] ! # \ newline outside quotes ($ and ` not even
 # inside double quotes); no `VAR=x cmd`, no path to a program. Anything else (unsure included) is refused as in 0.2.32.
 _RO_PROGRAMS = {"ls", "cat", "head", "tail", "wc", "grep", "rg", "stat", "du", "file", "pwd", "cd", "echo", "which", "find", "jq",
-                "readlink", "realpath", "basename", "dirname", "diff", "cmp", "git"}
-_RO_GIT = {"status", "diff", "log", "show", "branch"}
+                "readlink", "realpath", "basename", "dirname", "diff", "cmp", "git",
+                "cut", "sort", "uniq", "tr", "nl", "sleep", "ps", "id", "whoami", "uname"}   # 0.2.59 (friction 04.11): filters / process list
+_RO_GIT = {"status", "diff", "log", "show", "branch", "config", "remote"}
+# 0.2.59 (friction 04.11): `git log --oneline -3` prints no patch, so no diff driver (diff.external, textconv) can run: these options only
+_RO_GIT_LOG_PLAIN = re.compile(r"--oneline|-\d+|-n\d*|--max-count=\d+|--skip=\d+|--graph|--decorate(=\w+)?|--no-decorate|--all|--branches|--tags|"
+                               r"--abbrev-commit|--no-merges|--merges|--reverse|--first-parent|--date=[\w-]+|--(since|until|after|before|author|"
+                               r"committer|grep)=[^\s]*|--(format|pretty)=[^\s]*|--no-color|--color(=\w+)?|-i|--regexp-ignore-case")
+# 0.2.57 (friction 03.11): `git config user.name`, `git config --get k`, `git config --list`, `git config get k` only read (the server's
+# bashparse._ro_tags is the same rule); a value, --add / --unset / --edit / -f FILE / --blob ... is not read-only (harness, owner-approved)
+_RO_GIT_CONFIG_EXEC = re.compile(r"(core|diff|filter|merge|sequence|credential|gpg|include|includeif|http|url|ssh|alias|uploadpack|"
+                                 r"receivepack|protocol|submodule|pager|interactive|instaweb|sendemail|difftool|mergetool|gc|fsmonitor)\.", re.I)
+_RO_GIT_CONFIG_FLAGS = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "-l", "--list", "--get-color", "--get-colorbool",
+                        "--show-origin", "--show-scope", "--name-only", "--null", "-z", "--global", "--system", "--local", "--worktree",
+                        "--includes", "--no-includes", "--type", "--bool", "--int", "--path", "--bool-or-int", "--expiry-date", "--default"}
 _RO_GIT_DIFF = {"diff", "log", "show"}
 _RO_GIT_BRANCH = {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "-l", "--show-current", "--no-color", "--color"}
 _RO_FIND_BAD = {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"}
@@ -289,17 +541,22 @@ def _ro_scan(cmd):
     """-> True when no shell expansion / substitution / glob can happen in `cmd` (quote-aware)."""
     if any(ch in cmd for ch in "\n\r\0"):
         return False
-    q = None
+    q, esc = None, False
     for i, ch in enumerate(cmd):
         if q == "'":
             q = None if ch == "'" else q
         elif q == '"':
-            if ch in "$`":
-                return False
-            q = None if ch == '"' else q
+            if esc:
+                esc = False                               # 0.2.59 (friction 04.11): `"a\\|b"`, `"\\$x"`: an escaped character is text
+            elif ch == "\\":
+                esc = True
+            elif ch == "`" or ch == "$" and i + 1 < len(cmd) and (cmd[i + 1].isalnum() or cmd[i + 1] in "_{(@*#?$!-"):
+                return False                              # an expansion inside double quotes (`"$HOME"`, `"$(x)"`); `"x$"`, `"\\.md$\\|"` are text
+            else:
+                q = None if ch == '"' else q
         elif ch in "'\"":
             q = ch
-        elif ch == "*":                                   # 0.2.48 (R7): `cat .claude/*.json` - see _ro_star_ok
+        elif ch in "*?":                                  # 0.2.48 (R7): `cat .claude/*.json` - see _ro_star_ok
             if not _ro_star_ok(cmd, i):
                 return False
         elif ch in _RO_UNQUOTED_BAD:
@@ -315,7 +572,12 @@ def _ro_star_ok(cmd, i):
     while j > 0 and cmd[j - 1] not in " \t;&|":
         j -= 1
     w = cmd[j:i]
-    return bool(w) and w[-1] == "/" and w[0] != "-" and re.fullmatch(r"[\w.@%+=:,/-]+", w) is not None
+    if not w or w[0] in "*?" or re.fullmatch(r"~?[\w.@%+=:,/*?-]+", w) is None:
+        return False
+    # 0.2.59 (friction 04.11: `ls ~/.claude/tools/*.mjs`, `grep -h x op-*.log`, `grep -r x --include=*.sh`): every name the glob expands
+    # to begins with the literal text before its first `*` / `?`, so it can never turn into an option: not `-`, or a `--name=` option
+    # (it expands to the same option with another value)
+    return w[0] != "-" or re.match(r"--[\w-]+=", w) is not None
 
 
 
@@ -344,8 +606,26 @@ def _ro_segment(argv):
             return False                                  # `git -c x=y ...`, `git -C dir ...`, `git config ...`: not read-only here
         if any(a.startswith("--output") for a in args[1:]):
             return False                                  # `git diff --output=FILE` writes
+        if args[0] == "remote":                           # 0.2.59: `git remote`, `-v`, `get-url NAME` list the configuration (no network)
+            ops = [a for a in args[1:] if not a.startswith("-")]
+            fl = {a for a in args[1:] if a.startswith("-")}
+            return (not ops and fl <= {"-v", "--verbose"}) or (ops[:1] == ["get-url"] and len(ops) <= 2 and fl <= {"--push", "--all"})
+        if args[0] == "log" and args[1:] and all(_RO_GIT_LOG_PLAIN.fullmatch(a) for a in args[1:]):
+            return True                                   # 0.2.59: no patch, no path: nothing a driver could run on
         if args[0] in _RO_GIT_DIFF:                       # 0.2.33 (red team): see _ro_git_no_drivers
             return _ro_git_no_drivers(args[1:])
+        if args[0] == "config":
+            fl = {a.split("=", 1)[0] for a in args[1:] if a.startswith("-")}
+            ops = [a for a in args[1:] if not a.startswith("-")]
+            if not fl <= _RO_GIT_CONFIG_FLAGS or "--default" in fl and not any(a.startswith("--default=") for a in args[1:]):
+                return False
+            if any(_RO_GIT_CONFIG_EXEC.match(o) for o in ops) or "--get-regexp" in fl:
+                return False                              # a key git RUNS (diff.external, core.pager, filter.*, alias.* ...): the harness
+            if ops[:1] in (["get"], ["list"]):
+                return len(ops) <= 2
+            if fl & {"-l", "--list"}:
+                return not ops
+            return len(ops) == 1 or (len(ops) == 2 and bool(fl & {"--get-regexp", "--get-urlmatch", "--get-all"}))
         if args[0] == "status":                           # `status -v` shows a diff (textconv)
             return not any(a in ("-v", "-vv", "--verbose") or (a.startswith("-") and not a.startswith("--") and "v" in a) for a in args[1:])
         return args[0] != "branch" or all(a in _RO_GIT_BRANCH for a in args[1:])
@@ -354,6 +634,11 @@ def _ro_segment(argv):
     if prog == "rg":                                      # --pre / --hostname-bin run a program; -z runs decompressors
         return not any(a.startswith(("--pre", "--hostname-bin", "--search-zip")) or (a.startswith("-") and not a.startswith("--")
                                                                                       and "z" in a) for a in args)
+    if prog == "sort":                                    # 0.2.59: -o FILE / --output writes, --compress-program runs a program
+        return not any(a.startswith(("--output", "--compress-program", "--files0-from")) or (a.startswith("-") and not a.startswith("--")
+                                                                                          and "o" in a) for a in args)
+    if prog == "uniq":                                    # `uniq IN OUT` writes OUT
+        return len([a for a in args if not a.startswith("-")]) <= 1
     if prog == "file":                                    # -C / --compile writes a magic file
         return not any(a.startswith("--compile") or (a.startswith("-") and not a.startswith("--") and "C" in a) for a in args)
     return True
@@ -477,6 +762,8 @@ def agent_config_target(ev, facts, env):
         if not isinstance(cmd, str):
             return None
         m = (_KEY_WORDS if tool == "Bash" and read_only_shell(cmd) else _CONFIG_WORDS).search(cmd)
+        if m and m.group(0).lower().startswith(".git") and not _CONFIG_WORDS.search(_FIND_EXCLUDE.sub(" ", cmd)):
+            m = None                                      # 0.2.58c: `find . -not -path '*/.git/*'` NAMES .git as a pattern to skip, touches nothing
         if m:
             return m.group(0)
         from ..trial import home_dir
@@ -497,10 +784,38 @@ def agent_config_target(ev, facts, env):
     return None
 
 
+PERSIST_TEXT = ("(this call changes a place that runs at the next login, shell or session, or the witness itself: %s. Under the standing "
+                "mandate such a change is refused outright and is NOT approvable in Witness: if the user wants it, they make the change "
+                "themselves at their terminal. Do not try to reach the same effect another way)")
 CONFIG_TEXT = ("(this call changes the agent's own harness: %s - Claude Code settings or hooks, .mcp.json, git hooks or git configuration, "
                "the Deus Witness key files, or the Deus Witness client itself (its venv, package or executable). A change there can switch the witness off, so it runs only after the OWNER approves this "
                "exact call in Witness (passkey), never on the mandate alone. Only reading: `git diff` / `git show` / `git log` pass with "
                "--no-ext-diff --no-textconv)")
+
+
+# 0.2.58: a segment that only RUNS a script kept under ~/.claude/tools (the owner's own tooling; writing there stays refused by K1):
+# `bash ~/.claude/tools/x.sh args`, `timeout 30 python3 $HOME/.claude/tools/y.py`. No redirection, no second path of the harness in it.
+_TOOL_RUN = re.compile(r"^(?:timeout\s+\S+\s+|nice\s+(?:-n\s*\d+\s+)?)?(?:bash|sh|zsh|python3|python|node)\s+(?:~|\$HOME|\$\{HOME\}|/[^\s]*)/\.claude/tools/[^\s;&|<>$`]+"
+                       r"(?:\s+(?:[^;&|<>`\s]+|2>&1|2>/dev/null|>/dev/null|&>/dev/null))*$")
+
+
+_MEMORY_READ = re.compile(r"\.claude/projects/[^\s/;&|]+/memory/")
+
+
+def _runs_claude_tool(cmd) -> bool:
+    if not isinstance(cmd, str) or _KEY_WORDS.search(cmd):
+        return False
+    hit = False
+    for seg in re.split(r"&&|\|\||;|\n|\|", cmd):
+        if ".claude" not in seg and ".mcp.json" not in seg and ".git/hooks" not in seg:
+            continue
+        if _MEMORY_READ.search(seg) and ".mcp.json" not in seg and ".git/hooks" not in seg and read_only_shell(seg.strip()):
+            continue                                      # 0.2.58b: a segment that only READS ~/.claude/projects/*/memory/ changes nothing
+        m = _TOOL_RUN.match(seg.strip())
+        if not m or ".claude" in seg.strip()[m.end(0) - len(seg.strip()) :] and seg.strip().count(".claude") > 1 or ".mcp.json" in seg or ".git/hooks" in seg:
+            return False
+        hit = True
+    return hit
 
 
 def _num(v, default, lo, hi):
@@ -552,7 +867,74 @@ _VAR = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
 # names the classifier adds by itself (npx: <a parent of cwd>/node_modules/.bin/<tool>), and where bash puts a process substitution
 # `<(...)` (/dev/fd/63: says nothing about this machine)
 _DERIVED = {"node_modules", ".bin", ".", ".."}
+_LV_ASSIGN = re.compile(r"(?:^|[;&|\s(])([A-Za-z_][A-Za-z0-9_]*)=(?:'([^'\n]*)'|\"([^\"`$\n]*)\"|([^\s;&|<>()'\"`$]*))(?=[\s;&|)]|$)")
+_LV_FOR = re.compile(r"(?:^|[;&|\s(])for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+([^;&|\n`$()<>]*?)\s*(?:;|\n)\s*do\b")
+_LV_REF = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
+
+
+def _line_vars_expanded(t, cap=64):
+    """0.2.59 (friction 04.11, R9-05 kept): the texts of the line with its own literal variables put in (`f=~/x.sh; cp $f $f.bak`,
+    `d=/tmp/out; for x in A B; do cat $d/$x.json`), so a path the witness derives from them (x.sh.bak, A.json) counts as a word of the
+    call. Only values written in the line itself (a plain or quoted literal, the words of a `for .. in`), never the environment."""
+    if not isinstance(t, str) or "$" not in t or len(t) > 65536:
+        return []
+    vals = {}
+    for m in _LV_ASSIGN.finditer(t):
+        v = next((g for g in m.groups()[1:] if g is not None), "")
+        vals.setdefault(m.group(1), [])
+        if v not in vals[m.group(1)]:
+            vals[m.group(1)].append(v)
+    for m in _LV_FOR.finditer(t):
+        vals.setdefault(m.group(1), [])
+        vals[m.group(1)] += [w for w in m.group(2).split() if w not in vals[m.group(1)]]
+    if not vals:
+        return []
+    out = [t]
+    for _ in range(4):                                   # one variable per round, every occurrence of it (`d=$H/x; f=$d/y`: one made of another)
+        nxt = []
+        for x in out:
+            m = next((m for m in _LV_REF.finditer(x) if m.group(1) in vals), None)
+            if m is None:
+                nxt.append(x)
+                continue
+            nm = m.group(1)
+            nxt += [_LV_REF.sub(lambda r, v=v: v if r.group(1) == nm else r.group(0), x) for v in vals[nm][:cap]]
+        out = list(dict.fromkeys(nxt))[:cap]
+        if all(not any(m.group(1) in vals for m in _LV_REF.finditer(x)) for x in out):
+            break
+    return [x for x in out if x != t]
 _CLASSIFIER_DIRS = ("/dev/fd",)
+# 0.2.57 (friction 03.11, server 0.2.89): which file a Python tool named on a Bash line resolves to on the PATH of Claude Code (the plugin
+# passes it as DEUS_WITNESS_CALLER_PATH: it drops the project's PATH entries for itself). The witness asks EXEC_CHANGED about a changed
+# file of the project's .venv only when the line really runs that venv; a python3 that resolves outside the project (and is no shim) does not.
+WHICH_NAMES = re.compile(r"(python([23](\.\d{1,2})?)?|pypy3?|pip3?|pytest|py\.test|mypy|dmypy|pylint|flake8|ipython|coverage|pyright|basedpyright)")
+WHICH_MAX = 16
+
+
+def _which_fact(cmd, env):
+    """-> {name: realpath | None} for the Python tools named in `cmd`, or None when the PATH Claude Code runs commands with is not known
+    here (under a plugin older than 0.2.57: it filtered PATH; no fact = the witness asks as before)."""
+    e = env or {}
+    path = e.get("DEUS_WITNESS_CALLER_PATH")
+    if not isinstance(path, str):
+        if e.get("CLAUDE_PLUGIN_ROOT"):
+            return None
+        path = e.get("PATH")
+    if not isinstance(path, str) or not isinstance(cmd, str) or any(not x.startswith("/") for x in path.split(os.pathsep)):
+        return None                                   # an empty or relative PATH entry is the shell's cwd, not ours: no fact
+    import shutil
+    out = {}
+    for wd in re.split(r"[\s;|&<>()`'\"]+", cmd):
+        if WHICH_NAMES.fullmatch(wd or "") and wd not in out and len(out) < WHICH_MAX:
+            f = shutil.which(wd, path=path)
+            if not f:
+                out[wd] = None
+                continue
+            f = os.path.abspath(f)
+            # the file as found (its directory resolved: a venv's bin/python3 is a link to the base interpreter, the venv is where it is
+            # found) and the file resolved (a link elsewhere into a project venv): the witness checks both
+            out[wd] = [x for x in (os.path.join(_realpath(os.path.dirname(f)) or os.path.dirname(f), os.path.basename(f)), _realpath(f)) if x]
+    return out
 
 
 def _strings(x, out):
@@ -613,6 +995,7 @@ class Facts:
         # 0.2.73 (N13): samefile {path: the credential file it is a hard link of}; archive {path: archlinks.answer}. Sent (empty) with every
         # call: the witness asks an `archive` question only of a hook that can answer it (an older hook is never asked)
         self.fs["samefile"], self.fs["archive"] = {}, {}
+        self.fs["shadow"] = {}                        # 0.2.58: {path outside the project: shadow.save(...)} -- sent empty: the witness asks
         self._secrets, self._env_all = None, env
         self.exec = "off" if self.env.get("DEUS_WITNESS_EXEC_SCAN") == "0" else None
         self.spec = None                              # the fingerprint list of the last walk (a preview's digest is made with it)
@@ -633,7 +1016,12 @@ class Facts:
         self.settings = None                          # 0.2.56: the settings digest of a non-Bash call (the witness's first view of a session)
         sid = ev.get("session_id")
         self.session_id = sid if isinstance(sid, str) and 0 < len(sid) <= 128 else None
+        self.which = None
         if ev.get("tool_name") == "Bash":
+            try:
+                self.which = _which_fact(inp.get("command"), env)
+            except Exception:      # noqa: BLE001  no fact: asked as before
+                self.which = None
             try:
                 self.sandbox = sandbox_fact.fact(inp, self.root, env, self.env.get("HOME") or self.home,
                                                 transcript=ev.get("transcript_path"), permission_mode=ev.get("permission_mode"))
@@ -644,11 +1032,14 @@ class Facts:
                 self.settings = sandbox_fact.settings_view(self.root, env, self.env.get("HOME") or self.home, ev.get("transcript_path"))[1]
             except Exception:      # noqa: BLE001  no view: the witness then sees the session first at a Bash call
                 self.settings = None
+        self._tool, self._inp = ev.get("tool_name"), inp          # 0.2.58: for the shadow record (a Write's content hash)
         self.text = "\0".join(_strings([inp.get(k) for k in _PATH_FIELDS], []))    # a ref asked about must be written in the call
         # only the fields that name paths (not the text of a Write or an Edit: words of a file's content name nothing to look up)
         for t in _strings([inp.get(k) for k in _PATH_FIELDS], []):
             # as written, and with quotes / backslashes / $VAR / ${VAR} taken out (bash joins `"${HOME}/a"1` into one word `<home>/a1`)
             for v in (t, _UNQUOTE.sub("", t), _UNQUOTE.sub("", _VAR.sub("", t))):
+                self.words.update(w for w in _WORD_SPLIT.split(v) if w)
+            for v in _line_vars_expanded(t):          # 0.2.59: `f=a/x.sh; cp $f $f.bak` names a/x.sh.bak (see _line_vars_expanded)
                 self.words.update(w for w in _WORD_SPLIT.split(v) if w)
 
     def related(self, p, windows=None) -> bool:
@@ -732,11 +1123,35 @@ class Facts:
                 out[p] = x
         self.exec = dict(rep, preview=out)
 
+    def _harness_for(self, ev):
+        """0.2.59 (friction 04.11): what the client lock K1 (agent_config_target) finds in this call, or None. It is sent to the witness
+        as the fact `harness`: the witness (server 0.2.91) then ASKS about the call (agent-config), so the owner can approve it and the
+        lock lets it run (status approved). Before, a server that allowed the line (unlisted: allow) left the lock a hard deny with no button."""
+        if ev.get("tool_name") not in WRITE_TOOLS and ev.get("tool_name") not in SHELL_TOOLS:
+            return None
+        try:
+            inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+            cfg = agent_config_target(ev, self, self.env)
+            if cfg and not (ev.get("tool_name") == "Bash" and not _KEY_WORDS.search(cfg) and _runs_claude_tool(inp.get("command"))):
+                return str(cfg)[:4096]
+        except Exception:      # noqa: BLE001
+            pass
+        return None
+
+    def _sandbox_for(self, ev):
+        """0.2.58b: a fresh strict-sandbox fact makes the server answer allow OK_SANDBOXED, and the client lock then turns a touch of the
+        agent's own config into a hard deny with no approval. So for such a call the fact is not sent: the server asks, the owner approves."""
+        return None if self.sandbox is None or self._harness_for(ev) is not None else self.sandbox
+
     def body(self, ev, part=None):
+        sb = self._sandbox_for(ev)
+        hz = self._harness_for(ev)
         return {"v": 1, "event": {k: ev.get(k) for k in ("tool_name", "tool_input", "cwd") if k in ev},
                 "facts": dict({"home": self.home, "proc_cwd": self.proc_cwd, "env": self.env, "fs": self.fs, "exec": self.exec},
-                              **({"sandbox": self.sandbox} if self.sandbox is not None else {}),
-                              **({"settings": self.settings} if self.settings is not None else {})),
+                              **({"sandbox": sb} if sb is not None else {}),
+                              **({"harness": hz} if hz is not None else {}),
+                              **({"settings": self.settings} if self.settings is not None else {}),
+                              **({"which": self.which} if self.which else {})),
                 "client": CLIENT, "part": part, "nonce": self.nonce,
                 **({"session_id": self.session_id} if self.session_id is not None else {})}
 
@@ -775,6 +1190,26 @@ class Facts:
             raise Fail("HOOK_ERROR", "(the witness asked about a path unrelated to this call)")
         for top, ref in refs:                         # 0.2.37: what switching that repository to `ref` rewrites (git plumbing only, gitref.py)
             self.fs["gitref"][top + "\n" + ref] = gitref.answer(top, ref, avoid=(self.root,))
+        shd = need.get("shadow") or []                # 0.2.58: shadow copies of files this call writes outside the project
+        if not isinstance(shd, list) or len(shd) > shadow.MAX_PER_CALL or not all(isinstance(p, str) and 0 < len(p) <= 4096 for p in shd):
+            raise Fail("HOOK_ERROR", "(bad witness answer)")
+        if not all(_is_abs(p) for p in shd):
+            raise Fail("HOOK_ERROR", "(the witness asked about a path unrelated to this call)")
+        # 0.2.59 (friction 04.11: `cp $f $f.bak && sed -i .. $f`, `for f in a b; do diff docs/$f.md.bak ..`): a path the witness derived
+        # from a variable of the line is not a word of it. Such a path is not looked at or copied (R9-05): it is answered "no copy", and
+        # the witness asks about that write (write-outside) instead of the hook refusing the whole call with no button.
+        unrel = {p for p in shd if not self.related(p)}
+        after = None
+        if self._tool == "Write" and isinstance(self._inp.get("content"), str):     # 0.2.58 (Н11): what the write leaves, for --undo
+            after = hashlib.sha256(self._inp["content"].encode("utf-8", "surrogatepass")).hexdigest()
+        for p in shd:
+            if p in unrel:
+                self.fs["shadow"][p] = {"failed": "not a path of this call"}
+                continue
+            r_ = shadow.save(p, self._env_all, self.env.get("HOME") or self.home, after_sha256=after)
+            if r_.get("absent"):
+                shadow.record_absent(p, self._env_all, self.env.get("HOME") or self.home, after_sha256=after)
+            self.fs["shadow"][p] = r_
         if "preview" in need:                         # 0.2.43: the witness shows a changed file it could not read (asked once)
             self.previews(need["preview"])
         if "scan" in need:
@@ -966,11 +1401,31 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             return deny(str(r["refuse"]), detail=str(r.get("detail") or ""), texts=texts)
         got, tools = _bound(w, r, body, None, r.get("parts"), inp, tool_name, w.verify)
         results = []
+        ninfo = r.get("notify")                           # 0.2.57 (server 0.2.89): who the witness told about a question
+        told = {}                                         # rid -> what this computer did (_announce)
         waited = {}                                       # R1 29.10: index of a part -> (the wait limit the hook set, the status it waited on, its reason)
+        for m in got:                                     # 0.2.58 (L2 chel01, p.3): a part the witness refused decides the line NOW: no wait on another part
+            if m.res.verdict == "deny" or m.res.status in ("refused", "expired"):
+                got = [x for x in got if x is m]
+                break
+        spent = None                                      # 0.2.58b: (seconds, status, reason) of the first part the hook waited on and gave up on
+        asked_all = [x.res for x in got if x.res.verdict == "defer" and x.res.status in WAIT_STATUSES and x.res.reason != TRIAL_REASON]
         for m in got:
             res = m.res
             rejudged = 0
-            while res.verdict == "defer" and res.status in WAIT_STATUSES and s.wait > 0:
+            pd_ = (m.args.get(RESERVED) or {}).get("danger") if isinstance(m.args.get(RESERVED), dict) else None
+            if res.verdict == "defer" and isinstance(pd_, list) and any(isinstance(d, str) and d.startswith("persist:") for d in pd_):
+                # 0.2.58 (G4): a place that runs at the next login / session, or the witness itself: refused here, at once, with no wait
+                # (the question stays in Witness for the record; approving it there does not run this call: do it by hand at your terminal)
+                return deny("PERSIST_PLACE", res.rid, detail=PERSIST_TEXT % ", ".join(d.split(":", 1)[1][:120] for d in pd_ if d.startswith("persist:")), texts=texts, hint=False)
+            if res.verdict == "defer" and res.status in WAIT_STATUSES and res.reason != TRIAL_REASON and res.rid not in told:
+                # 0.2.57: at once, before any wait (Claude Code shows nothing until the hook answers). 04.11 (L3, red team p.6): ONE call is
+                # ONE announcement: the first part that waits (the witness' lead question, server hookjudge _one_question) names every
+                # reason; the other parts of the same call are decided on that page: no second notification, no tab on a linked part
+                told[res.rid] = [] if told else _announce(res, s, [x.reason for x in asked_all] if res in asked_all else None)
+            if spent is not None and res.verdict == "defer" and res.status in WAIT_STATUSES and res.reason != TRIAL_REASON and s.wait > 0:
+                waited[len(results)] = (spent[0], res.status, res.reason)     # 0.2.58b: the same call, the same wait: not a second full wait for its next part
+            while spent is None and res.verdict == "defer" and res.status in WAIT_STATUSES and s.wait > 0:
                 if res.reason == TRIAL_REASON:
                     _trial_open(res.approval_url, s.env)          # 0.2.28: the trial page (the claim is in that browser, never here)
                 wait_s = min(s.wait, _num(s.env.get("DEUS_WITNESS_TRIAL_WAIT"), TRIAL_WAIT_S, 1.0, 900.0)) if res.reason == TRIAL_REASON else s.wait
@@ -994,6 +1449,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                         raise Fail("REQUEST_MISMATCH", "(an answer about another receipt)")
                     if last and res.status in WAIT_STATUSES:
                         break                             # told the witness this was the last poll: the call is refused now
+                if res.verdict == "defer" and res.status in WAIT_STATUSES and res.reason != TRIAL_REASON and len(results) in waited:
+                    spent = waited[len(results)]
                 if res.status != "covered" or not isinstance(m.i, int) or rejudged >= 2 or time.monotonic() >= deadline - 2.0:
                     break
                 # 0.2.10: the owner answered with "allow in this project" (a signed allowance, not an approval of THIS receipt), or
@@ -1008,6 +1465,10 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                     return deny(str(r2.get("refuse") or "HOOK_ERROR"), detail=str(r2.get("detail") or ""), texts=texts)
                 m = _bound(w, r2, body2, m.i, r2["parts"], inp, tool_name, w.verify, tools)[0][0]
                 res = m.res
+                if r2.get("notify") is not None:
+                    ninfo = r2.get("notify")
+                if res.verdict == "defer" and res.status in WAIT_STATUSES and res.reason != TRIAL_REASON and res.rid not in told:
+                    told[res.rid] = _announce(res, s)
             log("tool=%s rid=%s verdict=%s status=%s" % (m.tool, res.rid, res.verdict, res.status))
             results.append((m, res))
             if res.verdict == "deny" or res.status in ("refused", "expired"):
@@ -1024,14 +1485,22 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 return deny({"refused": "APPROVAL_REFUSED", "expired": "RECEIPT_EXPIRED"}.get(res.status, res.reason or res.status or "UNKNOWN"), res.rid, texts=texts)
         pending = [(k, m, res) for k, (m, res) in enumerate(results) if res.verdict == "defer"]
         if pending:
+            # 0.2.58b: the other parts of the same call that the witness also asked about (it judged them in the same answer): ONE message, every reason
+            seen_ = {r_.rid for _, _, r_ in pending}
+            also = "".join(" Also asked for the same call: %s (%s, receipt %s)." % (x.summary, x.res.reason, x.res.rid)
+                           for x in got if x.res.verdict == "defer" and x.res.rid not in seen_ and not seen_.add(x.res.rid))
             for _, m, r_ in pending:
                 if r_.reason == TRIAL_REASON:
                     return deny("TRIAL_NOT_CLAIMED", r_.rid, detail=TRIAL_UNCLAIMED_TEXT, texts=texts, hint=False)   # 0.2.40: said once
+            urls = ", ".join(r_.approval_url or "" for _, _, r_ in pending)
+            local = [x for _, _, r_ in pending for x in told.get(r_.rid, [])]
+            ntext = notify_text(ninfo, sorted(set(local), key=local.index))
             if s.on_defer == "deny" and all(k in waited for k, _, _ in pending):    # 27.10 (polygon O9): the hook waited and gives up: say refused
                 # R1 29.10: the seconds are the limit the hook really waited (not the setting), and a held call is called held
-                return decision("deny", " ".join(_gave_up(m, r_, waited[k], texts) for k, m, r_ in pending) +
-                    " The request stays open in Witness until it expires: decide it at %s, then rerun the SAME call."
-                    % ", ".join(r_.approval_url or "" for _, _, r_ in pending) + " Do not try to reach the same effect another way.")
+                out = decision("deny", " ".join(_gave_up(m, r_, waited[k], texts) for k, m, r_ in pending) +
+                    " The request stays open in Witness until it expires: the owner approves it at %s, then rerun the SAME call. %s"
+                    % (urls, ntext) + also + " Do not try to reach the same effect another way.")
+                return _shown_to_user(out, pending, urls, ntext, waited=True)
             msg = " ".join("Deus Witness: %s is %s in Witness (%s, receipt %s)%s%s: %s ." % (
                 m.summary, "held by the witness for the owner's review" if r_.status == "held" else "waiting for the owner's approval",
                 r_.reason, r_.rid, _why(m, r_, texts), _changed(r_), r_.approval_url) for _, m, r_ in pending) + \
@@ -1039,13 +1508,16 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             lim = [waited[k][0] for k, _, _ in pending if k in waited]
             if lim:
                 msg += " (No answer from the owner within %.0f s.)" % max(lim)
+            msg += also + " " + ntext
             if s.on_defer == "ask":
-                return decision("ask", msg + " Answering yes here runs it WITHOUT a witness receipt; the safe answer is No: "
-                                "approve in Witness, then retry.")
+                return _shown_to_user(decision("ask", msg + " Answering yes here runs it WITHOUT a witness receipt; the safe answer is No: "
+                                               "approve in Witness, then retry."), pending, urls, ntext)
             if s.on_defer == "deny":                      # 0.2.22: the default; the owner decides in Witness, not the person at the terminal
                 msg += " Do not try to reach the same effect another way."
-            return decision(s.on_defer, msg)
+            return _shown_to_user(decision(s.on_defer, msg), pending, urls, ntext)
         cfg = agent_config_target(ev, facts, s.env)      # 0.2.32 (K1): the agent's own harness needs the owner's approval
+        if cfg and tool_name == "Bash" and not _KEY_WORDS.search(cfg) and _runs_claude_tool(inp.get("command")):
+            cfg = None                                    # 0.2.58: `bash ~/.claude/tools/x.sh` runs the owner's own tool; it changes nothing there
         if cfg and not any(res.status == "approved" for _, res in results):
             log("tool=%s touches the agent's harness without an owner approval" % tool_name)
             return deny("AGENT_CONFIG_UNAPPROVED", results[0][1].rid if results else None, detail=CONFIG_TEXT % cfg)
@@ -1102,6 +1574,15 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 w.close()
             except Exception:
                 pass
+
+
+def _shown_to_user(out, pending, urls, ntext, waited=False) -> dict:
+    """0.2.57: the person at Claude Code sees a question too (systemMessage: shown in the window; permissionDecisionReason goes to the model).
+    One line: what waits, where to approve, who was told."""
+    what = ", ".join(m.summary for _, m, _ in pending)[:200]
+    out["systemMessage"] = "Deus Witness: %s %s approval - approve it at %s, then the agent retries the same call. %s" % (
+        what, "was not approved in time, it still waits for" if waited else "waits for", urls, ntext)
+    return out
 
 
 def _gave_up(m, res, wt, texts) -> str:
@@ -1195,6 +1676,34 @@ def _trust(url: str) -> int:
         w.close()
 
 
+def _undo(rest) -> int:
+    """0.2.58: `deus-witness-hook --undo PATH [--list | --which N]`: put back the shadow copy the hook kept before the agent wrote PATH
+    outside the project (byte for byte), or list the copies. For a person at a terminal (an agent's line naming --undo is refused)."""
+    if not rest or rest[0].startswith("-"):
+        print("usage: deus-witness-hook --undo /absolute/path [--list | --which N | --force]   (copies: %s)" % shadow.shadow_dir(), file=sys.stderr)
+        return 2
+    path = os.path.abspath(rest[0])
+    ents = shadow.entries(path)
+    if "--list" in rest:
+        for k, r in enumerate(ents):
+            print("%d  %s  %s  %s" % (k, time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(r.get("t") or 0)), "absent" if r.get("absent") else r.get("sha256", "")[:16], r.get("copy") or "(the file did not exist)"))
+        print("%d copies of %s" % (len(ents), path))
+        return 0
+    which = -1
+    if "--which" in rest:
+        try:
+            which = int(rest[rest.index("--which") + 1])
+        except (IndexError, ValueError):
+            print("--which N: N is the number from --list", file=sys.stderr)
+            return 2
+    r = shadow.restore(path, which=which, force="--force" in rest)
+    if r.get("ok"):
+        print("restored: %s" % json.dumps({k: v for k, v in r.items() if k != "ok"}, ensure_ascii=False))
+        return 0
+    print("not restored: %s" % r.get("why"), file=sys.stderr)
+    return 1
+
+
 def _out(text: str) -> None:
     """stdout as UTF-8 bytes with plain \\n: the same JSON line on every OS (Windows text mode would write cp1252 and CRLF)."""
     try:
@@ -1253,6 +1762,11 @@ def main(argv=None) -> None:
     if argv[:1] == ["--doctor"]:
         r = failsafe.check(argv[1] if len(argv) > 1 else os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
         print(failsafe.report_text(r))
+        try:
+            from . import sandbox_fact
+            print(sandbox_fact.strict_line(argv[1] if len(argv) > 1 else os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()))
+        except Exception:      # noqa: BLE001  one more line, never a crash
+            print("sandbox: NOT strict (cannot tell)")
         sys.stdout.flush()
         os._exit(1 if r["problems"] or r.get("unsure") else 0)      # 0.2.40: "cannot tell" is not "fail-closed" either
     if argv[:1] == ["--session-start"]:
@@ -1268,6 +1782,20 @@ def main(argv=None) -> None:
                 if gone:
                     out = {"systemMessage": gone, "hookSpecificOutput": {"hookEventName": "SessionStart",
                                                                          "additionalContext": "Deus Witness warning for the user: " + gone}}
+            if not out:
+                sw = session_warnings(os.environ.get("CLAUDE_PROJECT_DIR") or d)     # 0.2.57: trial key / mandate / no channel / versions
+                if sw:
+                    out = {"systemMessage": sw, "hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                                       "additionalContext": "Deus Witness warning for the user: " + sw}}
+            ov = project_env_overrides(os.environ.get("CLAUDE_PROJECT_DIR") or d, plugin=bool(os.environ.get("CLAUDE_PLUGIN_ROOT")))    # 0.2.57 (QA D7)
+            if ov:
+                t = ("DEUS WITNESS: this project's .claude/settings.json sets Witness settings for the hooks (%s). A cloned repository can "
+                     "switch the witness off or weaken it this way. Remove them from \"env\" unless you put them there yourself." % ", ".join(ov))
+                if out:
+                    out["systemMessage"] = t + " " + out["systemMessage"]
+                    out.setdefault("hookSpecificOutput", {"hookEventName": "SessionStart"})["additionalContext"] = "Deus Witness warning for the user: " + out["systemMessage"]
+                else:
+                    out = {"systemMessage": t, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "Deus Witness warning for the user: " + t}}
             if out:
                 _out(json.dumps(out, ensure_ascii=False) + "\n")
                 log(out["systemMessage"])
@@ -1277,6 +1805,14 @@ def main(argv=None) -> None:
         os._exit(0)
     if argv[:1] == ["--trust"]:
         sys.exit(_trust(argv[1] if len(argv) > 1 else ""))
+    if argv[:1] == ["--undo"]:
+        sys.exit(_undo(argv[1:]))
+    if argv[:1] in (["--setup-strict"], ["--undo-strict"]):
+        from . import strict
+        if not (sys.stdin.isatty() and sys.stdout.isatty()) and "--yes" not in argv:
+            print("deus-witness-hook %s: run it yourself in a terminal (it rewrites your Claude Code settings); --yes from a script" % argv[0], file=sys.stderr)
+            sys.exit(1)
+        sys.exit(strict.setup(write="--dry-run" not in argv) if argv[0] == "--setup-strict" else strict.undo())
     if argv[:1] in (["-h"], ["--help"]):
         print(__doc__)
         return

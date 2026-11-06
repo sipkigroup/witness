@@ -21,7 +21,7 @@ server) and is never printed, logged or saved by this command - an agent that re
 No browser here (SSH, a container)? The link is written to your terminal (/dev/tty) only, never to stdout or stderr; with no terminal either
 (0.2.34), nothing is saved, the trial account is withdrawn (POST /v1/trial/retire) and the exit code is 3: run `deus-witness try` yourself in
 a terminal (`uvx --from deus-witness deus-witness try`), not through the agent.
-Unkept, the trial account and its journal are erased after 7 days (the page has a "Keep this account" button)."""
+A quick start account nobody claims with a passkey is erased after 7 days; once you make the passkey it stays for good, free (Open Core: a single person pays nothing)."""
 from __future__ import annotations
 
 import argparse

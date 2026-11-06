@@ -388,10 +388,29 @@ def read_git_config(text: str) -> tuple:
     return out, bad
 
 
+_MASK = "***"
+_SECRET_RXS = (
+    (re.compile(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^/\s@\"']+@"), r"\1" + _MASK + "@"),       # user:pass@host, token@host
+    (re.compile(r"\b(?:gh[pousr]_|github_pat_|glpat-|xox[abprs]-|npm_|sk-|pypi-|AKIA|ASIA|AIza|hf_|shpat_)[A-Za-z0-9_\-]{8,}"), _MASK),
+    (re.compile(r"(?i)\b(pass(?:word|wd)?|pwd|token|secret|api[_-]?key|auth(?:orization)?|bearer)([\"']?\s*[=:]\s*[\"']?)(?:(?:bearer|basic|token)\s+)?[^\s\"';&|]+"),
+     r"\1\2" + _MASK),
+    (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=\-]{8,}"), r"\1 " + _MASK),
+)
+
+
+def mask_secrets(v: str) -> str:
+    """0.2.52: a git config VALUE as the server needs it: the program path, flags and shape stay (the server tests the leading `!`, a boolean,
+    `never`, and takes core.hooksPath as a directory), the secrets inside go: credentials in a URL, well-known token prefixes, the
+    word after password= / token= / Authorization: / Bearer. The same value always gives the same mask, so the digest stays stable."""
+    for rx, rep in _SECRET_RXS:
+        v = rx.sub(rep, v)
+    return v
+
+
 def git_config_report(root, spec: Spec):
     """-> ({absolute path of config / config.worktree of the git dir and the common git dir: [[key, value] whose key matches the list]},
     cut) or (None, False) when the list does not ask for it or there is no git dir. Only matching keys leave the machine (remote URLs and
-    their tokens never do); values are cut at max_value, at most max_entries per file; cut = something was cut or could not be read, or
+    their tokens never do; the secrets inside a sent value are masked, mask_secrets); values are cut at max_value, at most max_entries per file; cut = something was cut or could not be read, or
     read_git_config was unsure of a file (a line git refuses: fail-closed, the witness asks)."""
     if spec.gitcfg is None:
         return None, False
@@ -421,6 +440,7 @@ def git_config_report(root, spec: Spec):
             cut = cut or unsure                     # a line git refuses (or we are unsure of) -> cut -> the witness asks
             for k, v in got:
                 if rx.fullmatch(k):
+                    v = mask_secrets(v)             # before the cut: a cut must not leave half a token
                     if len(v) > max_value:
                         v, cut = v[:max_value], True
                     ent.append([k, v])
@@ -446,7 +466,7 @@ def with_gitcfg(rep, root, spec: Spec):
         rep["gitcfg_cut"] = True
     hp = global_hookspath(root)
     if hp:
-        rep["hookspath"] = hp           # 0.2.77c (round 2b): core.hooksPath of the global / system config and of included files
+        rep["hookspath"] = [mask_secrets(x) if isinstance(x, str) else x for x in hp]           # 0.2.77c (round 2b): core.hooksPath of the global / system config and of included files
     return rep
 
 

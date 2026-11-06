@@ -362,3 +362,76 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
         "permission_mode": permission_mode[:32] if isinstance(permission_mode, str) and permission_mode else None,
         "settings_digest": fresh["settings_digest"], "since_start": fresh["since_start"], "doubt": doubt[:MAX_LIST],
     }
+
+
+# ---- 0.2.58b (L3 04.11): `--doctor` says whether the sandbox is strict for a folder -------------------------------------------------
+# The witness (server/app/hookjudge/sandbox.py:evaluate) decides "strict" from this very fact; the client has no copy of the server, so this
+# is a SHORT mirror of its conditions, for the doctor's one line only. It never allows anything: the hook still sends the fact and the
+# witness decides. Where the mirror and the server could differ, the line says NOT strict (fail closed in the words).
+SECRETS = (".ssh", ".aws", ".config/gh", ".netrc", ".docker", ".kube", ".gnupg", ".npmrc", ".pypirc", ".git-credentials",
+           ".config/gcloud", ".azure", ".config/deus-witness", ".claude.json", ".claude/.credentials.json")
+
+
+def _covered(entry, path):
+    return isinstance(entry, str) and entry.startswith("/") and (path == entry.rstrip("/") or path.startswith(entry.rstrip("/") + "/"))
+
+
+def strict_reasons(f, home) -> list:
+    """Every unmet condition (empty list = strict as far as the client can tell)."""
+    why = []
+    if not isinstance(f, dict):
+        return ["no sandbox fact"]
+    if f.get("platform") != "darwin":
+        why.append("platform %s: only macOS is accepted" % f.get("platform"))
+    bad = sorted(k for k, v in (f.get("sources") or {}).items() if v not in ("ok", "absent"))
+    if bad:
+        why.append("settings not readable: " + ", ".join(bad))
+    if f.get("enabled") is not True:
+        why.append("sandbox.enabled is not true")
+    if f.get("fail_if_unavailable") is not True:
+        why.append("sandbox.failIfUnavailable is not true")
+    if f.get("fs_disabled") is True:
+        why.append("sandbox.filesystem.disabled")
+    if f.get("ignore_violations"):
+        why.append("sandbox.ignoreViolations")
+    if f.get("weaker"):
+        why.append("weakening keys: " + ", ".join(f["weaker"]))
+    for d in (f.get("doubt") or [])[:4]:
+        why.append("not known: " + str(d)[:160])
+    if f.get("allow_unsandboxed") is not False:
+        why.append("sandbox.allowUnsandboxedCommands is not false")
+    if f.get("excluded"):
+        why.append("sandbox.excludedCommands is not empty")
+    if f.get("domains"):
+        why.append("network: allowedDomains not empty")
+    if f.get("unix_sockets") or f.get("all_unix_sockets") is True:
+        why.append("network: Unix sockets allowed")
+    if f.get("local_binding") is True:
+        why.append("network: allowLocalBinding")
+    if f.get("mach_lookup"):
+        why.append("network: allowMachLookup")
+    if f.get("strict_allowlist") is not True and f.get("managed_domains_only") is not True:
+        why.append("network: sandbox.network.strictAllowlist is not true in user or managed settings")
+    if not f.get("env_scrub"):
+        why.append("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is not on in this environment (set it where Claude Code is started)")
+    if not isinstance(home, str) or not home.startswith("/") or home == "/":
+        why.append("home unknown")
+    else:
+        deny, allow = f.get("deny_read") or [], f.get("allow_read") or []
+        miss = [s for s in SECRETS if not any(_covered(e, os.path.join(home, s)) for e in deny)
+                or any(_covered(a, os.path.join(home, s)) or _covered(os.path.join(home, s), a) for a in allow)]
+        if miss:
+            why.append("denyRead does not cover ~/" + ", ~/".join(miss[:6]) + (" ..." if len(miss) > 6 else ""))
+    return why
+
+
+def strict_line(project, env=None, home=None, platform=None) -> str:
+    """`sandbox: strict` / `sandbox: NOT strict (reason; ...)` for the doctor. Never raises."""
+    try:
+        f = fact({}, os.path.realpath(project) if project else None, env=env, home=home, platform=platform)
+        why = strict_reasons(f, home or os.path.expanduser("~"))
+    except Exception as e:      # noqa: BLE001
+        return "sandbox: NOT strict (cannot tell: %s)" % type(e).__name__
+    if not why:
+        return "sandbox: strict (client estimate; the witness decides for each call by the permission mode and the command)"
+    return "sandbox: NOT strict (%s)" % "; ".join(why[:6])

@@ -34,11 +34,11 @@ HOME_FILES = (".netrc", ".git-credentials", ".pgpass", ".npmrc", ".pypirc", ".va
               ".config/gcloud/application_default_credentials.json", ".azure/accessTokens.json")
 HOME_DIRS = (".ssh", ".gnupg", ".aws")      # listed one level deep
 # 0.2.77 (H3): bashparse.AGENT_CONFIG_PATH | bashparse.GIT_EXEC_PATH (copies; server test_0277_redteam keeps them equal)
-AGENT_CONFIG = re.compile(r"(/\.claude(/|$)|/\.claude\.json$|/\.mcp\.json$|/\.cursor/(mcp|hooks)\.json$|/\.vscode/(mcp|tasks)\.json$|/claude_desktop_config\.json$|"
+AGENT_CONFIG = re.compile(r"(/\.claude(/(?!projects/[^/]+/memory/)|$)|/\.claude\.json$|/\.mcp\.json$|/\.cursor/(mcp|hooks)\.json$|/\.vscode/(mcp|tasks)\.json$|/claude_desktop_config\.json$|"
                           r"/\.config/claude(/|$)|/Library/Application Support/Claude/|/\.gemini/settings\.json$|/\.windsurf/[^/]+\.json$|"
                           r"/\.codeium/windsurf/mcp_config\.json$|/\.roo/mcp\.json$|/\.kiro/(settings|hooks)/|/\.amazonq/(mcp\.json$|(cli-)?agents/)|"
                           r"/opencode\.jsonc?$)", re.I)
-GIT_EXEC = re.compile(r"(/\.git[. ]*$|/\.git[. ]*/(.+/)?(config|config\.worktree)$|/\.git[. ]*/(.+/)?hooks(/|$)|/\.gitconfig$|/\.config/git/config$)", re.I)
+GIT_EXEC = re.compile(r"(/\.gitattributes$|/\.gitmodules$|/\.git[. ]*$|/\.git[. ]*/(.+/)?(config|config\.worktree)$|/\.git[. ]*/(.+/)?hooks(/|$)|/\.gitconfig$|/\.config/git/config$)", re.I)
 UNMAPPED = ".claude/(a hard link the witness could not map: the project walk was cut)"   # 0.2.77b (R2-5)
 HOME_PROTECTED = (".claude/settings.json", ".claude/settings.local.json", ".claude.json", ".mcp.json", ".gitconfig", ".config/git/config")
 

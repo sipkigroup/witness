@@ -163,6 +163,42 @@ Set-up (full text: https://witness.sipkigroup.com/dl/docs/quickstart.html, secti
 
 **Default mandate domains (0.2.22).** `--print-form` no longer allows `github.com`, `raw.githubusercontent.com` or any other host where anyone can publish (a `WebFetch` GET with a query string to such a host is a way out for data). Kept: `localhost`, `127.0.0.1`, `docs.python.org`, `pypi.org`, `docs.github.com`, `developer.mozilla.org`, `www.npmjs.com`, `nodejs.org`, `docs.anthropic.com`, `code.claude.com`. Add a host you need on the Mandate page, knowingly. A mandate you signed earlier keeps its own list until you sign a new one.
 
+## The standing mandate (0.2.58): four gates, quiet only under the OS sandbox
+
+Since 0.2.58 the recommended mandate (`deus-witness-hook --print-form DIR`, the trial mandate) keeps `command.unlisted = "ask"` and adds a
+sandboxed-code option. The agent works quietly only while the OS sandbox is verified (next section); the witness itself looks for four
+consequences and asks (or refuses) there:
+
+| gate | what is asked (or refused) |
+|---|---|
+| G1 irreversible delete | `rm -rf`, `find -delete`, `shutil.rmtree` ... of a path OUTSIDE the project (inside the project and in the temp dir: a plain delete, no question) |
+| G2 any exit | `git push / pull / fetch / clone`, `pip / npm / cargo ... install`, `gh`, `aws`, `az`, `docker`, `curl`/`ssh` to a host the mandate does not list, a POST to a local service |
+| G3 secrets | `~/.ssh`, `~/.aws`, `.env*`, keychains (`security find-generic-password`), the whole environment, the witness's own key |
+| G4 persistence | shell rc files, LaunchAgents / crontab / launchctl load, `~/.claude/settings*.json`, hooks, plugins, `.mcp.json`, `claude plugin disable`, `CLAUDE_*=` in the environment -- refused outright: only by hand at your terminal |
+
+Also asked: a file this agent wrote and now runs (any code-like file, whatever its text: the owner releases it once), a changed executed file
+(conftest.py, package.json, Makefile ...), and a line the classifier cannot read (`$(...)`, `eval`, a function, a path a variable hides).
+A write outside the project (a note in `~/Documents`) runs after the hook kept a shadow copy; `deus-witness-hook --undo PATH` puts it back
+byte for byte (`--undo PATH --list` shows the copies).
+
+### Quiet mode needs the OS sandbox
+
+Quiet operation is not a property of the mandate list. It exists only while the witness has a fresh fact that Claude Code runs under the
+strict OS sandbox (macOS only), and the fact is checked fail-closed: if it is missing, stale, or the settings changed in this session, the
+witness behaves as if there were no sandbox. **Without it you get questions with a button**: a line the classifier cannot read (`$(...)`,
+`eval`, a function, a path a variable hides) and a file the agent wrote and now runs are asked, as before 0.2.58. We do not promise a number
+of questions per hour; it depends on your work and has not yet been measured on a real owner day (that is the 0.2.58 trial). Other gains of
+0.2.58 (shadow copies for writes outside the project, the four gates, no approval-rate cascade) do not depend on the sandbox. To enable it:
+
+    deus-witness-hook --setup-strict --dry-run   # the diff of ~/.claude/settings.json
+    deus-witness-hook --setup-strict             # writes it (backup next to it); --undo-strict restores
+    export CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1     # in the shell that starts Claude Code (a settings `env` block does not count)
+
+Then start a NEW Claude Code session (the witness treats a session whose settings changed as not strict). Under that sandbox a line the
+classifier cannot read, and a file the agent wrote, run without a question when the sandbox contains them (no network, no write outside
+the project, no secrets): the receipt says `OK_SANDBOXED`. What leaves the sandbox (G2), secrets (G3) and persistence (G4) are asked anyway.
+Linux / Windows: no strict sandbox in this version -- the unreadable lines and written-file runs are questions.
+
 ## Cursor
 Cursor reads MCP servers from `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project); the entry is the same as for Claude Desktop. Put the real MCP server after `--`:
 ```json
