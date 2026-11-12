@@ -94,7 +94,7 @@ ENV_KEYS = ("CLAUDE_PROJECT_DIR", "HOME", "DEUS_WITNESS_EXEC_SCAN", "TMPDIR")   
 MAX_ROUNDS = 8                 # fact rounds per call; the witness asks what its classifier needs (usually one round, two with a project scan)
 MAX_ASKED = 4096               # paths answered per round
 # 0.2.43 (server 0.2.43b): "preview" = answers need.preview (a changed executed file's masked text), "final" = marks its last long poll
-CLIENT = {"name": "deus-witness-hook", "version": VERSION, "caps": ["preview", "final"]}
+CLIENT = {"name": "deus-witness-hook", "version": VERSION, "caps": ["preview", "final", "tmpdir"]}   # tmpdir: 0.2.62 (r0264)
 PREVIEW_MAX = 4096             # characters of a previewed file (the witness shows them; secrets masked here first, mask.py)
 MAX_PREVIEWS = 8
 HINTS = {k: v[1] for k, v in LOCAL.items() if v[0] == "deny"}
@@ -453,11 +453,30 @@ def decision(kind: str | None, reason: str = "") -> dict:
 USER_SEES = {"APPROVAL_RATE", "AGENT_FROZEN", "RESOURCE", "PERSIST_PLACE", "AGENT_CONFIG_UNAPPROVED", "STRICT_SWITCH_UNAPPROVED", "WITNESS_UNAVAILABLE", "BAD_KEY", "RECIPIENT"}
 
 
+INTERNAL = {"HOOK_ERROR"}
+INTERNAL_TEXT = ("This is a failure of Deus Witness itself, not a decision of the owner's rules; the call did not run (fail-closed). "
+                 "Retry the same call once. If it fails again, stop and tell the user that Deus Witness failed on this call "
+                 "(`deus-witness-hook --doctor` checks the setup); do not treat it as a refusal.")
+
+
+def _internal(code, rid, detail):
+    """0.2.62 (r0264, L3 12.11): an internal failure (the hook or the witness broke) said as what it is. It stays a deny (nothing runs
+    unjudged), but its text is not the refusal's "Do not try to reach the same effect another way": the model retried nothing and the
+    person never learnt that Witness had failed. The person sees it in the Claude Code window too."""
+    text = "Blocked by Deus Witness: %s (receipt %s)%s. %s" % (code, rid or "none", (" " + detail.rstrip(".")) if detail else "", INTERNAL_TEXT)
+    out = decision("deny", text)
+    out["systemMessage"] = ("Deus Witness failed on a call (%s%s); it did not run. This is a fault of Witness, not your rules: if it repeats, "
+                            "run `deus-witness-hook --doctor`." % (code, (": " + detail.strip("()")[:200]) if detail else ""))
+    return out
+
+
 def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None = None, hint: bool = True) -> dict:
     """texts: {code: [kind, text]} from the witness' answer; the hook's own codes are in messages.LOCAL.
     hint=False (0.2.40): the detail already says what to do; the code's hint would repeat it."""
+    if code in INTERNAL:
+        return _internal(code, rid, detail)
     t = (texts or {}).get(code)
-    hint = (t[1] if isinstance(t, (list, tuple)) and len(t) == 2 and t[0] == "deny" and isinstance(t[1], str) else HINTS.get(code)) if hint else None
+    hint =(t[1] if isinstance(t, (list, tuple)) and len(t) == 2 and t[0] == "deny" and isinstance(t[1], str) else HINTS.get(code)) if hint else None
     text = "Blocked by Deus Witness: %s (receipt %s)" % (code, rid or "none")
     if detail:
         text += " %s" % (detail.rstrip(".") if hint is None else detail)
@@ -781,6 +800,34 @@ def _hooks_dirs_local(root, home):
     return list(dict.fromkeys(out))
 
 
+# 0.2.62 (r0264, L3 12.11 "Третий прогон", q-Z62DVF): `sed -n 1,20p README.md; echo ---; git log -3; git config user.email` -- the
+# line is not read-only as a whole (sed is not on the read-only list), so its `git config` made the lock K1 demand the owner's yes for
+# reading git's settings (a question in quiet mode, and no "from now on": the lock wants an approved receipt). A `git config` word whose
+# own command (the text between the separators ; & | ( ) and new lines around it) is a read-only git config (read_only_shell: no value,
+# no -f / --blob / --edit, no key git runs, no expansion, no redirection) does not touch the harness. Every other word still counts.
+_GIT_CONFIG_WORD = re.compile(r"git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S*)?)*\s+config", re.I)
+
+
+def _git_config_read_at(cmd, x) -> bool:
+    if not _GIT_CONFIG_WORD.fullmatch(x.group(0)):
+        return False
+    a = max(cmd.rfind(c, 0, x.start()) for c in ";&|\n()") + 1
+    ends = [i for i in (cmd.find(c, x.end()) for c in ";&|\n()") if i >= 0]
+    seg = cmd[a:min(ends) if ends else len(cmd)].strip()
+    try:
+        return seg.startswith("git") and read_only_shell(seg)
+    except Exception:      # noqa: BLE001  unsure: the word counts
+        return False
+
+
+def _config_word(cmd):
+    """-> the first _CONFIG_WORDS match of `cmd` that is not a read-only `git config` (above), or None."""
+    for x in _CONFIG_WORDS.finditer(cmd):
+        if not _git_config_read_at(cmd, x):
+            return x
+    return None
+
+
 def agent_config_target(ev, facts, env):
     """-> what makes this call touch the agent's own harness (a path or the word of a command), or None."""
     tool, inp = ev.get("tool_name"), ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
@@ -810,7 +857,7 @@ def agent_config_target(ev, facts, env):
         if names:
             m = None if ro else next((x for x in _CONFIG_WORDS.finditer(cmd) if not _KEY_WORDS.search(x.group(0))), None)
         else:
-            m = (_KEY_WORDS if ro else _CONFIG_WORDS).search(cmd)
+            m = _KEY_WORDS.search(cmd) if ro else _config_word(cmd)
         if m and m.group(0).lower().startswith(".git") and not _CONFIG_WORDS.search(_FIND_EXCLUDE.sub(" ", cmd)):
             m = None                                      # 0.2.58c: `find . -not -path '*/.git/*'` NAMES .git as a pattern to skip, touches nothing
         if m:
@@ -1005,6 +1052,7 @@ _WORD_SPLIT = re.compile(r"""[\s;|&<>()`'"=,:{}\[\]$*?!#\\/]+""")
 _PATH_FIELDS = ("command", "file_path", "notebook_path", "path", "glob", "url")
 _UNQUOTE = re.compile(r"""['"\\]""")
 _VAR = re.compile(r"\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
+_TMP_REF = re.compile(r"\$(?:\{TMPDIR\}|TMPDIR(?![A-Za-z0-9_]))")     # 0.2.62 (r0264): $TMPDIR / ${TMPDIR} in a line
 # names the classifier adds by itself (npx: <a parent of cwd>/node_modules/.bin/<tool>), and where bash puts a process substitution
 # `<(...)` (/dev/fd/63: says nothing about this machine)
 _DERIVED = {"node_modules", ".bin", ".", ".."}
@@ -1182,6 +1230,14 @@ class Facts:
                 self.words.update(w for w in _WORD_SPLIT.split(v) if w)
             for v in _line_vars_expanded(t):          # 0.2.59: `f=a/x.sh; cp $f $f.bak` names a/x.sh.bak (see _line_vars_expanded)
                 self.words.update(w for w in _WORD_SPLIT.split(v) if w)
+            # 0.2.62 (r0264, L3 12.11 R3-B-plimit): `npm test > $TMPDIR/out.txt` -- the witness (0.2.93+) expands $TMPDIR with the TMPDIR
+            # this hook sends and asks the realpath of <TMPDIR>/out.txt. That IS a path of this call: its folder names are words of it.
+            # (0.2.61 refused the whole call HOOK_ERROR "a path unrelated to this call".) Only the hook's own TMPDIR, as the witness uses it.
+            tmp = self.env.get("TMPDIR")
+            if isinstance(tmp, str) and _is_abs(tmp) and _TMP_REF.search(t):
+                for base in {tmp.rstrip("/") or "/", _realpath(tmp)}:
+                    if isinstance(base, str):
+                        self.words.update(w for w in _WORD_SPLIT.split(base) if w)
 
     def related(self, p, windows=None) -> bool:
         """R9-05: is `p` a path of THIS call? Inside the project root; a session directory or one of its parents; or one of those plus
@@ -1530,6 +1586,8 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             upd = dict(json.loads(json.dumps(orig)), command=nc)       # witness judges (and the receipt names) the masked line
             inp = dict(inp, command=nc)
             ev = dict(ev, tool_input=inp)
+    if tool_name == "Bash":
+        _seen_try(ev, s, inp)
     out = _judge(ev, s, witness, deadline, state, tool_name, inp)
     if upd is not None:
         hs = out.get("hookSpecificOutput") if isinstance(out, dict) else None
@@ -1541,6 +1599,24 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             hs["permissionDecisionReason"] = (hs.get("permissionDecisionReason") or "") + \
                 " (Deus Witness ran it as `... | awk ...`: values of variables that may hold a secret are printed as [masked].)"
     return out
+
+
+def _seen_try(ev, s, inp) -> None:
+    """0.2.62 (r0264, L3 12.11): `try` run by /deus-witness:try under `claude --plugin-dir X` said "the hook is NOT installed" (the plugin is
+    not in installed_plugins.json) and the model told the person to install it from the marketplace. This hook IS running for that very
+    `try` line: it says so in a mark next to try's own (trial.hook_seen_mark), which `try` reads a moment later. Only the try line; never
+    raises."""
+    try:
+        from ..trial import hook_seen_mark, is_try_line
+        if not is_try_line(inp.get("command")):
+            return
+        cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and _is_abs(ev.get("cwd")) else os.getcwd()
+        root = s.env.get("CLAUDE_PLUGIN_ROOT")
+        with open(hook_seen_mark(s.env), "w", encoding="utf-8") as f:
+            json.dump({"t": int(time.time()), "project": _realpath(s.env.get("CLAUDE_PROJECT_DIR") or cwd),
+                       "plugin_root": root if isinstance(root, str) else None}, f)
+    except Exception:      # noqa: BLE001
+        pass
 
 
 def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:

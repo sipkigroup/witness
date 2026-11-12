@@ -108,6 +108,27 @@ def try_mark(env=None) -> str:
     return os.path.join(base, "deus-witness-try-%s%s" % (os.getuid() if hasattr(os, "getuid") else "u", who))
 
 
+def hook_seen_mark(env=None) -> str:
+    """0.2.62 (r0264): written by the hook when it sees the try line itself (hook.main._seen_try): the hook runs in this Claude Code session."""
+    return try_mark(env) + ".hook"
+
+
+def hook_seen(project, env, now=None, fresh_s=300):
+    """-> the hook's mark ({"t", "project", "plugin_root"}) when the hook saw a try line for THIS project within `fresh_s`, else None."""
+    try:
+        with open(hook_seen_mark(env), encoding="utf-8") as f:
+            d = json.load(f)
+        t = d.get("t")
+        now = time.time() if now is None else now
+        if not isinstance(t, (int, float)) or not (now - fresh_s <= t <= now + 5):
+            return None
+        if d.get("project") != os.path.realpath(project):
+            return None
+        return d
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 # 0.2.61 (r0263, L3 З2): the lines that SET UP the witness (what /deus-witness:try runs). A broken `try` (a mark, no key) refuses every
 # call, and refused the way out with it: `/deus-witness:try` inside Claude Code was "permission denied". These exact lines run.
 _TRY_LINE = re.compile(r"(?:uvx(?: --quiet)? --from (?:\"deus-witness==[0-9][0-9.]*\"|'deus-witness==[0-9][0-9.]*'|deus-witness==[0-9][0-9.]*|deus-witness) )?"
@@ -565,6 +586,13 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
               file=out)
         print("Once the hook is there, the first call that needs you waits; " + touches, file=out)
         return 0
+    seen = hook_seen(o.project, e) if hooked is False else None
+    if seen is not None:                       # 0.2.62 (r0264): the hook ran for this very command (claude --plugin-dir: not registered)
+        pr = seen.get("plugin_root") if isinstance(seen.get("plugin_root"), str) else None
+        print("The Witness hook is active in this Claude Code session: it saw this very command%s. It is not registered as an installed "
+              "plugin (for example Claude Code was started with --plugin-dir), so a Claude Code started without that checks nothing; to have "
+              "it always: %s." % ((" (plugin loaded from %s)" % _tilde(pr, e)) if pr else "", INSTALL_HOW), file=out)
+        hooked = True
     if hooked is False:                        # 0.2.41 (HN rehearsal 7): a key without a hook checks nothing - say it, never "as usual"
         print(HOOK_MISSING_TEXT, file=out)
         print("(Checked the Claude Code config dir(s) %s. If you start Claude Code with another CLAUDE_CONFIG_DIR, run this with that "
