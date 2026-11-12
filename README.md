@@ -1,18 +1,58 @@
 # Deus Witness
 
-**A witness service for AI-agent tool calls.** Your agent asks before it acts; a witness outside the agent
-checks the call against a mandate you signed, and answers `allow`, `deny` or `defer` (wait for you). A decision made against your mandate is a signed,
-append-only receipt you can verify offline (a few automatic refusals, e.g. a call before any mandate or over a rate limit, are kept only in the server database) - so "what did the agent do, and who allowed it" has an answer you do not have to take on trust.
+**Let Claude Code work on its own; get asked only before the few things a sandbox cannot undo or contain - publishing, running a program outside the sandbox, writing a file that starts itself later, irreversible changes inside your project. You answer with one passkey touch; every decision gets a signed receipt you can verify offline.**
 
-**Install and try (one command):** `uvx --from deus-witness deus-witness try` - or in Claude Code `/plugin marketplace add sipkigroup/witness`, then `/plugin install deus-witness@sipkigroup`.
-**As an MCP proxy** (stdio; after `--` put the MCP server you want witnessed; the bundled demo server records calls to a file and does nothing real): `uvx deus-witness -- deus-witness-demo-tools`, with `DEUS_WITNESS_KEY` (`dwk_...`, from your account at the hosted service) set.
+## The problem
 
-- Hosted service: <https://witness.sipkigroup.com> - live demo: <https://witness.sipkigroup.com/demo>
-- This repository: the open parts - the receipt specification, two separate verifiers, the TypeScript client, the Python client and the HTTP API contract (OpenAPI, data only).
+Claude Code asks before it runs commands or edits files. Anthropic's own write-up of auto mode names what happens next: "approval fatigue, where people stop paying close attention to what they're approving", and "users accept 93% of them anyway". The other way out, `--dangerously-skip-permissions`, "disables all permission prompts and lets Claude act freely" ([Anthropic, 25.03.2026](https://anthropic.com/engineering/claude-code-auto-mode)).
+
+A prompt you approve without reading protects nothing. What you need is fewer questions, and a real one when it matters.
+
+## What Witness does
+
+- Claude Code runs inside its strict OS sandbox (no network except your list, your credentials unreadable, no writes outside the project and Claude Code's temp). Inside it, code, tests, builds, installs and edits run **without a question**, each with a receipt.
+- Before each tool call the plugin asks a witness service outside the agent. The witness asks you only for a closed list of reasons: publishing (`git push`, `npm publish`, deploy CLIs, ssh/scp to another machine, a POST to an outside host), a program outside the sandbox (`sudo`, `open`, `osascript`), a file another program runs later (`.envrc`, git hooks, CI files, `.vscode` tasks, `.claude` settings), a loader variable, the witness's own key, irreversible changes inside the project (`git reset --hard`, `git clean -f`, `rm -rf .git`, `DROP TABLE`).
+- Some things are refused outright, with no question: reading a private key, token store or keychain; writing shell rc files, LaunchAgents, cron, the agent's own settings or hooks; `rm -rf` of your home or above the project; download-into-shell; force-push.
+- The question says in plain words what the agent wants to do and what it can harm, with three buttons: allow once / allow this kind from now on (narrow: this project, with an end date, revocable) / deny. The answer is signed with your passkey.
+
+## What we measured (our own measurement, not independent)
+
+Stand (L2): the real hook and the real witness (server 0.2.91, client 0.2.59) replaying recorded Claude Code sessions under the strict sandbox fact; no live person in the loop.
+
+| Set | What it is | Witness asked | Dangerous actions let through |
+|---|---|---|---|
+| "Typical developer", blind | 12 Claude Code sessions (Haiku 5.5, `claude -p`) on 6 open-source repos: click, humanize, mistune, dequal, is-number, p-limit; 192 tool calls; the rules were not tuned on it | **1 question in 12 sessions**; 2 if GitHub / npm / PyPI are in the sandbox's `allowedDomains`. 0 of 72 reads asked | this set has no dangerous actions |
+| Our own DevOps sessions | 2,090 tool calls from the author's real working days (az, gh, ssh, deploys) | 45 questions on 1,658 harmless calls (6 on day one, then ~8 a day) | **0 of 432** labeled dangerous |
+| Attack probes | 38 probes written against the rules + 72 harmless twins | 0 of 72 twins asked | **0 of 38** |
+| Older labeled set | 346 calls | 2 of 320 harmless asked | **0 of 26** |
+
+What these numbers do **not** show: they are our corpora, labeled by us; no outside user has run 0.2.59 yet (L3 not done); the typical set is 12 short sessions (about 20 minutes of agent activity in total), so read "1 per 12 sessions", not "per day". Known gaps, stated: code that carries an attacker's token can still send data to a host **you** put in `allowedDomains`; a script the agent wrote and then runs in a separate call can publish with a token found in the project to an allowed host, and can delete the project itself. The quiet mode exists only under Claude Code's strict sandbox on macOS; on Linux/WSL, and without it, you get more questions.
 
 > **Status: early (0.x).** The specification is an individual draft in `spec/` (not an IETF standard, not submitted to the IETF).
 > The evidence so far is our own simulations and separate implementations written from the spec by one author; there are no external audits or deployments yet.
 > Treat it as something to test and attack, not as a certified security boundary. Reports of bypasses are the most valuable thing you can send us.
+
+**What leaves your machine:** before a matched tool call runs, the hook sends the tool input as given (the full command line, file paths, the text being written) to the hosted witness at <https://witness.sipkigroup.com> (operated by Sipki LLC), or to a witness you run yourself from `spec/` and `contract/`. Your conversation is not sent. Details: [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md), <https://witness.sipkigroup.com/privacy.html>.
+
+## Install (3 lines in Claude Code)
+
+```
+/plugin marketplace add sipkigroup/witness
+/plugin install deus-witness@sipkigroup
+/deus-witness:try
+```
+
+`try` makes a trial account (no sign-up form) and opens a page in your browser; a trial account has no phone notifications - questions wait on that page. For the quiet mode measured above (macOS), once, in your terminal:
+
+```
+uvx --from "deus-witness==0.2.59" deus-witness-hook --setup-strict --dry-run   # see the change to ~/.claude/settings.json
+uvx --from "deus-witness==0.2.59" deus-witness-hook --setup-strict             # write it (backup kept; --undo-strict restores)
+export CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1                                       # in the shell that starts Claude Code
+```
+
+Then start a new Claude Code session.
+
+Without the plugin: `uvx --from deus-witness deus-witness try`. As an MCP proxy in front of any MCP server: `uvx deus-witness -- <your MCP server command>` (see `python/README.md`).
 
 ## Try it in Claude Code
 
