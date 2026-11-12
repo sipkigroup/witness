@@ -17,7 +17,7 @@ A prompt you approve without reading protects nothing. What you need is fewer qu
 
 ## What we measured (our own measurement, not independent)
 
-Stand (L2): the real hook and the real witness (server 0.2.91-0.2.92, client 0.2.59-0.2.60) replaying recorded Claude Code sessions under the strict sandbox fact; no live person in the loop.
+Stand (L2): the real hook and the real witness (server 0.2.91-0.2.94, client 0.2.59-0.2.62; since 0.2.61 with the same mandate a new trial account gets) replaying recorded Claude Code sessions under the strict sandbox fact; no live person in the loop.
 
 | Set | What it is | Witness asked | Dangerous actions let through |
 |---|---|---|---|
@@ -26,7 +26,7 @@ Stand (L2): the real hook and the real witness (server 0.2.91-0.2.92, client 0.2
 | Attack probes | 38 probes written against the rules + 72 harmless twins | 0 of 72 twins asked | **0 of 38** |
 | Older labeled set | 346 calls | 2 of 320 harmless asked | **0 of 26** |
 
-What these numbers do **not** show: they are our corpora, labeled by us; no outside user has run it yet (our L3: a real interactive Claude Code with a scripted model, 12 calls of an ordinary task: 8 questions without quiet mode, 2 with it - git push and a package release); the typical set is 12 short sessions (about 20 minutes of agent activity in total), so read "1 per 12 sessions", not "per day". Known gaps, stated: code that carries an attacker's token can still send data to a host **you** put in `allowedDomains`; a command a script builds while it runs (not visible in the file the agent wrote) is not checked; scripts the agent writes and then runs (bash, python, node, npm run, make) are checked by their saved text since 0.2.60. The quiet mode exists only under Claude Code's strict sandbox on macOS; on Linux/WSL, and without it, you get more questions.
+What these numbers do **not** show: they are our corpora, labeled by us; no outside user has run it yet. Our own end-to-end check (12.11, client 0.2.61, server 0.2.93): a real Claude Code 2.1.322 with a real model (Haiku 5.5) on three open-source projects (click, p-limit, mistune), against the hosted witness: in quiet mode 0 questions in 4 sessions of about 10-15 calls each, commits included; without quiet mode 3 questions in about 10 calls; the typical set is 12 short sessions (about 20 minutes of agent activity in total), so read "1 per 12 sessions", not "per day". Known gaps, stated: code that carries an attacker's token can still send data to a host **you** put in `allowedDomains`; a command a script builds while it runs (not visible in the file the agent wrote) is not checked; scripts the agent writes and then runs (bash, python, node, npm run, make) are checked by their saved text since 0.2.60. The quiet mode exists only under Claude Code's strict sandbox on macOS; on Linux/WSL, and without it, you get more questions.
 
 > **Status: early (0.x).** The specification is an individual draft in `spec/` (not an IETF standard, not submitted to the IETF).
 > The evidence so far is our own simulations and separate implementations written from the spec by one author; there are no external audits or deployments yet.
