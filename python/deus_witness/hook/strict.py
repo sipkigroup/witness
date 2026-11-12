@@ -209,7 +209,33 @@ def _hosts_line(cmd):
             "Add your own host: %s --setup-strict --host example.com (in your terminal; a host name, no *)." % cmd)
 
 
-def offer(env=None, platform=None, out=None, cmd="deus-witness-hook") -> str:
+def summary(cur, new, hosts=None) -> list:
+    """0.2.61 (r0263, L3 12.11 З5): the change in a few lines a person reads (the offer printed a 157-line diff). Built from the two
+    settings (what really changes), not from a fixed text. The full diff: --quiet-offer --full / --setup-strict --dry-run."""
+    cur = cur if isinstance(cur, dict) else {}
+    sb0 = cur.get("sandbox") if isinstance(cur.get("sandbox"), dict) else {}
+    sb1 = new.get("sandbox") if isinstance(new.get("sandbox"), dict) else {}
+    net = sb1.get("network") if isinstance(sb1.get("network"), dict) else {}
+    dom = [d for d in (net.get("allowedDomains") or []) if isinstance(d, str)]
+    deny = [d for d in ((sb1.get("filesystem") or {}).get("denyRead") or []) if isinstance(d, str)]
+    cred = sb1.get("credentials") if isinstance(sb1.get("credentials"), dict) else {}
+    hid = [v.get("name") if isinstance(v, dict) else v for v in (cred.get("envVars") or [])]
+    hid = [h for h in hid if isinstance(h, str)]
+    out = ["- every command the agent runs stays inside Claude Code's sandbox (no way to run it outside)",
+           "- network for those commands: only %s" % (", ".join(dom) if dom else "none"),
+           "- they cannot read %d places with keys (%s ...), your login keychain or browser cookies" % (len(deny), ", ".join(deny[:3])),
+           "- hidden from them: %s" % (", ".join(hid[:4]) + (" and %d more token names" % (len(hid) - 4) if len(hid) > 4 else "") if hid else "nothing"),
+           "- npm / uv caches move into Claude Code's own temp folder (so installs work inside the sandbox)"]
+    gone = [k for k in WEAKER if k in sb0]
+    if gone:
+        out.append("- removed (they weaken the sandbox): %s" % ", ".join(gone))
+    wide = [d for d in ((sb0.get("network") or {}).get("allowedDomains") or []) if isinstance(d, str) and d not in dom]
+    if wide:
+        out.append("- dropped from your host list (too wide): %s" % ", ".join(wide[:5]))
+    return out
+
+
+def offer(env=None, platform=None, out=None, cmd="deus-witness-hook", full=False) -> str:
     """0.2.60 (r0262/r0263): print what quiet mode is and the exact change (a dry run); -> state(). The first line is machine-plain for
     /deus-witness:quiet: `QUIET MODE: on | offer | macOS only | cannot read settings`."""
     out = out or sys.stdout
@@ -226,18 +252,26 @@ def offer(env=None, platform=None, out=None, cmd="deus-witness-hook") -> str:
         return st
     cur = _load(p)[0]
     print("QUIET MODE: offer. " + QUIET_LINE, file=out)
-    print(_hosts_line(cmd), file=out)
+    if full:
+        print(_hosts_line(cmd), file=out)
     print(KEEPS + " " + LIMIT, file=out)
+    new = strict_settings(cur, DEFAULT_HOSTS, env)
     print("It changes %s (for all your projects; a backup is kept; undo: %s --undo-strict in your terminal):" % (p, cmd), file=out)
-    print("\n".join(_diff(p, cur, strict_settings(cur, DEFAULT_HOSTS, env))), file=out)
+    if full:
+        print("\n".join(_diff(p, cur, new)), file=out)
+    else:
+        print("\n".join(summary(cur, new)), file=out)    # 0.2.61 (r0263, L3 З5): a short list, not a 157-line diff
+        print("Your own host: %s --setup-strict --host example.com (in your terminal). The exact change, line by line: %s --quiet-offer --full"
+              % (cmd, cmd), file=out)
     print("To turn it on: run `%s --setup-strict` in your terminal, or let the agent run `%s --setup-strict --yes`: Witness then asks "
           "YOU (passkey, this once); the agent cannot switch it on or off by itself. Not now: %s --quiet-no (no more reminders)."
           % (cmd, cmd, cmd), file=out)
     return st
 
 
-def setup(env=None, write=True, platform=None, hosts=None, show=True) -> int:
-    """hosts None = DEFAULT_HOSTS; extra names come from --host. show=False: the change was just shown (the terminal's yes), not again."""
+def setup(env=None, write=True, platform=None, hosts=None, show=True, full=None) -> int:
+    """hosts None = DEFAULT_HOSTS; extra names come from --host. show=False: the change was just shown (the terminal's yes), not again.
+    full (0.2.61): the whole diff (default: only for a dry run, the explicit "show me the change"); else the short list (summary)."""
     p = settings_path(env)
     if _platform(platform) != "darwin":
         print("deus-witness-hook --setup-strict: " + NOT_MAC + " Nothing changed.", file=sys.stderr)
@@ -260,7 +294,9 @@ def setup(env=None, write=True, platform=None, hosts=None, show=True) -> int:
     if show:
         print(QUIET_LINE)
         print(KEEPS + " " + LIMIT)
-        print("\n".join(diff))
+        # 0.2.61 (r0263): the terminal's yes reads the short list; --dry-run (the explicit "show me") prints the whole diff
+        print("\n".join(diff if (not write if full is None else full) else
+                        summary(cur, new) + ["The exact change, line by line: deus-witness-hook --setup-strict --dry-run"]))
     if not write:
         return 0
     bak = "%s.bak-strict-%s" % (p, time.strftime("%Y%m%dT%H%M%S"))

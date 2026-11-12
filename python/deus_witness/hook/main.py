@@ -64,7 +64,7 @@ parents, and paths built from the words of the tool_input; any other question is
                                                 0.2.60: also CLAUDE_CODE_SUBPROCESS_ENV_SCRUB in its env (no export by hand); in a terminal it
                                                 shows the change and asks you to type yes; from Claude Code the agent runs it with --yes and
                                                 the hook lets it run only after YOU approve that call in Witness (passkey)
-  deus-witness-hook --quiet-offer               0.2.60: what quiet mode is and the exact change (no write)
+  deus-witness-hook --quiet-offer [--full]      0.2.60: what quiet mode is and what changes (no write); 0.2.61: a short list, --full = the diff
   deus-witness-hook --setup-strict --host NAME  r0263: also list your own host (narrow name) besides the GitHub / npm / PyPI read hosts
   deus-witness-hook --quiet-no                  r0263: no more quiet-mode reminders at session start
 """
@@ -90,7 +90,7 @@ from .messages import LOCAL
 MAX_EVENT = 16 * 1024 * 1024
 VERSION = __version__
 RESERVED = "_witness"
-ENV_KEYS = ("CLAUDE_PROJECT_DIR", "HOME", "DEUS_WITNESS_EXEC_SCAN")
+ENV_KEYS = ("CLAUDE_PROJECT_DIR", "HOME", "DEUS_WITNESS_EXEC_SCAN", "TMPDIR")   # 0.2.61 (r0263): $TMPDIR in a path (server 0.2.93)
 MAX_ROUNDS = 8                 # fact rounds per call; the witness asks what its classifier needs (usually one round, two with a project scan)
 MAX_ASKED = 4096               # paths answered per round
 # 0.2.43 (server 0.2.43b): "preview" = answers need.preview (a changed executed file's masked text), "final" = marks its last long poll
@@ -342,10 +342,10 @@ def session_warnings(project, env=None, transport=None, timeout=5.0):
         trial_other = None
         fix_try = "in your terminal: cd %s && uvx --from \"deus-witness==%s\" deus-witness try" % (pj or "<project>", VERSION)
         if trial:
+            # 0.2.61 (r0263, L3 12.11 З3): "the agent key is a TRIAL key [created in ...]. That is fine if ..." said nothing to do and the
+            # model retold it as a problem: not said any more; only a real problem is (the rules do not cover this folder, below)
             other = isinstance(kp, str) and pj and os.path.realpath(kp) != pj
             trial_other = kp if other else None
-            if not other:
-                warn.append("the agent key is a TRIAL key")
         cov = None
         m = st.get("mandate")
         if isinstance(m, dict):
@@ -356,17 +356,18 @@ def session_warnings(project, env=None, transport=None, timeout=5.0):
         elif trial and isinstance(kp, str) and pj and os.path.realpath(kp) != pj:
             cov = False                                   # an older witness: the trial mandate is the one made for the key file's folder
         if cov is False and pj:
-            warn.append("the signed mandate does NOT cover this folder (%s): every Write / Edit here is refused (RESOURCE). Fix: %s "
-                        "(a mandate for this folder), or add this folder on %s/mandate.html" % (pj, fix_try, s.url))
-        if trial_other:
-            # the agent key is shared; only the signed mandate decides what is allowed here
-            warn.append("the agent key is a TRIAL key created in %s. That is fine if the mandate of this agent covers this folder"
-                        " (nothing to do)%s" % (trial_other, "" if cov is not False else "; it does not, see the next item"))
+            warn.append("your Witness rules do NOT cover this folder (%s%s), so the agent cannot save files here. Fix: run /deus-witness:try "
+                        "in this folder (or %s), or add this folder on %s/mandate.html" % (pj, ("; they were made for %s" % trial_other) if trial_other else "",
+                                                                                         fix_try, s.url))
         n = st.get("notify")
-        if isinstance(n, dict) and not (isinstance(n.get("push"), int) and n.get("push", 0) > 0) and not n.get("channels"):
-            warn.append("no notification channel: a question to the owner reaches nobody (no phone push, no Telegram / Slack / e-mail), the "
-                        "agent waits %s s and is refused. Fix: open %s/app.html (Dashboard) on your phone, Add to Home Screen, press Enable notifications "
-                        "(or connect Telegram there)" % (int(s.wait) if s.wait else "0", s.url))
+        # 0.2.61 (r0263, L3 З3): "no notification channel ... Add to Home Screen" was said to a TRIAL account (which has none by design: the
+        # question opens in the browser on this computer) and read as a fault. Said only when a question would really reach nobody: a
+        # full account with no channel AND the browser page turned off (DEUS_WITNESS_OPEN_BROWSER=0, e.g. an unattended run)
+        if isinstance(n, dict) and not (isinstance(n.get("push"), int) and n.get("push", 0) > 0) and not n.get("channels") and not trial \
+                and _off(e, "DEUS_WITNESS_OPEN_BROWSER"):
+            warn.append("questions reach nobody: the browser page is off here and no phone or chat is connected, so the agent waits %s s "
+                        "and is refused. Fix: open %s/app.html on your phone and turn on notifications (or connect Telegram there)"
+                        % (int(s.wait) if s.wait else "0", s.url))
         lat = st.get("latest") if isinstance(st.get("latest"), dict) else {}
         warn += version_warnings(e, lat.get("client"))
         if not warn:
@@ -1549,10 +1550,18 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
             begun = os.path.exists(try_mark(s.env))
         except Exception:      # noqa: BLE001
             begun = False
+        try:
+            from ..trial import is_try_line
+            setup = tool_name == "Bash" and is_try_line(inp.get("command"))
+        except Exception:      # noqa: BLE001
+            setup = False
+        if setup:
+            # 0.2.61 (r0263, L3 З2): the line that sets the witness up runs (/deus-witness:try inside Claude Code was refused with the rest)
+            return decision(None)                         # Claude Code's own rules decide it (try.md allows exactly these lines)
         if begun:                                         # 0.2.50 (N22): a `try` that saved no key - said as such, not as "never set up"
             return deny("WITNESS_NOT_CONFIGURED", detail="(the witness is NOT working: `deus-witness try` was started but saved no agent key "
-                        "(see its last lines). Run `uvx --from deus-witness deus-witness try` again in your terminal; to use Claude Code "
-                        "without the witness, remove %s)" % try_mark(s.env))
+                        "(see its last lines). Run /deus-witness:try again (in Claude Code, or `uvx --from deus-witness deus-witness try` "
+                        "in your terminal); to use Claude Code without the witness, remove %s)" % try_mark(s.env))
         return deny("WITNESS_NOT_CONFIGURED", detail="(run `uvx --from deus-witness deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
     own = witness is None
     if own and s.url_conflict:                            # 0.2.32 (K1): fail-closed, and the key is not sent anywhere
@@ -2037,7 +2046,7 @@ def main(argv=None) -> None:
                   "`deus-witness-hook %s --yes` -- Witness asks you to approve it (passkey)." % (argv[0], argv[0]), file=sys.stderr)
             sys.exit(1)
         if argv[0] == "--setup-strict" and not dry and "--yes" not in argv and sys.stdin.isatty():
-            strict.setup(write=False, hosts=hosts)
+            strict.setup(write=False, hosts=hosts, full=False)     # 0.2.61 (r0263): the short list before the yes
             try:
                 if strict.state() == "off" and input("Turn on quiet mode (write the change above)? Type yes: ").strip() != "yes":
                     strict.declined()                     # r0263: an explicit no: the session start stops reminding
@@ -2049,7 +2058,10 @@ def main(argv=None) -> None:
         sys.exit(strict.setup(write=not dry, hosts=hosts) if argv[0] == "--setup-strict" else strict.undo())
     if argv[:1] == ["--quiet-offer"]:
         from . import strict
-        strict.offer()
+        if argv[1:] not in ([], ["--full"]):
+            print("deus-witness-hook --quiet-offer [--full]", file=sys.stderr)
+            sys.exit(2)
+        strict.offer(full=argv[1:] == ["--full"])     # 0.2.61 (r0263): a short list; --full = the whole diff
         sys.exit(0)
     if argv[:1] == ["--quiet-no"]:
         from . import strict                              # r0263: the person said no: no more session-start reminders

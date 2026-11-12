@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import stat
 import sys
 import time
@@ -100,8 +101,23 @@ def try_mark(env=None) -> str:
     import tempfile
     e = os.environ if env is None else env
     base = e.get("TMPDIR") or tempfile.gettempdir()
-    who = re.sub(r"[^A-Za-z0-9]", "_", _compat.home(e))        # one mark per home directory (the plugin builds the same name)
+    # 0.2.61 (r0263, L3 12.11 З2): one mark per place of the KEY, not per home: with DEUS_WITNESS_HOME set (a test, a second setup, the
+    # L3 stand) the mark of an interrupted `try` elsewhere (a test run at 03:47 with the same HOME) blocked every call of this one. The
+    # plugin's launcher builds the same name.
+    who = re.sub(r"[^A-Za-z0-9]", "_", e.get("DEUS_WITNESS_HOME") or _compat.home(e))
     return os.path.join(base, "deus-witness-try-%s%s" % (os.getuid() if hasattr(os, "getuid") else "u", who))
+
+
+# 0.2.61 (r0263, L3 З2): the lines that SET UP the witness (what /deus-witness:try runs). A broken `try` (a mark, no key) refuses every
+# call, and refused the way out with it: `/deus-witness:try` inside Claude Code was "permission denied". These exact lines run.
+_TRY_LINE = re.compile(r"(?:uvx(?: --quiet)? --from (?:\"deus-witness==[0-9][0-9.]*\"|'deus-witness==[0-9][0-9.]*'|deus-witness==[0-9][0-9.]*|deus-witness) )?"
+                       r"deus-witness try")
+
+
+def is_try_line(cmd) -> bool:
+    """True for exactly `deus-witness try` or `uvx [--quiet] --from deus-witness[==X] deus-witness try` (no other words: no --force,
+    --url, nothing after)."""
+    return isinstance(cmd, str) and _TRY_LINE.fullmatch(cmd.strip()) is not None
 
 
 def _mark_try(env, project) -> None:
@@ -264,24 +280,66 @@ def _say_claimed(path, base, out, env=None):
 
 QUIET_LATER = ("QUIET MODE: later. Fewer questions later: quiet mode (Claude Code's strict sandbox, macOS). After your first session, "
                "see what it changes and turn it on: /deus-witness:quiet (or in your terminal: deus-witness-hook --setup-strict).")
+# 0.2.61 (r0263): r0262 kept the offer out of `try` ("the person has not seen a question yet"). Measured 12.11 against that: L3 (real
+# Claude Code, real model, prod): without quiet mode the FIRST call (`python -m pytest | tail`) was already a question, 4 questions in ~10
+# calls, `pip install` / a venv / `npm install` "High risk"; the friction stand with the trial account's own mandate (TR_TRIAL=1), dev
+# corpus, 2 days, "from now on" for everything harmless: 43 questions on day 1 and ~60 a day after WITHOUT quiet mode against 0-1 a day
+# with it ("from now on" cannot cover an interpreter, an install or a sourced file: asked each time). So the offer comes where it costs
+# least: in a terminal `try` asks once (yes -> quiet mode from the very first session; anything else -> later, reminders as before); run
+# by the agent (/deus-witness:try) it prints one machine-plain line and try.md has the agent ask the person (the switch is then the
+# owner's passkey question, as in /deus-witness:quiet).
+QUIET_NOW = ("QUIET MODE: offer-now. Without quiet mode Witness asks about most commands (tests, installs, a venv); with it, only about "
+             "what could leave this Mac or cannot be undone. Turn it on now: /deus-witness:quiet (you approve it with your passkey; it "
+             "starts with your next Claude Code session).")
+
+
+def _tty(out):
+    try:
+        return sys.stdin.isatty() and out is sys.stdout and sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
 
 
 def quiet_offer(env=None, out=None, platform=None, ask=None) -> str | None:
-    """0.2.60 (r0263): the end of `try` says ONE line about quiet mode, with the command -- not the offer itself. The person has not met
-    a single real question yet: an offer to "ask fewer questions" before the first one is noise, and its diff of settings.json was the
-    first thing a trial account showed (r0262). The offer (what changes, the diff, the yes) is /deus-witness:quiet, and the session
-    start reminds from the SECOND session on (strict.hint_due). -> strict.state(), or None. Never raises; never asks; never writes."""
+    """0.2.61 (r0263): the end of `try` offers quiet mode (see QUIET_NOW above for why). ask: None = only in a terminal; a callable =
+    the input function (tests); True / False = force. -> strict.state() after it ("on" when the person said yes and it was written), or
+    None. Never raises. Linux / WSL: nothing (quiet mode is macOS only)."""
     out = out or sys.stdout
     try:
         from .hook import strict
         st = strict.state(env, platform)
-        if st == "off":
-            print("", file=out)
-            print(QUIET_LATER, file=out)
-        elif st == "on":
+        if st == "on":
             print("QUIET MODE: on.", file=out)
-        return st
-    except Exception:      # noqa: BLE001  a line only
+            return st
+        if st != "off":
+            return st
+        asking = _tty(out) if ask is None else bool(ask)
+        if not asking:
+            print("", file=out)
+            print(QUIET_NOW, file=out)
+            return st
+        p = strict.settings_path(env)
+        cur = strict._load(p)[0]
+        print("", file=out)
+        print("Quiet mode (recommended): " + strict.QUIET_LINE, file=out)
+        print("It changes %s (all your projects; a backup is kept; undo: deus-witness-hook --undo-strict):" % p, file=out)
+        print("\n".join(strict.summary(cur, strict.strict_settings(cur, strict.DEFAULT_HOSTS, env))), file=out)
+        inp = ask if callable(ask) else input
+        try:
+            yes = str(inp("Turn on quiet mode now? Type yes (Enter: later): ")).strip().lower() == "yes"
+        except EOFError:
+            yes = False
+        if not yes:
+            print(QUIET_LATER, file=out)              # later, not "no": the session start reminds from the 2nd session (strict.hint_due)
+            return st
+        import contextlib
+        import io as _io
+        buf = _io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            rc = strict.setup(env, platform=platform, show=False)
+        print(buf.getvalue().rstrip(), file=out)
+        return strict.state(env, platform) if rc == 0 else st
+    except Exception:      # noqa: BLE001  an offer only
         return None
 
 
@@ -516,7 +574,7 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
     if hooked is None:
         print("Could not tell whether the Witness hook is installed: run `uvx --from deus-witness deus-witness-hook --doctor` to check.", file=out)
     print("Next: use Claude Code as usual. The first call that needs you waits; " + touches, file=out)
-    quiet_offer(e, out)                        # 0.2.60 (r0262)
+    quiet_offer(e, out)                        # 0.2.61 (r0263): offered here (a terminal asks once)
     return 0
 
 

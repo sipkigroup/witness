@@ -123,10 +123,21 @@ CLI_FLAGS = ("--settings", "--setting-sources", "--add-dir")
 ANCESTRY_OVERRIDE = None      # TESTS ONLY: [command line, ...] of the hook's ancestors, nearest first; "unreadable" = ps failed
 
 
+_ANC = []                     # 0.2.61: one `ps` per hook process (the fact and the settings view both need the chain)
+
+
 def _ancestry():
     """-> the command lines of the hook's ancestor processes, nearest first (the hook's parent shell, Claude Code, ...), or None."""
     if ANCESTRY_OVERRIDE is not None:
         return None if ANCESTRY_OVERRIDE == "unreadable" else list(ANCESTRY_OVERRIDE)
+    if _ANC:
+        return list(_ANC[0]) if _ANC[0] is not None else None
+    r_ = _ancestry_ps()
+    _ANC.append(r_)
+    return list(r_) if r_ is not None else None
+
+
+def _ancestry_ps():
     if os.name != "posix":
         return None
     ps = "/bin/ps" if os.path.exists("/bin/ps") else "ps"
@@ -155,6 +166,53 @@ def _claude_like(args) -> bool:
                                                                       and "claude" in w[1].lower()) or "@anthropic-ai/claude-code" in w[0])
 
 
+# 0.2.61 (r0263, L3 12.11 item 8): Claude Code started with `--settings FILE` and `--setting-sources LIST` was never strict for the witness
+# ("doubt"), even when that file IS the strict sandbox. A person rarely starts it so (`claude` alone is the documented way, and quiet mode
+# writes the user settings), but scripts, CI and wrappers do. The hook now READS those two flags of the Claude Code process: --settings as
+# its own layer "cli" (above local / project / user, below managed: code.claude.com/docs/en/settings "Command line arguments"; a JSON
+# file by absolute path, ~/..., or an inline JSON object without spaces), --setting-sources as the list of the layers Claude Code loads
+# (user, project, local; managed and cli always). Anything it cannot read unambiguously stays a doubt: --add-dir (more writable folders),
+# a relative or unreadable --settings value (status "unread"), an unknown source name, a flag on a process between the hook and Claude Code.
+SOURCE_NAMES = ("user", "project", "local")
+
+
+def cli_settings(chain):
+    """-> {"settings": value or None, "sources": [names] or None} from the nearest Claude Code process of the chain; {} without one."""
+    if not chain:
+        return {}
+    for args in chain:
+        if not _claude_like(args):
+            continue
+        w = args.split()
+        out = {"settings": None, "sources": None}
+        for i, t in enumerate(w):
+            k, eq, v = t.partition("=")
+            if k in ("--settings", "--setting-sources"):
+                val = v if eq else (w[i + 1] if i + 1 < len(w) else "")
+                out["settings" if k == "--settings" else "sources"] = val
+        if isinstance(out["sources"], str):
+            out["sources"] = [x.strip() for x in out["sources"].split(",") if x.strip()]
+        return out
+    return {}
+
+
+def _cli_layer(value, home):
+    """the --settings value -> (status, dict, path or None): a file by absolute path or ~/..., or an inline JSON object."""
+    if not isinstance(value, str) or not value:
+        return "unread", None, None
+    if value.startswith("{"):
+        try:
+            d = json.loads(value)
+        except ValueError:
+            return "unread", None, None                    # a JSON with spaces is cut by `ps` into words: not readable for sure
+        return ("ok", d, None) if isinstance(d, dict) else ("bad", None, None)
+    p = os.path.join(home, value[2:]) if value.startswith("~/") else value
+    if not os.path.isabs(p):
+        return "unread", None, None                        # relative to Claude Code's start folder: not known here
+    st, d = _load(p)
+    return ("unread" if st == "absent" else st), d, p
+
+
 def cli_doubts(chain):
     """Flags of the Claude Code process (and of the processes between it and the hook) that the hook cannot read the effect of. The walk
     stops at the first process that looks like Claude Code; without one every ancestor counts (fail closed)."""
@@ -162,11 +220,17 @@ def cli_doubts(chain):
         return ["Claude Code's command line is not readable (ps): --settings / --setting-sources / --add-dir cannot be ruled out"]
     found = []
     for args in chain:
+        cc = _claude_like(args)
         for t in args.split():
             k = t.split("=", 1)[0]
-            if k in CLI_FLAGS and k not in found:
+            # 0.2.61 (r0263): --settings / --setting-sources of the Claude Code process itself are READ (cli_settings); on any other
+            # process of the chain, and --add-dir anywhere, they stay a doubt
+            if k in CLI_FLAGS and k not in found and not (cc and k in ("--settings", "--setting-sources")):
                 found.append(k)
-        if _claude_like(args):
+        if cc:
+            srcs = cli_settings([args]).get("sources")
+            if isinstance(srcs, list) and (not srcs or any(x not in SOURCE_NAMES for x in srcs)):
+                found.append("--setting-sources " + ",".join(srcs)[:60])
             break
     return ["Claude Code was started with %s: the hook cannot read what it sets" % f for f in found]
 
@@ -197,7 +261,7 @@ def settings_view(project, env, home, transcript=None):
     """0.2.56 client: -> (layers, {"settings_digest", "since_start"}) -- also sent with every non-Bash call (facts.settings), so that the
     witness has the session's first view before the first Bash call."""
     paths = []
-    L = layers(project, env, home, transcript, paths)
+    L = layers(project, env, home, transcript, paths, cli=cli_settings(_ancestry()))
     raw = json.dumps([[n, st, _relevant(d)] for n, st, d in L], sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
     start = _session_start(transcript)
     since = []
@@ -213,7 +277,7 @@ def settings_view(project, env, home, transcript=None):
     return L, {"settings_digest": hashlib.sha256(raw.encode()).hexdigest(), "since_start": since[:MAX_LIST]}
 
 
-def layers(project, env, home, transcript=None, paths=None):
+def layers(project, env, home, transcript=None, paths=None, cli=None):
     """[(name, status, dict)] highest precedence first.
     0.2.56: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB removes CLAUDE_CONFIG_DIR from the hook's environment (env-vars, "What the subprocess
     environment scrub removes"), so the hook may not see where Claude Code keeps the user settings. The event's transcript_path names the
@@ -231,14 +295,25 @@ def layers(project, env, home, transcript=None, paths=None):
     for p in MDM_PLISTS:
         if failsafe.MANAGED_DIR_OVERRIDE is None and os.path.exists(p):
             out.append(("managed-mdm", "unread", None))
+    cli = cli if isinstance(cli, dict) else {}
+    if cli.get("settings") is not None:                # 0.2.61 (r0263): the --settings layer, above local / project / user
+        st, d, cp = _cli_layer(cli["settings"], home)
+        if cp:
+            paths.append(("cli", cp))
+        out.append(("cli", st, d))
+    srcs = cli.get("sources") if isinstance(cli.get("sources"), list) else None
+    keep = (lambda n: srcs is None or (n.split("-")[0] in srcs))      # --setting-sources: the layers Claude Code does not load are left out
     if project:
         root = _git_root(project)
-        if root and root != project:                  # Claude Code 2.1.211+: the local file lives at the repository root (and an older one
+        if root and root != project and keep("local"):   # Claude Code 2.1.211+: the local file lives at the repository root (and an older one
             st, d = load("local-root", os.path.join(root, ".claude", "settings.local.json"))   # in the starting directory is read too; root wins)
             out.append(("local-root", st, d))
         for n, f in (("local", "settings.local.json"), ("project", "settings.json")):
-            st, d = load(n, os.path.join(project, ".claude", f))
-            out.append((n, st, d))
+            if keep(n):
+                st, d = load(n, os.path.join(project, ".claude", f))
+                out.append((n, st, d))
+    if not keep("user"):
+        return out
     cfg = env.get("CLAUDE_CONFIG_DIR")
     udir = cfg if cfg and os.path.isabs(cfg) else os.path.join(home, ".claude")
     real = _transcript_config_dir(transcript)
@@ -534,7 +609,7 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
     # allowManagedDomainsOnly is on (sandboxing.md, "Hosts outside your allowed domains"); a2: with strictAllowlist curl got HTTP=000
     # "host is not on the allow list". The key counts from the managed and the user layer only (project/local: no effect; --settings:
     # unseen -> absent -> the witness asks).
-    lock_layers = [d for n, st, d in L if st == "ok" and n in ("managed", "user")]
+    lock_layers = [d for n, st, d in L if st == "ok" and n in ("managed", "cli", "user")]   # 0.2.61: --settings is the person's own
 
     def lock_scalar(*path):
         for d in lock_layers:                         # managed first, then user
