@@ -14,9 +14,36 @@ import time
 
 SECRETS = [".ssh", ".aws", ".config/gh", ".netrc", ".docker", ".kube", ".gnupg", ".npmrc", ".pypirc", ".git-credentials",
            ".config/gcloud", ".azure", ".config/deus-witness", ".claude.json", ".claude/.credentials.json"]
+# 11.11 (r0260) = sandbox_fact.CRED_SOURCES (server hookjudge/sandbox.CRED_SOURCES has the reason for each): the login keychain, browser
+# cookie stores, editors' token stores, CLI credential files. Not ~/Library/Caches (pip, uv, Homebrew read it).
+CRED_SOURCES = ["Library/Keychains", "Library/Cookies", "Library/HTTPStorages", "Library/Safari", "Library/Containers/com.apple.Safari",
+                "Library/Application Support/Google/Chrome", "Library/Application Support/BraveSoftware",
+                "Library/Application Support/Microsoft Edge", "Library/Application Support/Arc", "Library/Application Support/Chromium",
+                "Library/Application Support/Vivaldi", "Library/Application Support/com.operasoftware.Opera",
+                "Library/Application Support/Firefox", "Library/Application Support/Code/User/globalStorage",
+                "Library/Application Support/Cursor/User/globalStorage", ".config/hub", ".config/glab-cli",
+                "Library/Application Support/glab-cli", ".config/git/credentials", ".gcm", ".cargo/credentials", ".cargo/credentials.toml",
+                ".gem/credentials", "Library/Application Support/pypoetry/auth.toml"]
 BLOCK = {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False, "excludedCommands": [],
          "network": {"allowedDomains": [], "strictAllowlist": True, "allowUnixSockets": [], "allowAllUnixSockets": False, "allowLocalBinding": False},
-         "filesystem": {"denyRead": ["~/" + s for s in SECRETS]}}
+         "filesystem": {"denyRead": ["~/" + s for s in SECRETS + CRED_SOURCES]}}
+# 11.11 (r0260, class (г) of the dev hold-out, L2 10.11): in this sandbox `npm view` / `npm install` fail writing ~/.npm (cache, logs),
+# `git clone` / `git init` fail copying the sample hooks into the new .git/hooks (Seatbelt denies hooks/), and `pip download` saw
+# "from versions: none" with pypi.org + files.pythonhosted.org listed -- hypothesis (L1, not yet measured): pip >= 24.2 verifies TLS through
+# `truststore` (the macOS trust service over Mach lookup, which this sandbox denies: allowMachLookup is a WEAKER key; Claude Code's docs
+# say the same of Go CLIs), so the index is unreachable. A developer would turn the strictness off; instead these variables (Claude Code's
+# settings `env`, set only when the person has not set them) keep every write inside Claude Code's per-user temp root, which the sandbox
+# already writes, and open nothing: no allowWrite, no excludedCommands, no host, no Mach service.
+#   npm_config_cache / UV_CACHE_DIR -> <tmp>/claude-<uid>/{npm,uv}-cache   (npm: integrity-checked content cache, logs under it)
+#   PIP_USE_DEPRECATED=legacy-certs                                            (pip's bundled certifi instead of the trust service)
+#   GIT_TEMPLATE_DIR=""                                                        (git init / clone copy no template: no .git/hooks/*.sample)
+def tool_env(uid=None):
+    u = os.getuid() if uid is None and hasattr(os, "getuid") else (uid or 0)
+    root = "/private/tmp/claude-%d" % u
+    return {"npm_config_cache": root + "/npm-cache", "UV_CACHE_DIR": root + "/uv-cache", "PIP_USE_DEPRECATED": "legacy-certs",
+            "GIT_TEMPLATE_DIR": ""}
+
+
 # ignoreViolations: Claude Code 2.1.318 expects a record (a boolean makes it skip the whole settings file, L3 04.11); any entry weakens the sandbox, so it is removed
 WEAKER = ("ignoreViolations", "enableWeakerNestedSandbox", "enableWeakerNetworkIsolation", "allowAppleEvents", "allowMachLookup")
 
@@ -42,9 +69,16 @@ def strict_settings(cur: dict) -> dict:
     fs.pop("allowWrite", None)
     deny = [x for x in (fs.get("denyRead") or []) if isinstance(x, str)]
     fs["denyRead"] = deny + [x for x in BLOCK["filesystem"]["denyRead"] if x not in deny]
-    fs["allowRead"] = [x for x in (fs.get("allowRead") or []) if isinstance(x, str) and not any(x.rstrip("/").endswith(s) for s in SECRETS)]
+    fs["allowRead"] = [x for x in (fs.get("allowRead") or []) if isinstance(x, str) and not any(x.rstrip("/").endswith(s) for s in SECRETS)
+                       and not any(("/" + s + "/") in (x.rstrip("/") + "/") for s in CRED_SOURCES)]   # 11.11: nor one inside a source
     sb["filesystem"] = fs
     out["sandbox"] = sb
+    env = out.get("env") if isinstance(out.get("env"), dict) else {}
+    have = {k.lower() for k in env}
+    for k, v in tool_env().items():
+        if k.lower() not in have:                     # the person's own value wins (npm reads NPM_CONFIG_CACHE too)
+            env[k] = v
+    out["env"] = env
     return out
 
 

@@ -76,7 +76,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import archlinks, failsafe, fingerprint, gitref, mask, offline, samefile, sandbox_fact, selfpath, shadow
+from . import archlinks, envmask, failsafe, fingerprint, gitref, mask, offline, samefile, sandbox_fact, selfpath, shadow
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -498,11 +498,11 @@ SHELL_TOOLS = ("Bash", "PowerShell")
 # `git config` subcommand, `--template`, `git clone -c` (they write them) need the owner's approval like .git/hooks. `.gitattributes` stays free: it only NAMES a driver,
 # git runs nothing unless the driver's command is defined in a (now guarded) config file.
 _GIT_WORDS = (r"|(?:^|(?<=[\s/'\"=:;&|(]))\.git(?:[/\\](?!(?:objects|refs|logs|index|HEAD|ORIG_HEAD|FETCH_HEAD|packed-refs)\b)|(?![\w./\\-]))"
-              r"|gitconfig(?![\w-])|\.config[/\\]git(?![\w.-])"
+              r"|(?<![\w-])gitconfig(?![\w-])|\.config[/\\]git(?![\w.-])"     # 10.11: not `test_gitconfig.py` (a file of the project)
               r"|(?:^|(?<=[\s;&|(]))git(?:\s+-[cC]\s+\S+|\s+--?[\w-]+(?:=\S*)?)*\s+config(?![\w-])"
               # a template directory's `config` and `git clone -c/--config` land in the new repository's .git/config
               r"|--template(?![\w-])|GIT_TEMPLATE_DIR|(?:^|(?<=[\s;&|(]))git\s(?:[^;&|]*\s)?clone\s(?:[^;&|]*\s)?(?:-c|--config)(?=[\s=]|$)")
-_CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)(?!/projects/[^/\s]+/memory/)|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|"
+_CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)(?!/projects/[^/\s'\"]+/memory(?:/|(?=[\s;&|'\")]|$))(?![\s\S]*\.\.))|\.mcp\.json|\.git[/\\]hooks|\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|"
                            r"agent-key\.json|deus-witness-hook\s+--trust" + _GIT_WORDS + ")", re.I)
 # 0.2.33: the Deus Witness key files stay owner-only even for a read (the key itself); .claude / .mcp.json / .git/hooks do not (below)
 _KEY_WORDS = re.compile(r"(\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|agent-key\.json|deus-witness-hook\s+--trust)", re.I)
@@ -518,7 +518,8 @@ _FIND_EXCLUDE = re.compile(r"(?:(?:!|-not)\s+-(?:i?path|i?wholename|i?name)\s+|-
 # inside double quotes); no `VAR=x cmd`, no path to a program. Anything else (unsure included) is refused as in 0.2.32.
 _RO_PROGRAMS = {"ls", "cat", "head", "tail", "wc", "grep", "rg", "stat", "du", "file", "pwd", "cd", "echo", "which", "find", "jq",
                 "readlink", "realpath", "basename", "dirname", "diff", "cmp", "git",
-                "cut", "sort", "uniq", "tr", "nl", "sleep", "ps", "id", "whoami", "uname"}   # 0.2.59 (friction 04.11): filters / process list
+                "cut", "sort", "uniq", "tr", "nl", "sleep", "ps", "id", "whoami", "uname",   # 0.2.59 (friction 04.11): filters / process list
+                "true", "false"}   # 0611 (friction, real corpus: `grep -c . ~/.claude/state/x.txt 2>/dev/null | head -1; true`): exit status only
 _RO_GIT = {"status", "diff", "log", "show", "branch", "config", "remote"}
 # 0.2.59 (friction 04.11): `git log --oneline -3` prints no patch, so no diff driver (diff.external, textconv) can run: these options only
 _RO_GIT_LOG_PLAIN = re.compile(r"--oneline|-\d+|-n\d*|--max-count=\d+|--skip=\d+|--graph|--decorate(=\w+)?|--no-decorate|--all|--branches|--tags|"
@@ -541,8 +542,14 @@ def _ro_scan(cmd):
     """-> True when no shell expansion / substitution / glob can happen in `cmd` (quote-aware)."""
     if any(ch in cmd for ch in "\n\r\0"):
         return False
-    q, esc = None, False
+    q, esc, sp = None, False, False
     for i, ch in enumerate(cmd):
+        if sp:
+            sp = False                                    # r0261b: the space of an escaped space (`Application\ Support`): quoting only
+            continue
+        if q is None and ch == "\\" and cmd[i + 1:i + 2] == " ":
+            sp = True
+            continue
         if q == "'":
             q = None if ch == "'" else q
         elif q == '"':
@@ -761,14 +768,19 @@ def agent_config_target(ev, facts, env):
         cmd = inp.get("command")
         if not isinstance(cmd, str):
             return None
-        m = (_KEY_WORDS if tool == "Bash" and read_only_shell(cmd) else _CONFIG_WORDS).search(cmd)
+        ro = tool == "Bash" and read_only_shell(cmd)
+        names = tool == "Bash" and _key_names_only(cmd, env)      # r0261b: `ls ~/.config/deus-witness/` lists names, never the key
+        if names:
+            m = None if ro else next((x for x in _CONFIG_WORDS.finditer(cmd) if not _KEY_WORDS.search(x.group(0))), None)
+        else:
+            m = (_KEY_WORDS if ro else _CONFIG_WORDS).search(cmd)
         if m and m.group(0).lower().startswith(".git") and not _CONFIG_WORDS.search(_FIND_EXCLUDE.sub(" ", cmd)):
             m = None                                      # 0.2.58c: `find . -not -path '*/.git/*'` NAMES .git as a pattern to skip, touches nothing
         if m:
             return m.group(0)
         from ..trial import home_dir
         h = home_dir(env)
-        if h and h in cmd:
+        if h and h in cmd and not names:
             return h
         g = next((g for g in sorted(_git_config_files(facts, env)) if g in cmd), None)   # 0.2.33: GIT_CONFIG_GLOBAL, $XDG_CONFIG_HOME/git
         if g:
@@ -782,6 +794,82 @@ def agent_config_target(ev, facts, env):
         hm = env.get("HOME") or facts.home
         return selfpath.shell_target(cmd, selfpath.places(env, facts.home), roots, hm if isinstance(hm, str) and _is_abs(hm) else None)
     return None
+
+
+# r0261b (friction stand dev #650 / #652: `ls ~/.config/deus-witness/`, `ls ~/Library/Application\\ Support/deus-witness 2>&1 | head`):
+# the key files stay owner-only for a READ of their content (0.2.33), but a program that only lists NAMES / sizes / times of the place
+# reads no key. The lock asked the person about it (and, as a K1 finding, kept the strict-sandbox fact from the witness), while the
+# strict sandbox denies reading the folder anyway (denyRead ~/.config/deus-witness). Only `ls` / `stat`; every other segment that names
+# the place (cat, head, grep, cd into it, find, du, file ...) is the key as before.
+_KEY_NAMES_PROGRAMS = {"ls", "stat"}
+_KEY_NAMES_FILTERS = {"head", "tail", "wc", "grep", "sort", "uniq", "cut", "tr", "nl", "column"}   # what may read the listing (one pattern)
+
+
+def _key_names_only(cmd, env):
+    """r0261b: True when the line `cmd` names the Deus Witness key place only as an argument of `ls` / `stat`, and nothing in the line can
+    build a path (no expansion, substitution or glob anywhere: _ro_scan)."""
+    import shlex
+    from ..trial import home_dir
+    if not isinstance(cmd, str) or len(cmd) > 4096 or not _ro_scan(cmd):
+        return False
+    h = home_dir(env)
+    try:
+        lx = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>")
+        lx.whitespace_split, lx.commenters = True, ""
+        toks = list(lx)
+    except ValueError:
+        return False
+    seg, segs = [], []                                   # (argv, joined to the previous one by a pipe)
+    piped = False
+    for t in toks:
+        if t in ("&&", "||", ";", "|"):
+            segs.append((seg, piped))
+            seg, piped = [], t == "|"
+        else:
+            seg.append(t)
+    segs.append((seg, piped))
+    named, feed = False, False
+    for sg, pp in segs:
+        hit = any(_KEY_WORDS.search(t) or (h and h in t) for t in sg)
+        if hit:
+            if not sg or sg[0] not in _KEY_NAMES_PROGRAMS:
+                return False
+            named = True
+        elif pp and feed and (not sg or sg[0] not in _KEY_NAMES_FILTERS or len([a for a in sg[1:] if not a.startswith("-")]) > 1):
+            return False                                  # `ls -d ~/.config/deus-witness/* | xargs cat`: the names become a read
+        feed = hit or (pp and feed)
+    return named
+
+
+def _held_full_checks(cmd, ev, facts, env):
+    """06.11 (r0260): the K1 findings that a strict sandbox never relaxes, searched in the WHOLE text: the Deus Witness key files, the
+    witness's home folder, git's global configuration files, the client's own install (selfpath)."""
+    if _KEY_WORDS.search(cmd):
+        return "key"
+    from ..trial import home_dir
+    h = home_dir(env)
+    if h and h in cmd:
+        return h
+    g = next((g for g in sorted(_git_config_files(facts, env)) if g in cmd), None)
+    if g:
+        return g
+    cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) and _is_abs(ev.get("cwd")) else None
+    roots = {r for r in (facts.root, facts.env.get("CLAUDE_PROJECT_DIR"), cwd or facts.proc_cwd) if isinstance(r, str) and r}
+    roots |= {x for x in map(_realpath, list(roots)) if x}
+    hm = env.get("HOME") or facts.home
+    return selfpath.shell_target(cmd, selfpath.places(env, facts.home), roots, hm if isinstance(hm, str) and _is_abs(hm) else None)
+
+
+def _amended_harness(cfg, results) -> bool:
+    """06.11 (server r0260, app/amend.py): the owner's signed amendment covers THIS write to the agent's memory folder
+    (~/.claude/projects/<p>/memory/) or to one CLAUDE.md: every part of the call was allowed OK_ALLOWANCE with exactly that kind id as
+    its recipient (each receipt is verified against the pinned witness key below, before anything runs). Any other place of the harness
+    (settings, hooks, .mcp.json, git config, the key) still needs a receipt the owner approved."""
+    if not isinstance(cfg, str) or not results or not re.search(r"/\.claude/projects/[^/]+/memory/[^/]+$|(^|/)CLAUDE\.md$", cfg):
+        return False
+    want = {"(agent memory) " + os.path.dirname(cfg) + "/", "(agent instructions) " + cfg}
+    return all(res.verdict == "allow" and res.reason == "OK_ALLOWANCE" and isinstance(res.action, dict) and res.action.get("recipient") in want
+               for _, res in results)
 
 
 PERSIST_TEXT = ("(this call changes a place that runs at the next login, shell or session, or the witness itself: %s. Under the standing "
@@ -1140,16 +1228,41 @@ class Facts:
 
     def _sandbox_for(self, ev):
         """0.2.58b: a fresh strict-sandbox fact makes the server answer allow OK_SANDBOXED, and the client lock then turns a touch of the
-        agent's own config into a hard deny with no approval. So for such a call the fact is not sent: the server asks, the owner approves."""
-        return None if self.sandbox is None or self._harness_for(ev) is not None else self.sandbox
+        agent's own config into a hard deny with no approval. So for such a call the fact is not sent: the server asks, the owner approves.
+        06.11 (r0260, law 2): except when the K1 words stand only where the strict sandbox holds the place (heldwords.held): then the fact
+        goes with the finding marked held, and the lock defers to the witness's signed OK_SANDBOXED (judge, below)."""
+        if self.sandbox is None:
+            return None
+        return self.sandbox if self._harness_for(ev) is None or self._held_for(ev) else None
+
+    def _held_for(self, ev):
+        """06.11 (r0260): heldwords.held for this Bash call (False on any doubt)."""
+        if ev.get("tool_name") != "Bash" or self.sandbox is None:
+            return False
+        try:
+            from . import heldwords
+            inp = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+            cmd = inp.get("command")
+            home = self.env.get("HOME") or self.home
+
+            def words(text):
+                return agent_config_target(dict(ev, tool_input=dict(inp, command=text)), self, self.env)
+
+            def full(text):
+                return _held_full_checks(text, ev, self, self.env)
+            return heldwords.held(cmd, self.sandbox, home, self.root, words, full)
+        except Exception:      # noqa: BLE001
+            return False
 
     def body(self, ev, part=None):
         sb = self._sandbox_for(ev)
         hz = self._harness_for(ev)
+        hh = hz is not None and sb is not None and self._held_for(ev)
         return {"v": 1, "event": {k: ev.get(k) for k in ("tool_name", "tool_input", "cwd") if k in ev},
                 "facts": dict({"home": self.home, "proc_cwd": self.proc_cwd, "env": self.env, "fs": self.fs, "exec": self.exec},
                               **({"sandbox": sb} if sb is not None else {}),
                               **({"harness": hz} if hz is not None else {}),
+                              **({"harness_held": True} if hh else {}),
                               **({"settings": self.settings} if self.settings is not None else {}),
                               **({"which": self.which} if self.which else {})),
                 "client": CLIENT, "part": part, "nonce": self.nonce,
@@ -1351,11 +1464,33 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
     state (0.2.48): filled with {"pinned": the URL has a pinned key, "answered": the witness gave a verdict on this call}."""
     deadline = deadline or (time.monotonic() + s.timeout)
     state = {} if state is None else state
+    orig = ev.get("tool_input") if isinstance(ev, dict) and isinstance(ev.get("tool_input"), dict) else None
     try:
         tool_name, inp = _envelope(ev)
     except Fail as e:
         log("refused before the witness: %s" % e.code)
         return deny(e.code)
+    upd = None
+    if tool_name == "Bash" and s.allow != "neutral" and not _off(s.env, "DEUS_WITNESS_ENV_MASK") and orig is not None:
+        nc = envmask.mask(inp.get("command"))
+        if nc is not None:                                # 06.11 (r0260): `env | grep -i node` runs with the secret values masked; the
+            upd = dict(json.loads(json.dumps(orig)), command=nc)       # witness judges (and the receipt names) the masked line
+            inp = dict(inp, command=nc)
+            ev = dict(ev, tool_input=inp)
+    out = _judge(ev, s, witness, deadline, state, tool_name, inp)
+    if upd is not None:
+        hs = out.get("hookSpecificOutput") if isinstance(out, dict) else None
+        if not hs:                                        # Claude Code's own rules would decide: it must still run the masked line
+            out = decision("ask", "Deus Witness: the environment is printed with secret values masked.")
+            hs = out["hookSpecificOutput"]
+        if hs.get("permissionDecision") in ("allow", "ask"):
+            hs["updatedInput"] = upd
+            hs["permissionDecisionReason"] = (hs.get("permissionDecisionReason") or "") + \
+                " (Deus Witness ran it as `... | awk ...`: values of variables that may hold a secret are printed as [masked].)"
+    return out
+
+
+def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
     if not s.key and witness is None:
         try:
             from ..trial import try_mark
@@ -1518,7 +1653,15 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
         cfg = agent_config_target(ev, facts, s.env)      # 0.2.32 (K1): the agent's own harness needs the owner's approval
         if cfg and tool_name == "Bash" and not _KEY_WORDS.search(cfg) and _runs_claude_tool(inp.get("command")):
             cfg = None                                    # 0.2.58: `bash ~/.claude/tools/x.sh` runs the owner's own tool; it changes nothing there
-        if cfg and not any(res.status == "approved" for _, res in results):
+        if cfg and tool_name == "Bash" and results and facts._held_for(ev) and (
+                any(res.verdict == "allow" and res.reason == "OK_SANDBOXED" for _, res in results)
+                # 10.11 (r0260): the held word next to a part the owner's amendment covers (`export GH_CONFIG_DIR=~/.claude/state/gh;
+                # gh run view ...`): every part allowed by a witness that knows amendments (OK_ALLOWANCE: server r0260+, which also
+                # judges the held word as strict-only); each receipt is still verified below
+                or (all(res.verdict == "allow" for _, res in results) and any(res.reason == "OK_ALLOWANCE" for _, res in results))):
+            cfg = None                                    # 06.11 (r0260, law 2): the words stand only where the strict sandbox holds the place
+            #                                               and the witness judged the line strict and contained (signed OK_SANDBOXED)
+        if cfg and not any(res.status == "approved" for _, res in results) and not _amended_harness(cfg, results):
             log("tool=%s touches the agent's harness without an owner approval" % tool_name)
             return deny("AGENT_CONFIG_UNAPPROVED", results[0][1].rid if results else None, detail=CONFIG_TEXT % cfg)
         allowed = [(m, res) for m, res in results if res.verdict == "allow"]
