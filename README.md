@@ -17,7 +17,7 @@ A prompt you approve without reading protects nothing. What you need is fewer qu
 
 ## What we measured (our own measurement, not independent)
 
-Stand (L2): the real hook and the real witness (server 0.2.91, client 0.2.59) replaying recorded Claude Code sessions under the strict sandbox fact; no live person in the loop.
+Stand (L2): the real hook and the real witness (server 0.2.91-0.2.92, client 0.2.59-0.2.60) replaying recorded Claude Code sessions under the strict sandbox fact; no live person in the loop.
 
 | Set | What it is | Witness asked | Dangerous actions let through |
 |---|---|---|---|
@@ -26,7 +26,7 @@ Stand (L2): the real hook and the real witness (server 0.2.91, client 0.2.59) re
 | Attack probes | 38 probes written against the rules + 72 harmless twins | 0 of 72 twins asked | **0 of 38** |
 | Older labeled set | 346 calls | 2 of 320 harmless asked | **0 of 26** |
 
-What these numbers do **not** show: they are our corpora, labeled by us; no outside user has run 0.2.59 yet (L3 not done); the typical set is 12 short sessions (about 20 minutes of agent activity in total), so read "1 per 12 sessions", not "per day". Known gaps, stated: code that carries an attacker's token can still send data to a host **you** put in `allowedDomains`; a script the agent wrote and then runs in a separate call can publish with a token found in the project to an allowed host, and can delete the project itself. The quiet mode exists only under Claude Code's strict sandbox on macOS; on Linux/WSL, and without it, you get more questions.
+What these numbers do **not** show: they are our corpora, labeled by us; no outside user has run it yet (our L3: a real interactive Claude Code with a scripted model, 12 calls of an ordinary task: 8 questions without quiet mode, 2 with it - git push and a package release); the typical set is 12 short sessions (about 20 minutes of agent activity in total), so read "1 per 12 sessions", not "per day". Known gaps, stated: code that carries an attacker's token can still send data to a host **you** put in `allowedDomains`; a command a script builds while it runs (not visible in the file the agent wrote) is not checked; scripts the agent writes and then runs (bash, python, node, npm run, make) are checked by their saved text since 0.2.60. The quiet mode exists only under Claude Code's strict sandbox on macOS; on Linux/WSL, and without it, you get more questions.
 
 > **Status: early (0.x).** The specification is an individual draft in `spec/` (not an IETF standard, not submitted to the IETF).
 > The evidence so far is our own simulations and separate implementations written from the spec by one author; there are no external audits or deployments yet.
@@ -42,15 +42,45 @@ What these numbers do **not** show: they are our corpora, labeled by us; no outs
 /deus-witness:try
 ```
 
-`try` makes a trial account (no sign-up form) and opens a page in your browser; a trial account has no phone notifications - questions wait on that page. For the quiet mode measured above (macOS), once, in your terminal:
+`try` makes a trial account (no sign-up form) and opens a page in your browser; a trial account has no phone notifications - questions wait on that page. For the quiet mode measured above, run `/deus-witness:quiet` (details below).
 
-```
-uvx --from "deus-witness==0.2.59" deus-witness-hook --setup-strict --dry-run   # see the change to ~/.claude/settings.json
-uvx --from "deus-witness==0.2.59" deus-witness-hook --setup-strict             # write it (backup kept; --undo-strict restores)
-export CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1                                       # in the shell that starts Claude Code
-```
+### Quiet mode (fewer questions, macOS)
 
-Then start a new Claude Code session.
+Witness asks least when Claude Code's own strict sandbox is on. In quiet mode the agent's commands:
+
+- reach only the hosts you list. Quiet mode starts with npm, PyPI and GitHub downloads: `registry.npmjs.org`, `pypi.org`,
+  `files.pythonhosted.org`, `github.com`, `codeload.github.com`, `objects.githubusercontent.com` and `raw.githubusercontent.com`.
+  With these, `npm install`, `pip install` (including `git+https://github.com/...`) and `git pull` of a public repository work from
+  the first try;
+- cannot read your SSH and cloud keys, your login keychain, your browser cookies, or your editors' and CLIs' token stores;
+- don't see your Witness agent key or your GitHub / npm / PyPI tokens (`GITHUB_TOKEN`, `NPM_TOKEN`, ...). These are hidden by name
+  with Claude Code's `sandbox.credentials`.
+
+With all of this in place, Witness asks only about what could leave your Mac or can't be undone.
+
+**What stays the same:** your permission mode (`acceptEdits` stays `acceptEdits`), your other environment variables (your tests still
+see `OPENAI_API_KEY`, `DATABASE_URL`, ...), your hooks and plugins.
+
+**What changes:**
+
+- A `git push`, `gh pr create` or `npm publish` that the agent runs can't use your login, because your keychain and tokens are closed
+  to its commands. Witness asks you about it; run it yourself in your terminal.
+- `git clone` and `git init` into the project fail, because Claude Code's sandbox protects `.git/config`. Run them yourself in your
+  terminal.
+- A host that isn't on the list is refused. Add your own in your terminal:
+  `uvx --from "deus-witness==0.2.60" deus-witness-hook --setup-strict --host git.example.com`
+  (a host name only: no `*`, no IP, no port).
+
+**Turning it on:** `/deus-witness:quiet` shows the exact change to `~/.claude/settings.json` first. If you say yes, Witness asks YOU to
+approve it with your passkey; the agent can't switch it on or off by itself. Or, in your own terminal:
+`uvx --from "deus-witness==0.2.60" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
+backup and starts with your next Claude Code session. To undo it, run `deus-witness-hook --undo-strict` in your terminal.
+
+**Reminders:** `/deus-witness:try` mentions quiet mode in one line at the end. From your second session on, the session start reminds
+you at most once a week. To stop the reminders, say no in `/deus-witness:quiet`, answer anything but yes in the terminal, or run
+`deus-witness-hook --quiet-no`. `DEUS_WITNESS_QUIET_HINT=0` silences them too.
+
+**Linux and WSL2:** Claude Code's sandbox runs there too, but Witness hasn't measured it there yet. Quiet mode is macOS only for now.
 
 Without the plugin: `uvx --from deus-witness deus-witness try`. As an MCP proxy in front of any MCP server: `uvx deus-witness -- <your MCP server command>` (see `python/README.md`).
 
