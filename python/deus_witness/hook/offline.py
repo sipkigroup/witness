@@ -19,6 +19,12 @@ The witness never judged such a call, so the hook decides alone and stricter tha
   - only when the witness URL is one this machine has pinned (it worked here before), only when the witness gave no verdict on this call (an
     owner's pending question is not skipped by a dropped connection), and only when the journal line was written.
 DEUS_WITNESS_HOOK_OFFLINE=strict (or any value but `read`) switches it off: a deny for every call, as before 0.2.48.
+
+0.2.63 (ISPYTANIE-PERED-LYUDMI-1211, Н1 / Н2): a witness that HANGS (accepts and is silent, or answers after many seconds) stopped every call
+for 55 s, a read too. Now (hook/main.py): a read this module lets through is decided within a short budget (READ_BUDGET_S) whatever the
+witness does; a request that times out leaves a mark (DOWN, DOWN_S): while it lives the hook does not ask the witness again -- a read of the
+project runs as above, everything else is refused at once (fail-closed, as before, only without the wait). Every message about a witness
+that cannot be reached says how to work without it on purpose (way_out: disable the plugin in your own terminal, and how to turn it back on).
 """
 from __future__ import annotations
 
@@ -34,6 +40,9 @@ ENV = "DEUS_WITNESS_HOOK_OFFLINE"
 JOURNAL = "offline.log"
 NOTICE = "offline-notice"
 NOTICE_EVERY_S = 600
+DOWN = "witness-down"          # 0.2.63: "the witness just did not answer" (a timeout): {"t", "url", "code"}
+DOWN_S = 60
+PLUGIN_ID = "deus-witness@sipkigroup"     # the plugin as the marketplace installs it (.claude-plugin/marketplace.json "sipkigroup")
 JOURNAL_MAX = 1 << 20
 READ_TOOLS = {"Read": "file_path", "NotebookRead": "notebook_path"}
 DIR_TOOLS = ("Grep", "Glob", "LS")
@@ -279,7 +288,62 @@ def notice_due(env) -> bool:
         return True
 
 
-def message(code, path) -> str:
-    return ("Deus Witness: the witness cannot be reached (%s). Until it answers, only reading files of this project runs, outside the witness "
-            "(no credential files, nothing that writes, runs code or uses the network); every such read is listed in %s. "
-            "To refuse everything instead: set %s=strict in the hook's environment." % (code, path, ENV))
+def way_out(env=None) -> str:
+    """0.2.63 (Н2): one sentence -- how the person works without Witness on purpose while it is down, and how to turn it back on. Said to
+    the person (systemMessage) and to the model (the deny), which must not run it itself: the hook refuses that line like any other."""
+    if (env or {}).get("CLAUDE_PLUGIN_ROOT"):
+        return ("To work without Witness until it is back, the user runs in their own terminal `claude plugin disable %s` and restarts "
+                "Claude Code; to turn it back on: `claude plugin enable %s`" % (PLUGIN_ID, PLUGIN_ID))
+    return ("To work without Witness until it is back, the user removes the deus-witness-hook entry from the \"hooks\" of their Claude Code "
+            "settings.json (or runs `claude plugin disable %s` if it came as the plugin); put it back to turn Witness on again" % PLUGIN_ID)
+
+
+def message(code, path, env=None) -> str:
+    slow = str(code).startswith("WITNESS_TIMEOUT")
+    return ("Deus Witness: the witness %s (%s). Until it answers, only reading files of this project runs, outside the witness "
+            "(no credential files, nothing that writes, runs code or uses the network); every such read is listed in %s. %s." % (
+                "did not answer in time" if slow else "cannot be reached", code, path, way_out(env)))
+
+
+def _down_path(env):
+    from ..trial import home_dir
+    return os.path.join(home_dir(env), DOWN)
+
+
+def down_age(env, url):
+    """-> seconds since the witness at `url` last timed out, while that is under DOWN_S; else None (no mark, an old one, another URL)."""
+    try:
+        p = _down_path(env)
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        age = time.time() - float(d.get("t"))
+        if d.get("url") == url and -5.0 <= age < DOWN_S:
+            return max(0.0, age)
+    except Exception:      # noqa: BLE001  no mark, a broken one: ask the witness, as before
+        pass
+    return None
+
+
+def mark_down(env, url, code) -> None:
+    try:
+        from ..trial import home_dir
+        os.makedirs(home_dir(env), mode=0o700, exist_ok=True)
+        p = _down_path(env)
+        tmp = p + ".tmp%d" % os.getpid()
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"t": time.time(), "url": url, "code": str(code)[:80]}, f)
+        os.replace(tmp, p)
+    except Exception:      # noqa: BLE001  no mark: the next call waits again (as before 0.2.63)
+        pass
+
+
+def clear_down(env) -> None:
+    try:
+        os.remove(_down_path(env))
+    except OSError:
+        pass
+
+
+def is_timeout(detail) -> bool:
+    """A WitnessError(0, "NETWORK", <httpx exception name>) that is a timeout (connect / read / write / pool), not a refused connection."""
+    return isinstance(detail, str) and detail.endswith("Timeout")

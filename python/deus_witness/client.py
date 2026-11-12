@@ -1,6 +1,7 @@
 """Deus Witness SDK (Python). Minimal, self-contained AAR check (draft-deus-aar-04 Section 8) (no server code)."""
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -225,15 +226,26 @@ class Witness:
 
     def __init__(self, url: Optional[str] = None, key: Optional[str] = None, *, verify: bool = True,
                  pin_path: Optional[str] = None, timeout: float = 30.0, transport: Optional[httpx.BaseTransport] = None,
-                 pin_new: bool = True):
+                 pin_new: bool = True, connect_timeout: Optional[float] = None):
         self.url = (url or os.environ.get("DEUS_WITNESS_URL") or DEFAULT_URL).rstrip("/")
         self.pin_new = pin_new           # 0.2.32 (K1): False = a URL without a pin is refused (WitnessNotPinned), not pinned at first use
         self.key = key or os.environ.get("DEUS_WITNESS_KEY")
         self.verify = verify
         self.pin_path = pin_path or _default_pin_path()
-        self._http = httpx.Client(base_url=self.url, timeout=timeout, transport=transport)
+        # 0.2.63 (ISPYTANIE-PERED-LYUDMI-1211 Н1): a separate, short connect timeout (a black hole or a dead host is known in seconds, not
+        # after the whole read timeout); None = one timeout for everything, as before
+        self.connect_timeout = connect_timeout
+        self._http = httpx.Client(base_url=self.url, timeout=self._timeout(timeout), transport=transport)
         self._pub: Optional[bytes] = None
+        self._pub_from_pin = False       # 0.2.63: the key was taken from the pin file (no GET /v1/witness); see judge_statement
         self._salt: Any = False          # False = not asked yet; None = the server uses the bare SHA-256; bytes = the account salt
+        self.salt_cache = False          # 0.2.63: keep the salt next to the pin (salt.json); the hook turns it on (one request less per call)
+        self._salt_cached = False        # the salt in use came from that file (a mismatch asks the server once: refresh_salt)
+
+    def _timeout(self, t):
+        if self.connect_timeout is None or isinstance(t, httpx.Timeout):
+            return t
+        return httpx.Timeout(t, connect=min(float(self.connect_timeout), float(t)))
 
     def close(self):
         self._http.close()
@@ -252,7 +264,7 @@ class Witness:
             headers["X-DW-Run"] = rn
         timeout = kw.pop("timeout", None)
         if timeout is not None:
-            kw["timeout"] = timeout
+            kw["timeout"] = self._timeout(timeout)
         try:
             r = self._http.request(method, path, headers=headers, **kw)
         except httpx.HTTPError as e:
@@ -276,7 +288,12 @@ class Witness:
 
     # ---- 0.2.26: salt of args_sha256 ----
     def salt(self) -> Optional[bytes]:
-        """The account salt of args_sha256 (GET /v1/salt, asked once), or None when the server does not use one (mode off, or a server older than 0.2.35: 404)."""
+        """The account salt of args_sha256 (GET /v1/salt, asked once), or None when the server does not use one (mode off, or a server older than 0.2.35: 404).
+        0.2.63: with salt_cache on, the salt saved next to the pin for this URL and key is used first (no request)."""
+        if self._salt is False and self.salt_cache:
+            c = self._salt_file_get()
+            if c is not False:
+                self._salt, self._salt_cached = c, True
         if self._salt is False:
             try:
                 j = self._call("GET", "/v1/salt")
@@ -286,7 +303,61 @@ class Witness:
                 j = {}
             s = j.get("salt") if isinstance(j, dict) else None
             self._salt = b64u_dec(s) if isinstance(s, str) and s else None
+            self._salt_cached = False
+            if self.salt_cache:
+                self._salt_file_put(s if isinstance(s, str) and s else None)
         return self._salt
+
+    def refresh_salt(self) -> bool:
+        """0.2.63: the salt in use came from the cache file and a hash did not match: ask the server once. -> True when it was asked."""
+        if not self._salt_cached:
+            return False
+        self._salt, self._salt_cached = False, False
+        on, self.salt_cache = self.salt_cache, False
+        try:
+            self.salt()
+        finally:
+            self.salt_cache = on
+        if on:
+            s = self._salt
+            self._salt_file_put(base64.urlsafe_b64encode(s).decode().rstrip("=") if isinstance(s, bytes) else None)
+        return True
+
+    def _salt_slot(self):
+        return os.path.join(os.path.dirname(self.pin_path), "salt.json"), hashlib.sha256((self.key or "").encode()).hexdigest()[:32]
+
+    def _salt_file_get(self):
+        """-> bytes / None (the cached answer for this URL and key), or False when there is none (or the file is not trusted)."""
+        try:
+            p, k = self._salt_slot()
+            if not self._pin_file_ok(p):
+                return False
+            with open(p, encoding="utf-8") as f:
+                e = json.load(f).get(self.url)
+            if not isinstance(e, dict) or e.get("k") != k or "salt" not in e:
+                return False
+            v = e["salt"]
+            return b64u_dec(v) if isinstance(v, str) and v else None
+        except (OSError, ValueError, AttributeError, TypeError):
+            return False
+
+    def _salt_file_put(self, s):
+        try:
+            p, k = self._salt_slot()
+            d = {}
+            try:
+                with open(p, encoding="utf-8") as f:
+                    d = json.load(f) if self._pin_file_ok(p) else {}
+            except (OSError, ValueError):
+                d = {}
+            d = d if isinstance(d, dict) else {}
+            d[self.url] = {"k": k, "salt": s}
+            os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
+            tmp = p + ".tmp%d" % os.getpid()
+            _compat.write_private_text(tmp, json.dumps(d))
+            os.replace(tmp, p)
+        except OSError:
+            pass
 
     def args_hash(self, tool: str, args: Optional[dict]) -> str:
         """args_sha256 of a call the way THIS server computes it (salted or bare)."""
@@ -380,7 +451,8 @@ class Witness:
             self.witness_info()
         verify_aar(res.aar, self._pub, res.action or {})
         if sent is not None and (res.action or {}).get("args_sha256") != self.args_hash(sent[0], sent[1]):
-            self._salt = False                           # the server may have changed DW_ARGS_SALT since the salt was fetched: ask once more
+            if not self.refresh_salt():                  # 0.2.63: a salt from salt.json is asked once more from the server
+                self._salt = False                       # the server may have changed DW_ARGS_SALT since the salt was fetched: ask once more
             try:
                 again = self.args_hash(sent[0], sent[1])
             except WitnessError:
@@ -457,12 +529,33 @@ class Witness:
         """GET /v1/hook/run/<nonce> -> {"starts", "judged", "sessions"} as the witness counted them."""
         return self._call("GET", "/v1/hook/run/%s" % nonce)
 
+    def use_pin(self) -> bool:
+        """0.2.63: take the witness key from the pin file (no GET /v1/witness). -> False when this URL has no pinned key."""
+        pin = self._read_pins().get(self.url)
+        if not isinstance(pin, dict) or not isinstance(pin.get("pub_hex"), str):
+            return False
+        try:
+            self._pub = bytes.fromhex(pin["pub_hex"])
+        except ValueError:
+            return False
+        self._pub_from_pin = True
+        return True
+
     def judge_statement(self, b64: str) -> dict:
         """0.2.17 (R9-01): the statement of a judge answer (COSE_Sign1 by the witness key, checked against the pin) -> its payload.
-        AARError(code) when it does not verify or is not a statement."""
+        AARError(code) when it does not verify or is not a statement.
+        0.2.63: with the key taken from the pin (use_pin), a statement that does not verify asks GET /v1/witness once: a changed key is
+        WitnessKeyChanged (as before 0.2.63), the same key keeps the AARError."""
         if self._pub is None:
             self.witness_info()
-        st = _plain(cbor2.loads(open_signed(b64u_dec(str(b64 or "")), self._pub, TYP_STATEMENT)))
+        try:
+            raw = open_signed(b64u_dec(str(b64 or "")), self._pub, TYP_STATEMENT)
+        except AARError:
+            if self._pub_from_pin:
+                self._pub_from_pin = False
+                self.witness_info()
+            raise
+        st = _plain(cbor2.loads(raw))
         if not isinstance(st, dict) or st.get("v") != "dw-judge-1":
             raise AARError("MALFORMED")
         return st

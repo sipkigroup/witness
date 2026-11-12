@@ -450,7 +450,8 @@ def decision(kind: str | None, reason: str = "") -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": kind, "permissionDecisionReason": reason}}
 
 
-USER_SEES = {"APPROVAL_RATE", "AGENT_FROZEN", "RESOURCE", "PERSIST_PLACE", "AGENT_CONFIG_UNAPPROVED", "STRICT_SWITCH_UNAPPROVED", "WITNESS_UNAVAILABLE", "BAD_KEY", "RECIPIENT"}
+USER_SEES = {"APPROVAL_RATE", "AGENT_FROZEN", "RESOURCE", "PERSIST_PLACE", "AGENT_CONFIG_UNAPPROVED", "STRICT_SWITCH_UNAPPROVED", "WITNESS_UNAVAILABLE", "BAD_KEY", "RECIPIENT",
+             "WITNESS_TIMEOUT"}
 
 
 INTERNAL = {"HOOK_ERROR"}
@@ -488,11 +489,28 @@ def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None
     return out
 
 
+def down_deny(code, detail, env) -> dict:
+    """0.2.63 (Н2): a deny because the witness cannot be reached / did not answer: it says, to the person and to the model, how to work
+    without Witness on purpose and how to turn it back on (offline.way_out)."""
+    out = deny(code, detail=detail)
+    h = out["hookSpecificOutput"]
+    h["permissionDecisionReason"] = h["permissionDecisionReason"].replace(" Do not try to reach the same effect another way.", "") + \
+        " Do not try to reach the same effect another way; tell the user. " + offline.way_out(env) + "."
+    out["systemMessage"] = (out.get("systemMessage") or "Deus Witness refused a call: %s" % code) + ". " + offline.way_out(env) + "."
+    return out
+
+
 class Settings:
     def __init__(self, env=None):
         e = os.environ if env is None else env
         self.env = e
         self.timeout = _num(e.get("DEUS_WITNESS_HOOK_TIMEOUT"), 20.0, 1.0, 900.0)
+        # 0.2.63 (ISPYTANIE-PERED-LYUDMI-1211 Н1): a witness that hangs no longer costs the whole TIMEOUT per call. connect: the TCP
+        # connection (a dead host / black hole); reply: one request without a wait for the owner (salt, judge, present); read_budget: a call
+        # that offline.local_read lets through is decided within this, whatever the witness does (the long polls keep their own limits)
+        self.connect = _num(e.get("DEUS_WITNESS_HOOK_CONNECT"), 3.0, 0.5, 60.0)
+        self.reply = _num(e.get("DEUS_WITNESS_HOOK_REPLY"), 8.0, 1.0, 900.0)
+        self.read_budget = _num(e.get("DEUS_WITNESS_HOOK_READ_WAIT"), 3.0, 0.5, 60.0)
         # the answer must be printed before our own deadline: a wait that eats the whole timeout ends as WITNESS_TIMEOUT
         self.wait = min(_num(e.get("DEUS_WITNESS_HOOK_WAIT"), 0.0, 0.0, 900.0), max(0.0, self.timeout - failsafe.MARGIN_S))
         v = e.get("DEUS_WITNESS_HOOK_ON_DEFER", "deny")
@@ -575,6 +593,7 @@ _FIND_EXCLUDE = re.compile(r"(?:(?:!|-not)\s+-(?:i?path|i?wholename|i?name)\s+|-
 _RO_PROGRAMS = {"ls", "cat", "head", "tail", "wc", "grep", "rg", "stat", "du", "file", "pwd", "cd", "echo", "which", "find", "jq",
                 "readlink", "realpath", "basename", "dirname", "diff", "cmp", "git",
                 "cut", "sort", "uniq", "tr", "nl", "sleep", "ps", "id", "whoami", "uname",   # 0.2.59 (friction 04.11): filters / process list
+                "od", "hexdump", "strings", "xxd",   # 0.2.63 (ISPYTANIE-PERED-LYUDMI-1211 Н4): byte dumps (xxd: one operand, no -r)
                 "true", "false"}   # 0611 (friction, real corpus: `grep -c . ~/.claude/state/x.txt 2>/dev/null | head -1; true`): exit status only
 _RO_GIT = {"status", "diff", "log", "show", "branch", "config", "remote"}
 # 0.2.59 (friction 04.11): `git log --oneline -3` prints no patch, so no diff driver (diff.external, textconv) can run: these options only
@@ -702,6 +721,8 @@ def _ro_segment(argv):
                                                                                           and "o" in a) for a in args)
     if prog == "uniq":                                    # `uniq IN OUT` writes OUT
         return len([a for a in args if not a.startswith("-")]) <= 1
+    if prog == "xxd":                                     # 0.2.63: `xxd IN OUT` writes OUT; -r turns a dump back into bytes (the server judges it)
+        return not any(a.startswith("-r") for a in args) and len([a for a in args if not a.startswith("-")]) <= 1
     if prog == "file":                                    # -C / --compile writes a magic file
         return not any(a.startswith("--compile") or (a.startswith("-") and not a.startswith("--") and "C" in a) for a in args)
     return True
@@ -1175,6 +1196,38 @@ def _is_abs(p, windows=None):
     return _compat.is_abs_path(p, windows)
 
 
+def _git_self(cmd, root, home, env):
+    """0.2.63 (ISPYTANIE-PERED-LYUDMI-1211 Н3, server 0.2.95): the SHA-256 of the person's own git user.email (the global config, the XDG
+    one, the project's .git/config; read as text, git is not run), only when the line itself shows that address -- nothing the line does
+    not already carry leaves. The witness
+    does not count that address (and a service's no-reply one) as personal data of the call: `git commit ... && git push` is the push
+    question, not a refusal. -> a list of up to 4 hex digests, or None."""
+    if not isinstance(cmd, str) or "@" not in cmd:
+        return None
+    places = [os.path.join(home, ".gitconfig")] if isinstance(home, str) and home else []
+    x = env.get("XDG_CONFIG_HOME") or (os.path.join(home, ".config") if isinstance(home, str) and home else None)
+    if x:
+        places.append(os.path.join(x, "git", "config"))
+    if isinstance(root, str) and root:
+        places.append(os.path.join(root, ".git", "config"))
+    out = []
+    for p in places:
+        try:
+            if not os.path.isfile(p) or os.path.getsize(p) > 1 << 20:
+                continue
+            with open(p, encoding="utf-8", errors="replace") as f:
+                entries, _bad = fingerprint.read_git_config(f.read())
+        except (OSError, ValueError):
+            continue
+        for k, v in entries:
+            if isinstance(k, str) and k.lower() == "user.email" and isinstance(v, str) and "@" in v and len(v) <= 320 \
+                    and v.strip().lower() in cmd.lower():        # only an address the line itself shows: nothing new leaves
+                h = hashlib.sha256(v.strip().lower().encode("utf-8")).hexdigest()
+                if h not in out:
+                    out.append(h)
+    return out[:4] or None
+
+
 class Facts:
     def __init__(self, ev, env):
         self.proc_cwd = os.getcwd()
@@ -1206,7 +1259,12 @@ class Facts:
         sid = ev.get("session_id")
         self.session_id = sid if isinstance(sid, str) and 0 < len(sid) <= 128 else None
         self.which = None
+        self.git_self = None
         if ev.get("tool_name") == "Bash":
+            try:
+                self.git_self = _git_self(inp.get("command"), self.root, self.env.get("HOME") or self.home, env)
+            except Exception:      # noqa: BLE001  no fact: an address in the line is judged as before
+                self.git_self = None
             try:
                 self.which = _which_fact(inp.get("command"), env)
             except Exception:      # noqa: BLE001  no fact: asked as before
@@ -1373,7 +1431,8 @@ class Facts:
                               **({"harness": hz} if hz is not None else {}),
                               **({"harness_held": True} if hh else {}),
                               **({"settings": self.settings} if self.settings is not None else {}),
-                              **({"which": self.which} if self.which else {})),
+                              **({"which": self.which} if self.which else {}),
+                              **({"git_self": self.git_self} if self.git_self else {})),
                 "client": CLIENT, "part": part, "nonce": self.nonce,
                 **({"session_id": self.session_id} if self.session_id is not None else {})}
 
@@ -1520,6 +1579,8 @@ def _bound(w, r, body, part, parts, inp, tool_name, verify, tools=None):
             or (tools is not None and names != tools):
         raise Fail("REQUEST_MISMATCH", "(the set of parts does not match)")
     want = [part] if part is not None else list(range(len(judged)))
+    if any(isinstance(j, dict) and j.get("args_sha256") != w.args_hash(m.tool, m.args) for j, m in zip(judged, got)):
+        getattr(w, "refresh_salt", lambda: False)()      # 0.2.63: a salt from the cache file that no longer matches: asked once more
     for k, (j, m) in enumerate(zip(judged, got)):
         res = m.res
         if not isinstance(j, dict) or j.get("i") != want[k] or m.i != want[k] or not isinstance(j.get("i"), int) or j["i"] >= n \
@@ -1565,7 +1626,7 @@ def unreachable(ev, s, state, code, strict) -> dict:
         log("witness unreachable (%s): the local journal cannot be written, refused" % code)
         return strict
     log("witness unreachable (%s): local read allowed tool=%s" % (code, ev.get("tool_name")))
-    return {"systemMessage": offline.message(code, path)} if offline.notice_due(s.env) else {}
+    return {"systemMessage": offline.message(code, path, s.env)} if offline.notice_due(s.env) else {}
 
 
 def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | None = None, state: dict | None = None) -> dict:
@@ -1644,7 +1705,25 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
         return deny("WITNESS_URL_MISMATCH", detail="(DEUS_WITNESS_URL is %s, but the agent key on this machine was set up for %s "
                     "(agent-key.json). The hook sends only to the witness the key was set up for. Unset DEUS_WITNESS_URL, or run "
                     "`uvx --from deus-witness deus-witness try --url URL` in your own terminal to move to another witness)" % s.url_conflict)
-    w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, deadline - time.monotonic()), pin_new=False)
+    if own:
+        age = offline.down_age(s.env, s.url)
+        if age is not None:
+            # 0.2.63 (Н1): the witness did not answer a moment ago: not asked again until the mark is old (offline.DOWN_S); a read of the
+            # project runs as while it is unreachable, everything else is refused at once (fail-closed, without the wait)
+            try:
+                p_ = Witness(s.url, s.key, verify=s.verify, timeout=1.0, pin_new=False)
+                state["pinned"] = _pinned(p_)
+                p_.close()
+            except Exception:      # noqa: BLE001
+                state["pinned"] = False
+            log("witness did not answer %.0f s ago: not asked again" % age)
+            out = down_deny("WITNESS_UNAVAILABLE", "(the witness did not answer %s; it is asked again in %.0f s)" % (
+                "a moment ago" if age < 2 else "%.0f s ago" % age, max(1.0, offline.DOWN_S - age)), s.env)
+            return unreachable(ev, s, state, "WITNESS_UNAVAILABLE no answer %.0f s ago" % age, out)
+    w = witness or Witness(s.url, s.key, verify=s.verify, timeout=max(1.0, min(s.reply, deadline - time.monotonic())), pin_new=False,
+                           connect_timeout=s.connect)
+    if own:
+        w.salt_cache = True                               # 0.2.63 (Н1): the account salt from salt.json next to the pin: one request less
     state["pinned"] = _pinned(w)
     if own and s.run_nonce:
         w.run_nonce = s.run_nonce
@@ -1662,11 +1741,15 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
                 elif not w.pin_new:
                     raise WitnessNotPinned(w.url)
         facts = Facts(ev, s.env)
-        if w.verify and getattr(w, "_pub", True) is None:
+        if w.verify and getattr(w, "_pub", True) is None and not (own and w.url in pins and w.use_pin()):
             w.witness_info()                              # the pinned key first: the answer is checked against it
+            #                                               (0.2.63: a pinned URL takes it from the pin file, no request; a statement that does
+            #                                               not verify then asks /v1/witness once: Witness.judge_statement)
         facts.prescan(w, tool_name)
         r, body = _ask(w, ev, facts)
         state["answered"] = True                          # 0.2.48: from here a lost connection never lets a read through (unreachable)
+        if own:
+            offline.clear_down(s.env)                     # 0.2.63: it answers again
         texts = r.get("texts") if isinstance(r.get("texts"), dict) else {}
         if r.get("refuse"):
             log("refused by the witness: %s" % r["refuse"])
@@ -1852,10 +1935,13 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
             return deny("BAD_KEY", detail=TRIAL_GONE_TEXT)  # 27.10 (polygon O6): a trial user never saw an Agents page
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
             return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `uvx --from deus-witness deus-witness try`)")
-        out = deny("WITNESS_UNAVAILABLE", detail=e.code)
         if e.status == 0 or 500 <= (e.status or 0) <= 599:   # 0.2.48: the network or the witness itself is down (not a refusal, not 4xx)
+            slow = e.status == 0 and offline.is_timeout(getattr(e, "detail", ""))
+            if slow and own:
+                offline.mark_down(s.env, w.url, e.detail)    # 0.2.63 (Н1): the next calls do not wait for it again (offline.DOWN_S)
+            out = down_deny("WITNESS_UNAVAILABLE", "%s%s" % (e.code, " (%s: no answer within %.0f s)" % (e.detail, s.connect if "Connect" in e.detail else s.reply) if slow else ""), s.env)
             return unreachable(ev, s, state, "WITNESS_UNAVAILABLE %s" % e.code, out)
-        return out
+        return deny("WITNESS_UNAVAILABLE", detail=e.code)
     except Exception as e:      # noqa: BLE001  whatever goes wrong while judging, the call does not run
         log("cannot judge (%s)" % type(e).__name__)
         return deny("HOOK_ERROR", detail=type(e).__name__)
@@ -1917,19 +2003,43 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
     if isinstance(ev, dict) and ev.get("hook_event_name") not in (None, "PreToolUse"):
         return None
     out, state = {}, {}
-    deadline = time.monotonic() + s.timeout
+    t0 = time.monotonic()
+    deadline = t0 + s.timeout
 
     def work():
         out["r"] = judge(ev, s, deadline=deadline, state=state)
     t = threading.Thread(target=work, daemon=True)
     t.start()
-    t.join(s.timeout)
+    if isinstance(ev, dict) and _local_read_ok(ev, s):
+        # 0.2.63 (ISPYTANIE-PERED-LYUDMI-1211 Н1): a read the hook would let through while the witness is unreachable never waits long
+        # for it: within READ_WAIT the witness decides as always; after that the read runs outside it (journal, notice), as offline
+        lim = min(s.timeout, s.read_budget)
+        t.join(max(0.0, lim - (time.monotonic() - t0)))
+        if "r" not in out:
+            log("no decision within %.1f s for a read of the project" % lim)
+            strict = down_deny("WITNESS_TIMEOUT", "(no answer within %.1f s)" % lim, s.env)
+            return unreachable(ev, s, dict(state), "WITNESS_TIMEOUT", strict)
+    t.join(max(0.0, s.timeout - (time.monotonic() - t0)))
     if "r" not in out:
         log("no decision within %.0f s" % s.timeout)
-        strict = deny("WITNESS_TIMEOUT", detail="(no answer within %.0f s)" % s.timeout)
+        strict = down_deny("WITNESS_TIMEOUT", "(no answer within %.0f s)" % s.timeout, s.env)
+        if not state.get("answered"):
+            offline.mark_down(s.env, s.url, "WITNESS_TIMEOUT")     # 0.2.63: the next calls do not wait for it again
         # 0.2.48: a witness that hangs is unreachable too; a read decided here never waits for the thread (it may still be judging)
         return unreachable(ev, s, dict(state), "WITNESS_TIMEOUT", strict) if isinstance(ev, dict) else strict
     return out["r"]
+
+
+def _local_read_ok(ev, s) -> bool:
+    """0.2.63: True when `ev` is a read offline.local_read lets through without the witness (the read budget applies). Never raises."""
+    try:
+        if not offline.enabled(s.env) or not s.key or s.url_conflict:
+            return False
+        if ev.get("tool_name") not in tuple(offline.READ_TOOLS) + offline.DIR_TOOLS + ("Bash",):
+            return False
+        return offline.local_read(ev, s.env) is None
+    except Exception:      # noqa: BLE001
+        return False
 
 
 def _trust(url: str) -> int:
