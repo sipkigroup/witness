@@ -34,7 +34,7 @@ from __future__ import annotations
 import os
 import re
 
-PERMISSION_MODES = ("default", "acceptEdits", "bypassPermissions")      # server hookjudge/sandbox.PERMISSION_MODES_CHECKED
+PERMISSION_MODES = ("default", "acceptEdits", "bypassPermissions", "auto")   # = server hookjudge/sandbox.PERMISSION_MODES_CHECKED (r0263: + auto, L2+ 12.11)
 
 UNHELD = re.compile(
     r"(?i)\.git[. ]*[/\\]+(?:modules|worktrees|info)(?![\w-])|config\.worktree|\.husky(?![\w-])|\.githooks(?![\w-])|"

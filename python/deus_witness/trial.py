@@ -255,9 +255,34 @@ def _retire(old, url, transport, force, path, out, retired=None):
     return None                                # expired, unknown key, an older server (404): make the new one
 
 
-def _say_claimed(path, base, out):
+def _say_claimed(path, base, out, env=None):
     print("deus-witness try: your trial account already has your passkey: it is yours, nothing changed (key: %s). Keep using it "
           "(the page: %s/trial.html). To make another trial account anyway: %s --force" % (path, base.rstrip("/"), TRY_CMD), file=out)
+    if env is not None:
+        quiet_offer(env, out)
+
+
+QUIET_LATER = ("QUIET MODE: later. Fewer questions later: quiet mode (Claude Code's strict sandbox, macOS). After your first session, "
+               "see what it changes and turn it on: /deus-witness:quiet (or in your terminal: deus-witness-hook --setup-strict).")
+
+
+def quiet_offer(env=None, out=None, platform=None, ask=None) -> str | None:
+    """0.2.60 (r0263): the end of `try` says ONE line about quiet mode, with the command -- not the offer itself. The person has not met
+    a single real question yet: an offer to "ask fewer questions" before the first one is noise, and its diff of settings.json was the
+    first thing a trial account showed (r0262). The offer (what changes, the diff, the yes) is /deus-witness:quiet, and the session
+    start reminds from the SECOND session on (strict.hint_due). -> strict.state(), or None. Never raises; never asks; never writes."""
+    out = out or sys.stdout
+    try:
+        from .hook import strict
+        st = strict.state(env, platform)
+        if st == "off":
+            print("", file=out)
+            print(QUIET_LATER, file=out)
+        elif st == "on":
+            print("QUIET MODE: on.", file=out)
+        return st
+    except Exception:      # noqa: BLE001  a line only
+        return None
 
 
 def _status(old, url, transport):
@@ -373,7 +398,7 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
         st = _status(old, url, transport)
         if st == "claimed" and not o.force:
             _unmark_try(e)
-            _say_claimed(key_path(e), old.get("url") or url, out)
+            _say_claimed(key_path(e), old.get("url") or url, out, e)
             return 2
         if st in ("claimed", "unclaimed"):
             later = True
@@ -491,6 +516,7 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
     if hooked is None:
         print("Could not tell whether the Witness hook is installed: run `uvx --from deus-witness deus-witness-hook --doctor` to check.", file=out)
     print("Next: use Claude Code as usual. The first call that needs you waits; " + touches, file=out)
+    quiet_offer(e, out)                        # 0.2.60 (r0262)
     return 0
 
 

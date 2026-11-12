@@ -61,6 +61,12 @@ parents, and paths built from the words of the tool_input; any other question is
   deus-witness-hook --trust URL                 pin the key of another witness (asks you to type yes; a terminal only)
   deus-witness-hook --undo PATH [--list]        0.2.58: put back the shadow copy kept before the agent wrote PATH outside the project
   deus-witness-hook --setup-strict [--dry-run]  0.2.58: write the strict Claude Code sandbox into ~/.claude/settings.json (backup + diff); --undo-strict restores
+                                                0.2.60: also CLAUDE_CODE_SUBPROCESS_ENV_SCRUB in its env (no export by hand); in a terminal it
+                                                shows the change and asks you to type yes; from Claude Code the agent runs it with --yes and
+                                                the hook lets it run only after YOU approve that call in Witness (passkey)
+  deus-witness-hook --quiet-offer               0.2.60: what quiet mode is and the exact change (no write)
+  deus-witness-hook --setup-strict --host NAME  r0263: also list your own host (narrow name) besides the GitHub / npm / PyPI read hosts
+  deus-witness-hook --quiet-no                  r0263: no more quiet-mode reminders at session start
 """
 from __future__ import annotations
 
@@ -370,6 +376,36 @@ def session_warnings(project, env=None, transport=None, timeout=5.0):
         return None
 
 
+QUIET_OFF = ("Deus Witness: fewer questions with quiet mode (Claude Code's strict sandbox). See what it changes: /deus-witness:quiet. "
+             "Not interested: deus-witness-hook --quiet-no.")
+
+
+def quiet_hint(project, env=None, platform=None) -> str | None:
+    """0.2.60 (r0262): SessionStart, a configured hook on macOS: one short line when the strict sandbox is not set (more questions than
+    needed), or is set but not in effect in this session (with the first reason). None on Linux / WSL (nothing to switch on there yet),
+    when it is on, or with DEUS_WITNESS_QUIET_HINT=0. Never raises.
+    r0263: "off" is said only when strict.hint_due: not in the first session after the key was saved, at most once in 7 days, never after
+    an explicit no. "Set but not in effect" (the person turned it on) is said each session: it is their setting not working."""
+    try:
+        e = os.environ if env is None else env
+        if e.get("DEUS_WITNESS_QUIET_HINT") == "0" or not Settings(e).key:
+            return None
+        from . import strict
+        st = strict.state(e, platform)
+        if st == "off":
+            return QUIET_OFF if strict.hint_due(e) else None
+        if st != "on":
+            return None
+        why = sandbox_fact.strict_reasons(sandbox_fact.fact({}, os.path.realpath(project) if project else None, env=dict(e)),
+                                          e.get("HOME") or os.path.expanduser("~"))
+        if why:
+            return ("Deus Witness: quiet mode is set but not in effect in this session (%s); start a new Claude Code session, or see "
+                    "deus-witness-hook --doctor." % why[0][:160])
+        return None
+    except Exception:      # noqa: BLE001  a hint only
+        return None
+
+
 def _replaced(s) -> bool:
     """0.2.29: the key this hook uses came from the key file and the file now holds another key (a newer `deus-witness try`)."""
     if not getattr(s, "key_from_file", False):
@@ -413,7 +449,7 @@ def decision(kind: str | None, reason: str = "") -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": kind, "permissionDecisionReason": reason}}
 
 
-USER_SEES = {"APPROVAL_RATE", "AGENT_FROZEN", "RESOURCE", "PERSIST_PLACE", "AGENT_CONFIG_UNAPPROVED", "WITNESS_UNAVAILABLE", "BAD_KEY", "RECIPIENT"}
+USER_SEES = {"APPROVAL_RATE", "AGENT_FROZEN", "RESOURCE", "PERSIST_PLACE", "AGENT_CONFIG_UNAPPROVED", "STRICT_SWITCH_UNAPPROVED", "WITNESS_UNAVAILABLE", "BAD_KEY", "RECIPIENT"}
 
 
 def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None = None, hint: bool = True) -> dict:
@@ -875,6 +911,22 @@ def _amended_harness(cfg, results) -> bool:
 PERSIST_TEXT = ("(this call changes a place that runs at the next login, shell or session, or the witness itself: %s. Under the standing "
                 "mandate such a change is refused outright and is NOT approvable in Witness: if the user wants it, they make the change "
                 "themselves at their terminal. Do not try to reach the same effect another way)")
+# 0.2.60 (r0262): the strict-sandbox switch run by the agent. The witness asks the OWNER about the fixed line `deus-witness-hook
+# --setup-strict --yes` (server bashparse: the danger `witness`, dangerous: no "from now on", no repeat); this lock makes the hook demand that
+# answer itself: a line that names --setup-strict (not a --dry-run) or --undo-strict of the witness's client runs only with an owner-approved
+# receipt (status "approved"), whatever a witness says (an older one refuses it as `persist`; a mandate never covers it).
+STRICT_SWITCH = re.compile(r"--(?:setup|undo)-strict\b")
+STRICT_CLIENT = re.compile(r"deus-witness-hook|deus_witness")
+STRICT_TEXT = ("(this call switches Claude Code's strict sandbox -- quiet mode -- in your Claude Code settings. Only YOU can switch it: "
+               "approve this exact call in Witness (passkey), or run it in your own terminal)")
+
+
+def strict_switch(cmd) -> bool:
+    if not isinstance(cmd, str) or not STRICT_SWITCH.search(cmd) or not STRICT_CLIENT.search(cmd):
+        return False
+    return not ("--dry-run" in cmd and "--undo-strict" not in cmd)
+
+
 CONFIG_TEXT = ("(this call changes the agent's own harness: %s - Claude Code settings or hooks, .mcp.json, git hooks or git configuration, "
                "the Deus Witness key files, or the Deus Witness client itself (its venv, package or executable). A change there can switch the witness off, so it runs only after the OWNER approves this "
                "exact call in Witness (passkey), never on the mandate alone. Only reading: `git diff` / `git show` / `git log` pass with "
@@ -1609,6 +1661,12 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
             if res.verdict == "deny" or res.status in ("refused", "expired"):
                 break                                     # the first refusal decides; nothing is consumed
         for k, (m, res) in enumerate(results):
+            if res.status == "refused" and tool_name == "Bash" and strict_switch(inp.get("command")) and "--undo-strict" not in str(inp.get("command")):
+                try:                                      # r0263: the owner's Reject of quiet mode = an explicit no: no more reminders
+                    from . import strict as _st
+                    _st.declined()
+                except Exception:      # noqa: BLE001
+                    pass
             if k in waited and (res.status == "refused" or res.reason == "ADVISORY_REJECTED"):
                 # R1 29.10: the owner answered No while the hook waited: say so (the code stays for the logs)
                 code = "APPROVAL_REFUSED" if res.status == "refused" else res.reason
@@ -1664,6 +1722,11 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
         if cfg and not any(res.status == "approved" for _, res in results) and not _amended_harness(cfg, results):
             log("tool=%s touches the agent's harness without an owner approval" % tool_name)
             return deny("AGENT_CONFIG_UNAPPROVED", results[0][1].rid if results else None, detail=CONFIG_TEXT % cfg)
+        if tool_name == "Bash" and strict_switch(inp.get("command")) and not (
+                results and all(res.status == "approved" for _, res in results if res.verdict == "allow")
+                and any(res.status == "approved" for _, res in results)):
+            log("tool=Bash switches the strict sandbox without an owner approval")
+            return deny("STRICT_SWITCH_UNAPPROVED", results[0][1].rid if results else None, detail=STRICT_TEXT)
         allowed = [(m, res) for m, res in results if res.verdict == "allow"]
         for m, res in allowed:                            # check every receipt BEFORE consuming any
             if res.status not in ("allowed", "approved"):
@@ -1930,6 +1993,13 @@ def main(argv=None) -> None:
                 if sw:
                     out = {"systemMessage": sw, "hookSpecificOutput": {"hookEventName": "SessionStart",
                                                                        "additionalContext": "Deus Witness warning for the user: " + sw}}
+            qh = quiet_hint(os.environ.get("CLAUDE_PROJECT_DIR") or d)       # 0.2.60 (r0262): one line, last
+            if qh:
+                if out:
+                    out["systemMessage"] = out["systemMessage"] + " " + qh
+                    out.setdefault("hookSpecificOutput", {"hookEventName": "SessionStart"})["additionalContext"] = "Deus Witness warning for the user: " + out["systemMessage"]
+                else:
+                    out = {"systemMessage": qh, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "Deus Witness note for the user: " + qh}}
             ov = project_env_overrides(os.environ.get("CLAUDE_PROJECT_DIR") or d, plugin=bool(os.environ.get("CLAUDE_PLUGIN_ROOT")))    # 0.2.57 (QA D7)
             if ov:
                 t = ("DEUS WITNESS: this project's .claude/settings.json sets Witness settings for the hooks (%s). A cloned repository can "
@@ -1952,10 +2022,40 @@ def main(argv=None) -> None:
         sys.exit(_undo(argv[1:]))
     if argv[:1] in (["--setup-strict"], ["--undo-strict"]):
         from . import strict
-        if not (sys.stdin.isatty() and sys.stdout.isatty()) and "--yes" not in argv:
-            print("deus-witness-hook %s: run it yourself in a terminal (it rewrites your Claude Code settings); --yes from a script" % argv[0], file=sys.stderr)
+        dry = argv[0] == "--setup-strict" and "--dry-run" in argv
+        hosts = None
+        if argv[0] == "--setup-strict":
+            extra = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--host"]
+            if "--host" in argv[-1:] or any(a not in ("--setup-strict", "--dry-run", "--yes", "--host") for i, a in enumerate(argv)
+                                            if not (i > 0 and argv[i - 1] == "--host")):
+                print("deus-witness-hook --setup-strict [--dry-run] [--yes] [--host NAME ...]", file=sys.stderr)
+                sys.exit(2)
+            hosts = strict.DEFAULT_HOSTS + [h for h in extra if h not in strict.DEFAULT_HOSTS]
+        if not dry and not (sys.stdin.isatty() and sys.stdout.isatty()) and "--yes" not in argv:
+            # 0.2.60: from the agent, the switch is the fixed line with --yes, and the hook lets it run only with the owner's approval
+            print("deus-witness-hook %s: run it yourself in a terminal (it rewrites your Claude Code settings). From Claude Code: "
+                  "`deus-witness-hook %s --yes` -- Witness asks you to approve it (passkey)." % (argv[0], argv[0]), file=sys.stderr)
             sys.exit(1)
-        sys.exit(strict.setup(write="--dry-run" not in argv) if argv[0] == "--setup-strict" else strict.undo())
+        if argv[0] == "--setup-strict" and not dry and "--yes" not in argv and sys.stdin.isatty():
+            strict.setup(write=False, hosts=hosts)
+            try:
+                if strict.state() == "off" and input("Turn on quiet mode (write the change above)? Type yes: ").strip() != "yes":
+                    strict.declined()                     # r0263: an explicit no: the session start stops reminding
+                    print("not changed (no more reminders; later: deus-witness-hook --setup-strict)")
+                    sys.exit(1)
+            except EOFError:
+                sys.exit(1)
+            sys.exit(strict.setup(hosts=hosts, show=False))   # r0263 (L3): the change was shown above; not printed twice
+        sys.exit(strict.setup(write=not dry, hosts=hosts) if argv[0] == "--setup-strict" else strict.undo())
+    if argv[:1] == ["--quiet-offer"]:
+        from . import strict
+        strict.offer()
+        sys.exit(0)
+    if argv[:1] == ["--quiet-no"]:
+        from . import strict                              # r0263: the person said no: no more session-start reminders
+        strict.declined()
+        print("Quiet mode: not now. No more reminders at session start; turn it on any time with /deus-witness:quiet.")
+        sys.exit(0)
     if argv[:1] in (["-h"], ["--help"]):
         print(__doc__)
         return

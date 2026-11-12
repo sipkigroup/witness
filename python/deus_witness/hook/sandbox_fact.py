@@ -10,6 +10,7 @@ Keys read (code.claude.com/docs/en/sandboxing, settings-reference):
   sandbox.enabled, sandbox.failIfUnavailable, sandbox.allowUnsandboxedCommands, sandbox.excludedCommands, sandbox.ignoreViolations,
   sandbox.enableWeakerNestedSandbox, sandbox.enableWeakerNetworkIsolation, sandbox.allowAppleEvents,
   sandbox.filesystem.{denyRead, allowRead, disabled}, sandbox.credentials.files[{path, mode}],
+  sandbox.credentials.envVars[{name, mode}] (12.11, r0263: the names hidden from sandboxed commands -> env_hidden, env_tokens),
   sandbox.network.{allowedDomains, allowUnixSockets, allowAllUnixSockets, allowMachLookup, allowLocalBinding},
   permissions.deny "Read(...)" (merged into denyRead by Claude Code), permissions.allow "WebFetch(domain:...)" (merged into allowedDomains),
   sandbox.network.strictAllowlist (0.2.57: ONLY from the managed or the user layer -- "Setting it in a repository's .claude/settings.json or
@@ -264,12 +265,66 @@ TOKEN_NOT_PREFIX = ("CLAUDE_", "DEUS_WITNESS_")       # Claude Code's own sessio
 #                                                       not a credential of a registry / forge a listed domain could take
 
 
-def env_tokens(env) -> list:
+# 12.11 (r0263): forge / registry hosts whose credentials have a KNOWN name (TOKEN_NAMES) or a KNOWN value shape (FORGE_SHAPE). While every
+# listed host is one of them, a variable counts only by that name or shape: OPENAI_API_KEY, DB_PASSWORD, ANTHROPIC_API_KEY open nothing on
+# github.com / npm / PyPI, so they no longer make the person's quiet mode loud (with the scrub gone, the hook sees them, L2+ 12.11). A host
+# outside this family listed: any credential-like NAME counts, as before (its credential may be called anything).
+FORGE_HOSTS = frozenset({"github.com", "api.github.com", "codeload.github.com", "objects.githubusercontent.com", "raw.githubusercontent.com",
+                         "uploads.github.com", "gist.github.com", "ghcr.io", "npm.pkg.github.com", "gitlab.com", "registry.gitlab.com",
+                         "bitbucket.org", "api.bitbucket.org", "registry.npmjs.org", "registry.yarnpkg.com", "pypi.org",
+                         "files.pythonhosted.org", "upload.pypi.org", "test.pypi.org", "crates.io", "index.crates.io", "static.crates.io",
+                         "rubygems.org", "proxy.golang.org", "sum.golang.org"})
+FORGE_SHAPE = re.compile(r"(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|npm_[A-Za-z0-9]{20,}|pypi-[A-Za-z0-9_-]{20,}"
+                         r"|gl(?:pat|dt|rt|ptt|ft|cbt|oas)-[A-Za-z0-9_-]{15,}|ATBB[A-Za-z0-9]{20,}|cio[A-Za-z0-9]{28,}|rubygems_[0-9a-f]{20,})")
+# the names of TOKEN_NAMES whose credential works on a FORGE_HOSTS host (HF_TOKEN, DOCKER_PASSWORD, NUGET_API_KEY... do not)
+FORGE_NAMES = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "NPM_TOKEN", "NODE_AUTH_TOKEN",
+               "YARN_NPM_AUTH_TOKEN", "TWINE_PASSWORD", "TWINE_USERNAME", "PYPI_TOKEN", "PYPI_API_TOKEN", "UV_PUBLISH_TOKEN",
+               "UV_PUBLISH_PASSWORD", "CARGO_REGISTRY_TOKEN", "GITLAB_TOKEN", "GL_TOKEN", "CI_JOB_TOKEN", "GEM_HOST_API_KEY")
+_OLD_SHAPE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$")   # classic GitHub PAT, legacy npm
+
+
+def env_denied(L) -> list:
+    """12.11 (r0263): the variable names `sandbox.credentials.envVars` hides from sandboxed commands, from every readable layer ("a deny
+    entry only ever narrows access, so any scope can add one"); `mask` also keeps the value out (the command sees a sentinel)."""
+    out = []
+    for _, st, d in L:
+        if st != "ok":
+            continue
+        for c in _get(d, "sandbox", "credentials", "envVars") or []:
+            if isinstance(c, dict) and c.get("mode") in ("deny", "mask") and isinstance(c.get("name"), str) and c["name"] not in out:
+                out.append(c["name"])
+    return out[:MAX_LIST * 4]
+
+
+def env_tokens(env, domains=None, denied=()) -> list:
+    """The NAMES of the variables sandboxed code sees (not hidden by sandbox.credentials.envVars) that could act as the person on a listed
+    host. domains None (a caller before r0263): every credential-like name, as before."""
     e = env if isinstance(env, dict) else {}
-    out = [k for k, v in e.items() if isinstance(k, str) and k not in TOKEN_NOT and not k.startswith(TOKEN_NOT_PREFIX)
-           and isinstance(v, str) and v.strip()
-           and (k in TOKEN_NAMES or TOKEN_RX.match(k))]
+    dn = set(denied or ())
+    forge_only = isinstance(domains, list) and bool(domains) and all(isinstance(d, str) and d.strip().lower().rstrip(".") in FORGE_HOSTS for d in domains)
+    out = []
+    for k, v in e.items():
+        if not (isinstance(k, str) and isinstance(v, str) and v.strip()) or k in TOKEN_NOT or k.startswith(TOKEN_NOT_PREFIX) or k in dn:
+            continue
+        named = k in TOKEN_NAMES or TOKEN_RX.match(k)
+        if forge_only:
+            named = k in FORGE_NAMES or k.startswith(("POETRY_PYPI_TOKEN_", "POETRY_HTTP_BASIC_")) or FORGE_SHAPE.search(v) or (TOKEN_RX.match(k) and _OLD_SHAPE.match(v.strip()))
+        if named:
+            out.append(k)
     return sorted(out)[:64]
+
+
+# 12.11 (r0263): the variables that carry the witness's own agent key into Claude Code (DEUS_WITNESS_KEY; the plugin option agent_key).
+WITNESS_KEY_VARS = ("DEUS_WITNESS_KEY", "CLAUDE_PLUGIN_OPTION_AGENT_KEY")
+
+
+def env_hidden(env, denied) -> bool:
+    """12.11 (r0263): the agent key is not in the environment sandboxed commands get: absent, or hidden by sandbox.credentials.envVars
+    (L2+ 12.11, Claude Code 2.1.322, real Seatbelt, scripted model: `env` in a sandboxed Bash call did not show DEUS_WITNESS_KEY /
+    GITHUB_TOKEN listed as deny, and showed OPENAI_API_KEY / DB_PASSWORD not listed; `ps -E` of the parent: "Operation not permitted")."""
+    e = env if isinstance(env, dict) else {}
+    dn = set(denied or ())
+    return all(not (isinstance(e.get(k), str) and e[k].strip()) or k in dn for k in WITNESS_KEY_VARS)
 
 
 # ---- 11.11 (r0260): credentials in config files the sandbox must keep READABLE (git, npm and yarn read them on every run) ---------------
@@ -474,6 +529,7 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
     # 0.2.57 (L2 b2/b3): the scrub is on only when Claude Code was STARTED with it; then the variable reaches the hook's own environment
     # (b3). A settings `env` block naming it does not switch it on (b2), so it is not read from the layers any more.
     scrub = env.get("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB")
+    denv = env_denied(L)                              # 12.11 (r0263): sandbox.credentials.envVars deny / mask
     # 0.2.57 (L2 a1/a2): in bypassPermissions mode the sandbox proxy lets a host outside allowedDomains through unless strictAllowlist or
     # allowManagedDomainsOnly is on (sandboxing.md, "Hosts outside your allowed domains"); a2: with strictAllowlist curl got HTTP=000
     # "host is not on the allow list". The key counts from the managed and the user layer only (project/local: no effect; --settings:
@@ -538,9 +594,10 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
         "local_binding": scalar("sandbox", "network", "allowLocalBinding"),
         "weaker": [k for k in WEAKER if scalar("sandbox", k) is True],
         "env_scrub": str(scrub).strip().lower() in ("1", "true", "yes"),
+        "env_hidden": env_hidden(env, denv),             # 12.11 (r0263): the agent key out of sandboxed commands without the scrub
         "disable_flag": ti.get("dangerouslyDisableSandbox") not in (None, False),   # any other value: fail closed
         "env_files": envf,
-        "env_tokens": env_tokens(env),
+        "env_tokens": env_tokens(env, domains[:MAX_LIST], denv),
         "cred_files": cred_files(project, home, env),    # 11.11 (r0260): names only
         "strict_allowlist": strict_allow if isinstance(strict_allow, bool) else None,
         "managed_domains_only": managed_only,
@@ -645,8 +702,9 @@ def strict_reasons(f, home) -> list:
         why.append("network: allowMachLookup")
     if f.get("strict_allowlist") is not True and f.get("managed_domains_only") is not True:
         why.append("network: sandbox.network.strictAllowlist is not true in user or managed settings")
-    if not f.get("env_scrub"):
-        why.append("CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is not on in this environment (set it where Claude Code is started)")
+    if not f.get("env_scrub") and f.get("env_hidden") is not True:
+        why.append("the agent key is visible to commands (DEUS_WITNESS_KEY in the environment, not in sandbox.credentials.envVars): "
+                   "run deus-witness-hook --setup-strict again")
     if not isinstance(home, str) or not home.startswith("/") or home == "/":
         why.append("home unknown")
     else:
