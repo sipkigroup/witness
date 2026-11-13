@@ -620,4 +620,13 @@ def undo(env=None) -> int:
         g.write(raw)
     os.replace(p + ".tmp", p)
     print("restored %s from %s" % (p, src))
+    # r0273 (ISPYTANIE-MAC-S-NULYA-1311, P2): what stays on disk, said once; nothing is deleted here (a backup is the person's way back)
+    print("kept: %d backup file(s) %s.bak-strict-* (delete them when you no longer need them). Removing Witness altogether: "
+          "`claude plugin uninstall %s`, then `rm -rf %s` (the agent key and pins)." % (
+              len(baks), p, "deus-witness@sipkigroup", _key_dir(env)))
     return 0
+
+
+def _key_dir(env=None) -> str:
+    e = os.environ if env is None else env
+    return e.get("DEUS_WITNESS_HOME") or "~/.config/deus-witness"

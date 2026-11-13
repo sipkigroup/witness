@@ -490,6 +490,17 @@ def deny(code: str, rid: str | None = None, detail: str = "", texts: dict | None
     return out
 
 
+def trial_deny(res) -> dict:
+    """r0273 (ISPYTANIE-MAC-S-NULYA-1311, P0-1): an untouched trial account: the one step left (finish the setup on the trial page) for the
+    model and, in the Claude Code window, for the person; no advice to switch Witness off (the witness is fine, the passkey is missing).
+    The page URL holds only the receipt id (the claim stays in the browser `try` opened)."""
+    url = res.approval_url if isinstance(res.approval_url, str) and res.approval_url.startswith(("https://", "http://localhost", "http://127.0.0.1")) else ""
+    out = deny("TRIAL_NOT_CLAIMED", res.rid, detail=TRIAL_UNCLAIMED_TEXT + (" Trial page: %s" % url if url else ""), hint=False)
+    out["systemMessage"] = ("Deus Witness: finish the setup first - the trial account has no passkey yet, so nothing runs. Open %s and touch "
+                            "the passkey (or run /deus-witness:try again), then ask the agent to retry." % (url or "the trial page from /deus-witness:try"))
+    return out
+
+
 def down_deny(code, detail, env) -> dict:
     """0.2.63 (Н2): a deny because the witness cannot be reached / did not answer: it says, to the person and to the model, how to work
     without Witness on purpose and how to turn it back on (offline.way_out)."""
@@ -1903,7 +1914,7 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
                            for x in got if x.res.verdict == "defer" and x.res.rid not in seen_ and not seen_.add(x.res.rid))
             for _, m, r_ in pending:
                 if r_.reason == TRIAL_REASON:
-                    return deny("TRIAL_NOT_CLAIMED", r_.rid, detail=TRIAL_UNCLAIMED_TEXT, texts=texts, hint=False)   # 0.2.40: said once
+                    return trial_deny(r_)                                  # 0.2.40: said once; r0273: with the trial page, to the person too
             urls = ", ".join(r_.approval_url or "" for _, _, r_ in pending)
             local = [x for _, _, r_ in pending for x in told.get(r_.rid, [])]
             ntext = notify_text(ninfo, sorted(set(local), key=local.index))
@@ -2068,13 +2079,19 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
         # for it: within READ_WAIT the witness decides as always; after that the read runs outside it (journal, notice), as offline
         lim = min(s.timeout, s.read_budget)
         t.join(max(0.0, lim - (time.monotonic() - t0)))
-        if "r" not in out:
+        # r0273 (ISPYTANIE-MAC-S-NULYA-1311, P0-1): the budget is for a witness that does not answer. One that answered and waits for a
+        # person (an untouched trial: ESCALATE_TRIAL_CLAIM; an owner's question) is alive: the read waits like any call (TRIAL_NOT_CLAIMED
+        # with the trial page, or the owner's answer), never "did not answer in time" + "disable the plugin" after 3 s
+        if "r" not in out and not state.get("answered"):
             log("no decision within %.1f s for a read of the project" % lim)
             strict = down_deny("WITNESS_TIMEOUT", "(no answer within %.1f s)" % lim, s.env)
             return unreachable(ev, s, dict(state), "WITNESS_TIMEOUT", strict)
     t.join(max(0.0, s.timeout - (time.monotonic() - t0)))
     if "r" not in out:
         log("no decision within %.0f s" % s.timeout)
+        if state.get("answered"):
+            # r0273: the witness answered and the wait for a person outlived the hook's own limit: not "unreachable", no advice to switch it off
+            return deny("WITNESS_TIMEOUT", detail="(the witness answered; the decision it waits for did not come within %.0f s: nothing ran)" % s.timeout, hint=False)
         strict = down_deny("WITNESS_TIMEOUT", "(no answer within %.0f s)" % s.timeout, s.env)
         if not state.get("answered"):
             offline.mark_down(s.env, s.url, "WITNESS_TIMEOUT")     # 0.2.63: the next calls do not wait for it again

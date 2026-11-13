@@ -26,6 +26,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import sys
 
 from . import _compat
@@ -206,7 +207,12 @@ def env_files(project):
 def pretooluse_hooks(project, env):
     """[{file, matcher, command}] -- every PreToolUse command hook in the settings Claude Code reads (failsafe.settings_files, with the
     Deus Witness plugin when a settings file switches it on). command = the program name only (arguments may carry a secret)."""
-    files = failsafe.settings_files(project, env)
+    files, seen = [], set()
+    for p in failsafe.settings_files(project, env):
+        rp = os.path.realpath(p)
+        if rp not in seen:                    # r0273: in the home folder the project's .claude/settings.json IS the user's: one hook, not two
+            seen.add(rp)
+            files.append(p)
     managed = set(failsafe.managed_files())
     off_all, off_other = False, False
     for p in files:
@@ -226,7 +232,11 @@ def pretooluse_hooks(project, env):
                 continue
             for h in grp.get("hooks") or []:
                 if isinstance(h, dict) and isinstance(h.get("command"), str) and h["command"].strip():
-                    words = h["command"].strip().split()
+                    try:
+                        words = shlex.split(h["command"].strip())    # r0273 (P2): `bash "${CLAUDE_PLUGIN_ROOT}/hooks/x.sh"` -> x.sh, no stray quote
+                    except ValueError:
+                        words = [w.strip("\"'") for w in h["command"].strip().split()]
+                    words = [w for w in words if w] or [h["command"].strip()]
                     first = words[0]
                     if os.path.basename(first) in ("bash", "sh", "zsh", "python", "python3", "node", "uv", "uvx", "npx") and len(words) > 1:
                         first = next((x for x in words[1:] if not x.startswith("-")), first)   # the script, not its interpreter
@@ -251,6 +261,10 @@ def audit(project=None, env=None, home=None, platform=None) -> dict:
     env["HOME"] = home
     project = os.path.realpath(project or os.getcwd())
     plat = platform or sys.platform
+    # r0273 (ISPYTANIE-MAC-S-NULYA-1311, P0-2): `uvx deus-witness audit` typed in a new terminal runs in the home folder. The home folder is
+    # then not a project: judging it as one made every sandboxed write "inside the project" (~/Library/LaunchAgents) and quiet mode looked
+    # WORSE than no sandbox (B -> C). Where Claude Code really starts is not in the settings: said once, as a low finding, not as the grade.
+    at_home = project in (os.path.realpath(home), "/")
     L = read_layers(project, env, home)
     f = sandbox_fact.fact({}, project, env=env, home=home, platform=plat, cli={})
     strict_why = sandbox_fact.strict_reasons(f, home)
@@ -428,7 +442,7 @@ def audit(project=None, env=None, home=None, platform=None) -> dict:
         by_shell = None
         if out_free:
             by_shell = "shell outside the sandbox"
-        elif in_sb_free and ap.endswith("/Library/LaunchAgents") and (ap.startswith(project + "/") or any(sandbox_fact._covered(a, ap) for a in allow_w if a)):
+        elif in_sb_free and ap.endswith("/Library/LaunchAgents") and ((ap.startswith(project + "/") and not at_home) or any(sandbox_fact._covered(a, ap) for a in allow_w if a)):
             # Claude Code's sandbox keeps shell start files, its own settings, .git/hooks and .git/config read-only even inside the
             # project (L3 12.11, 2.1.323: .git/hooks, .git/config, .claude/settings.json, .claude/settings.local.json refused; other
             # files under .git written); a login item folder it does not know of is writable when the project or allowWrite holds it
@@ -462,12 +476,18 @@ def audit(project=None, env=None, home=None, platform=None) -> dict:
     elif sb_on and not strict and not any(x["id"] == "secrets-out" and x["severity"] == "critical" for x in findings):
         add("sandbox-weak", "medium" if escape or wide else "low", "the sandbox is on but not strict: %s" % "; ".join(
             _short(x) for x in strict_why[:3]), HOOK_SETUP)
+    if at_home and sb_on and in_sb_free and plat == "darwin":
+        findings.append({"id": "home-as-project", "severity": "low", "witness": None,
+                         "can": "audit ran in your home folder, not in a project, so it judged a project folder in general. If you START Claude "
+                                "Code in the home folder, its sandbox lets commands write anywhere in it (~/Library/LaunchAgents included: "
+                                "code that runs at every login)",
+                         "fix": "start Claude Code in a project folder; check it with `uvx deus-witness audit --project DIR`"})
     order = {s: i for i, s in enumerate(SEV)}
     findings.sort(key=lambda x: order[x["severity"]])
     n = {s: sum(1 for x in findings if x["severity"] == s) for s in SEV}
     grade = "F" if n["critical"] else "D" if n["high"] >= 2 else "C" if n["high"] == 1 or n["medium"] >= 3 else "B" if n["medium"] else "A"
     return {
-        "tool": TOOL, "grade": grade, "read_only": True, "network": False, "project": project, "home": home,
+        "tool": TOOL, "grade": grade, "read_only": True, "network": False, "project": project, "home": home, "project_is_home": at_home,
         "settings": [{"layer": n_, "path": p, "status": st} for n_, p, st, _ in L],
         "checks": {
             "sandbox": {"enabled": sb_on, "strict": strict, "not_strict_because": strict_why, "allow_unsandboxed_commands": escape,
@@ -504,6 +524,19 @@ RUNTIME = ("A setting closes a door for good, but it judges a call by its name a
            "account): `uvx deus-witness try`. It would cover finding%s %s here; it does not cover the Read tool.")
 
 
+def _secrets_line(secrets) -> str:
+    """r0273 (P0-2): every key place a rule closes counts, present on this disk or not (quiet mode closes ~/.aws before there is one):
+    "13 of 13 key places closed (Read rule 13, sandbox 13); here now: ~/.ssh". 0.2.64 listed only the present ones: "none" after quiet mode."""
+    vs = list(secrets.values())
+    closed = [v for v in vs if v["read_rule"] or v["sandbox_denied"]]
+    if not closed:
+        return "none (no Read deny rule, no sandbox denyRead for ~/.ssh, ~/.aws and the like)"
+    here = [v["path"] for v in closed if v["exists"]]
+    return ("%d of %d key places closed (Read rule %d, sandbox %d)%s" % (
+        len(closed), len(vs), sum(1 for v in vs if v["read_rule"]), sum(1 for v in vs if v["sandbox_denied"]),
+        "; here now: " + ", ".join(here) if here else "; none of them exists here yet"))[:300]
+
+
 def render(r: dict) -> str:
     c = r["checks"]
     home = r.get("home") or ""
@@ -512,7 +545,8 @@ def render(r: dict) -> str:
         x = str(x)
         return x.replace(home + "/", "~/") if home and home != "/" else x
     L = ["Claude Code audit -- how open your set-up is to the agent (deus-witness %s, read only, no network)" % TOOL,
-         "", "  Grade: %s   %s" % (r["grade"], MEANING[r["grade"]]), "  project: %s" % r["project"].replace((r.get("home") or "\0") + "/", "~/"), ""]
+         "", "  Grade: %s   %s" % (r["grade"], MEANING[r["grade"]]), "  project: %s" % ("~ (your home folder)" if r.get("project_is_home") and r["project"] != "/" else
+                                       r["project"].replace((r.get("home") or "\0") + "/", "~/")), ""]
     if r["findings"]:
         L.append("What the agent can do right now (from your settings):")
         fixes, wit = {}, []
@@ -531,11 +565,11 @@ def render(r: dict) -> str:
     L += ["", "Checks:",
           "  sandbox          %s" % ("off" if not sb["enabled"] else "strict" if sb["strict"] else "on, not strict (%s)" % (
               "; ".join(_short(x) for x in sb["not_strict_because"][:2]) or "?")),
-          "  network list     %s%s" % (", ".join(net["allowed_domains"][:5]) or "(none)",
+          "  network list     %s%s" % ((", ".join(net["allowed_domains"][:12]) + (" +%d more" % (len(net["allowed_domains"]) - 12)
+                                         if len(net["allowed_domains"]) > 12 else "")) or "(none)",
                                        "; wide: " + ", ".join(net["wide"]) if net["wide"] else ""),
           "  permission mode  %s%s" % (c["permission_mode"]["value"], " (%s)" % t(c["permission_mode"]["source"]) if c["permission_mode"]["source"] else " (no setting: default)"),
-          "  secrets denied   %s" % (", ".join("%s%s" % (v["path"], " (Read rule)" if v["read_rule"] else " (sandbox)")
-                                                for v in c["secrets"].values() if v["exists"] and (v["read_rule"] or v["sandbox_denied"]))[:200] or "none"),
+          "  secrets denied   %s" % _secrets_line(c["secrets"]),
           "  wide allow rules %s" % (", ".join("%s [%s]" % (b["rule"], b["kind"]) for b in c["broad_allow"][:5]) or "none"),
           "  .env files       %s" % ("; ".join("%s: %s%s" % (os.path.basename(e["path"]),
                                                                "unreadable" if e["names"] is None else "%d variable(s)" % len(e["names"]),
