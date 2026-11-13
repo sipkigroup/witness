@@ -4,6 +4,40 @@
 
 **Let Claude Code work on its own; get asked only before the few things a sandbox cannot undo or contain - publishing, running a program outside the sandbox, writing a file that starts itself later, irreversible changes inside your project. You answer with one passkey touch; every decision gets a signed receipt you can verify offline.**
 
+## Install (3 lines in Claude Code)
+
+Needs Claude Code 2.1.295+ and [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh`, then open a new
+terminal (without uv, `try` stops with "uvx: command not found"). macOS, Linux, WSL.
+
+```
+/plugin marketplace add sipkigroup/witness
+/plugin install deus-witness@sipkigroup
+/deus-witness:try
+```
+
+- `/plugin install` opens the plugin panel: pick a scope and install; if it says so, run `/reload-plugins`. Plugin 0.2.64 and older
+  showed a "Configure Deus Witness" screen: leave every field empty and save.
+- `try` makes a trial account (no sign-up form) and opens a page in your browser. That page asks for two passkey touches (one makes
+  your passkey, one signs the recommended rules); then the call that waited is decided - allowed, refused, or shown to you for one more
+  touch. **Until the first touch nothing runs:** a call waits up to 45 s, then it is refused with `TRIAL_NOT_CLAIMED` and the link to
+  the trial page: finish there, then ask the agent to retry. After the first touch the page offers "Get questions on your phone" (Web
+  Push; on iPhone only from Witness added to the Home Screen).
+- Skipped the third line? Every new session starts with "Deus Witness is not set up: run /deus-witness:try" (the plugin never runs it
+  by itself). On a server or over SSH (no browser there): run `uvx --from deus-witness deus-witness try` in your own terminal; it
+  prints the link to open on your laptop or phone.
+- A trial account you do not keep is erased after 7 days. It has one passkey and no recovery codes: lost it - `/deus-witness:try`,
+  and when it says the account already has your passkey, `uvx --from deus-witness deus-witness try --force` in your own terminal (10
+  new trial accounts per hour per network).
+- Without the plugin: `uvx --from deus-witness deus-witness try`. As an MCP proxy in front of any MCP server:
+  `uvx deus-witness -- <your MCP server command>` (see `python/README.md`).
+
+**Check your set-up (optional, no account, nothing sent):** in your own terminal, in your project folder, `uvx deus-witness audit`
+(a fixed version: `uvx deus-witness==0.2.69 audit`). It reads your Claude Code settings and prints a grade (A-F) and what the agent
+can do without asking you; it writes nothing and opens no network connection. Run it in the project folder, not in your home folder:
+started in the home folder it judges a project in general and says so.
+
+For fewer questions, run `/deus-witness:quiet` ([Quiet mode](#quiet-mode-fewer-questions) below).
+
 ## The problem
 
 Claude Code asks before it runs commands or edits files. Anthropic's own write-up of auto mode names what happens next: "approval fatigue, where people stop paying close attention to what they're approving". The other way out, `--dangerously-skip-permissions`, "disables all permission prompts and lets Claude act freely" ([Anthropic, 25.03.2026](https://anthropic.com/engineering/claude-code-auto-mode)).
@@ -38,22 +72,7 @@ What these numbers do **not** show: they are our corpora, labeled by us; no outs
 
 **What leaves your machine:** before a matched tool call runs, the hook sends the tool input as given (the full command line, file paths, the text being written) to the hosted witness at <https://witness.sipkigroup.com> (operated by Sipki LLC), or to a witness you run yourself from `spec/` and `contract/`. With it go the working and project directories, your home directory path (`$HOME`, so your user name too) and `$TMPDIR` (the witness needs them to tell the project, your home and temp folders apart), the real path / existence of the paths the call names, a git ref the call switches to, and a digest of Claude Code's settings. Not sent: your conversation, the contents of the files the agent reads, the values of your environment variables. Details: [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md), <https://witness.sipkigroup.com/privacy.html>.
 
-## Install (3 lines in Claude Code)
-
-Before these lines: install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`, then open a new terminal) - the plugin runs its client with `uvx`; without uv, `try` stops with "uvx: command not found".
-
-```
-/plugin marketplace add sipkigroup/witness
-/plugin install deus-witness@sipkigroup
-/deus-witness:try
-```
-
-If Claude Code shows a "Configure Deus Witness" screen after the install (plugin 0.2.64 and older): leave every field empty and save - `try` needs none of them; plugin 0.2.65 has no such screen.
-On a server or over SSH (no browser on that machine): run `uvx --from deus-witness deus-witness try` in your own terminal there; it prints the link to open on your laptop or phone.
-
-`try` makes a trial account (no sign-up form) and opens a page in your browser. After your passkey touch the page offers "Get questions on your phone" (Web Push; on iPhone it works only from Witness added to the Home Screen); the page itself keeps showing the questions too. For the quiet mode measured above, run `/deus-witness:quiet` (details below).
-
-### Quiet mode (fewer questions, macOS)
+## Quiet mode (fewer questions)
 
 Witness asks least when Claude Code's own strict sandbox is on. In quiet mode the agent's commands:
 
@@ -77,13 +96,16 @@ see `OPENAI_API_KEY`, `DATABASE_URL`, ...), your hooks and plugins.
 - `git clone` and `git init` into the project fail, because Claude Code's sandbox protects `.git/config`. Run them yourself in your
   terminal.
 - A host that isn't on the list is refused. Add your own in your terminal:
-  `uvx --from "deus-witness==0.2.68" deus-witness-hook --setup-strict --host git.example.com`
+  `uvx --from "deus-witness==0.2.69" deus-witness-hook --setup-strict --host git.example.com`
   (a host name only: no `*`, no IP, no port).
 
 **Turning it on:** `/deus-witness:quiet` shows the exact change to `~/.claude/settings.json` first. If you say yes, Witness asks YOU to
 approve it with your passkey; the agent can't switch it on or off by itself. Or, in your own terminal:
-`uvx --from "deus-witness==0.2.68" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
-backup and starts with your next Claude Code session. To undo it, run `uvx --from "deus-witness==0.2.68" deus-witness-hook --undo-strict` in your terminal.
+`uvx --from "deus-witness==0.2.69" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes (a real terminal:
+`echo yes |` and runs from a script or an agent are refused). Quiet mode keeps a backup next to the file,
+`~/.claude/settings.json.bak-strict-<date>`, and starts with your next Claude Code session. To undo it, run
+`uvx --from "deus-witness==0.2.69" deus-witness-hook --undo-strict` in your terminal: it restores the newest backup and keeps the
+backup files (delete them when you no longer need them).
 
 **Reminders:** `/deus-witness:try` mentions quiet mode in one line at the end. From your second session on, the session start reminds
 you at most once a week. To stop the reminders, say no in `/deus-witness:quiet`, answer anything but yes in the terminal, or run
@@ -91,21 +113,6 @@ you at most once a week. To stop the reminders, say no in `/deus-witness:quiet`,
 
 **Linux and WSL2:** quiet mode works there too, with Claude Code's own Linux sandbox (bubblewrap). First install two packages: `sudo apt install bubblewrap socat` (Fedora / RHEL: `sudo dnf install bubblewrap socat`). Then turn it on as above (`/deus-witness:quiet`, or `deus-witness-hook --setup-strict` in your terminal): it checks the machine first and, if something is missing, says what to do and changes nothing. Ubuntu 24.04 blocks bubblewrap by default (AppArmor, `kernel.apparmor_restrict_unprivileged_userns`): the command prints the small AppArmor profile that allows it for bubblewrap only. WSL2: turn Windows interop off (`[interop]` `enabled=false` in `/etc/wsl.conf`, then `wsl --shutdown`), because a `.exe` started from Linux runs outside the sandbox; WSL1 has no sandbox. Containers are not supported: Azure Container Instances and similar (their `/proc/version` names Microsoft, so Claude Code takes them for WSL1, and `--setup-strict` says so and changes nothing, with or without `--weaker-nested`); in a Docker container that cannot mount `/proc`, `--setup-strict --weaker-nested` writes Claude Code's weaker sandbox if you ask for it, and Witness does not count it as quiet mode and keeps asking. What we checked (13.11, Debian 12 on Azure Container Instances, Claude Code 2.1.323): Claude Code's sandbox itself, run with two workarounds of our test bench that this tool does not apply (a substituted `/proc/version` and the weaker nested mode) - a test of the sandbox, not a path you can take. Ubuntu and WSL2 are not checked live yet.
 
-Without the plugin: `uvx --from deus-witness deus-witness try`. As an MCP proxy in front of any MCP server: `uvx deus-witness -- <your MCP server command>` (see `python/README.md`).
-
-## Try it in Claude Code
-
-Needs Claude Code 2.1.295+ and uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`); macOS, Linux, WSL.
-
-```
-/plugin marketplace add sipkigroup/witness
-/plugin install deus-witness@sipkigroup
-/deus-witness:try
-```
-
-`try` makes a trial account and opens a page in your browser. The first tool call that needs you waits; the page asks for two passkey touches (one makes your passkey, one signs the recommended rules), then that call is decided - allowed, refused, or shown to you for one more touch. Until your first touch a call waits up to 45 s, then it is refused (`TRIAL_NOT_CLAIMED`): ask again after the touches. After the first touch the page offers "Get questions on your phone"; without it the call waits for you on that page. A trial account you do not keep is erased after 7 days. A trial account has one passkey and no recovery codes: if you lose that passkey (or the device it lives on), start a new trial with `/deus-witness:try` and, when it says the account already has your passkey, `uvx --from deus-witness deus-witness try --force` in your own terminal (10 new trial accounts per hour per network).
-`/plugin install` opens the plugin panel: pick a scope and install; if it says so, run `/reload-plugins`. Skipped the third line? Every new session starts with "Deus Witness is not set up: run /deus-witness:try" until you run it (the plugin never runs it by itself).
-Without the plugin: `uvx --from deus-witness deus-witness try` (`pip install deus-witness` only with Python 3.10+ in a venv).
 
 ## What is here
 
@@ -126,7 +133,7 @@ Without the plugin: `uvx --from deus-witness deus-witness try` (`pip install deu
 You can implement your own witness from `spec/` and `contract/`.
 
 ## Use it
-Claude Code: the three commands above (the one-step form `/plugin install deus-witness --marketplace sipkigroup/witness` also exists in Claude Code 2.1.275 or later); see [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md).
+Claude Code: the three commands of [Install](#install-3-lines-in-claude-code) (the one-step form `/plugin install deus-witness --marketplace sipkigroup/witness` also exists in Claude Code 2.1.275 or later); see [`plugins/deus-witness/README.md`](plugins/deus-witness/README.md).
 
 The hosted service is at <https://witness.sipkigroup.com>. From TypeScript: `npm install @deus-witness/sdk` (see [`sdk-ts/README.md`](sdk-ts/README.md)). From Python, or to put any MCP server behind the witness: `pip install deus-witness` (Python 3.10+ in a venv) or, with no install, `uvx deus-witness -- <your MCP server command>` (MCP Registry: `io.github.sipkigroup/witness`; see [`python/README.md`](python/README.md); setup: <https://witness.sipkigroup.com/dl/docs/quickstart.html>).
 Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.yaml) and [`integrations/`](integrations/).
@@ -139,7 +146,10 @@ Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.y
 ## Turn it off / remove it
 
 - Off for now (the witness is down, or you want to work without it): in your own terminal `claude plugin disable deus-witness@sipkigroup`, then restart Claude Code. Back on: `claude plugin enable deus-witness@sipkigroup`.
-- Remove it: `claude plugin uninstall deus-witness@sipkigroup`. The agent key and pins stay in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`): delete that folder too if you will not come back. Quiet mode, if you turned it on: `uvx --from "deus-witness==0.2.68" deus-witness-hook --undo-strict` first.
+- Remove it: quiet mode first, if you turned it on (`uvx --from "deus-witness==0.2.69" deus-witness-hook --undo-strict`), then
+  `claude plugin uninstall deus-witness@sipkigroup` and `claude plugin marketplace remove sipkigroup`. What stays on disk: the agent key
+  and pins in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`) - `rm -rf ~/.config/deus-witness` if you will not come back - and the
+  quiet-mode backups `~/.claude/settings.json.bak-strict-*`.
 - The agent cannot do this for you: Witness refuses such a line from the agent like any other change to its own settings.
 
 ## Verify the receipts yourself
