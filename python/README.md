@@ -215,9 +215,11 @@ the project, no secrets): the receipt says `OK_SANDBOXED`. What leaves the sandb
 Linux / WSL2 (r0268): the same command, with Claude Code's Linux sandbox (bubblewrap + socat: `sudo apt install bubblewrap socat` or
 `sudo dnf install bubblewrap socat` first). `--setup-strict` checks the machine before it writes anything and says what is missing
 (the packages; Ubuntu 24.04's AppArmor rule for unprivileged user namespaces, with the AppArmor profile that allows it for bubblewrap;
-WSL1; Windows interop on WSL2, which must be off). A container without /proc: `--setup-strict --weaker-nested` writes Claude Code's
-weaker nested sandbox on request only; the witness does not count it. Windows (native): no strict sandbox -- the unreadable lines and
-written-file runs are questions.
+WSL1; Windows interop on WSL2, which must be off). Containers are not supported: Azure Container Instances and similar read as WSL1
+(their /proc/version names Microsoft) and `--setup-strict` changes nothing, with or without `--weaker-nested`; in a Docker container without
+/proc, `--setup-strict --weaker-nested` writes Claude Code's weaker nested sandbox on request only, and the witness does not count it.
+Ubuntu and WSL2 are not checked live yet (our 13.11 run on Azure Container Instances needed two bench workarounds the tool does not apply).
+Windows (native): no strict sandbox -- the unreadable lines and written-file runs are questions.
 
 ## Cursor
 Cursor reads MCP servers from `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project); the entry is the same as for Claude Desktop. Put the real MCP server after `--`:
