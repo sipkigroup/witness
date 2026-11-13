@@ -1,0 +1,9 @@
+# What leaves your machine
+
+**What leaves your machine:** before a matched tool call runs, the hook sends the tool input as given (the full command line, file paths, the text being written) to the hosted witness at <https://witness.sipkigroup.com> (operated by Sipki LLC), or to a witness you run yourself from `spec/` and `contract/`. With it go the working and project directories, your home directory path (`$HOME`, so your user name too) and `$TMPDIR` (the witness needs them to tell the project, your home and temp folders apart), the real path / existence of the paths the call names, a git ref the call switches to, and a digest of Claude Code's settings. Not sent: your conversation, the contents of the files the agent reads, the values of your environment variables. Details: <https://witness.sipkigroup.com/privacy.html>.
+
+## In more detail (the Claude Code plugin)
+
+Before a matched tool call runs, the hook sends the tool input as given (the full command line, file paths, the text being written) to the witness server at <https://witness.sipkigroup.com> (operated by Sipki LLC), or to the witness you name in `DEUS_WITNESS_URL`. Along with it go the working directory, the project and home directory paths (`$HOME`, so your user name too) and `$TMPDIR`, answers to file-system questions the witness asks about paths named in the call (does it exist, its real path), SHA-256 hashes and paths of project files the call could execute, and, for shell calls, how Claude Code's sandbox is configured. Your conversation (prompts and replies) is not sent. Masked previews shrink to ~80 characters once the call is decided and to a hash after 30 days; a trial account you don't keep is erased after 7 days. Full details: <https://witness.sipkigroup.com/privacy.html>
+
+The plugin needs uv; it runs `uvx --from deus-witness==0.2.72 deus-witness-hook` (a pinned PyPI package whose source is in this repository under `python/`).
