@@ -82,7 +82,7 @@ import threading
 import time
 
 from .. import __version__, _compat
-from . import archlinks, envmask, failsafe, fingerprint, gitref, mask, offline, samefile, sandbox_fact, selfpath, shadow
+from . import archlinks, envmask, failsafe, fingerprint, gitref, mask, offline, pin, samefile, sandbox_fact, selfpath, shadow
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -1708,7 +1708,9 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
             hs["updatedInput"] = upd
             hs["permissionDecisionReason"] = (hs.get("permissionDecisionReason") or "") + \
                 " (Deus Witness ran it as `... | awk ...`: values of variables that may hold a secret are printed as [masked].)"
-    return out
+    # r0272 (gate 6, L3 13.11): another PreToolUse hook (rtk) may rewrite the call after this decision; a witnessed allow pins the judged
+    # input (updatedInput) and leaves a record that the PostToolUse check compares with what ran (pin.py)
+    return pin.pin(ev, out, s.env, orig=upd if upd is not None else orig, cosmetic=COSMETIC.get(tool_name, ()))
 
 
 def _seen_try(ev, s, inp) -> None:
@@ -2049,6 +2051,8 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
         ev = json.loads(stdin_bytes.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
         return deny("EVENT_MALFORMED")
+    if isinstance(ev, dict) and ev.get("hook_event_name") in ("PostToolUse", "PostToolUseFailure"):
+        return pin.check(ev, s.env, COSMETIC)               # r0272: did the approved call run, or one another hook rewrote?
     if isinstance(ev, dict) and ev.get("hook_event_name") not in (None, "PreToolUse"):
         return None
     out, state = {}, {}
@@ -2244,6 +2248,16 @@ def main(argv=None) -> None:
                     out.setdefault("hookSpecificOutput", {"hookEventName": "SessionStart"})["additionalContext"] = "Deus Witness warning for the user: " + out["systemMessage"]
                 else:
                     out = {"systemMessage": qh, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "Deus Witness note for the user: " + qh}}
+            try:
+                rw = pin.rewriters_line(os.environ.get("CLAUDE_PROJECT_DIR") or d)    # r0272 (gate 6): rtk and the like, one line
+            except Exception:      # noqa: BLE001
+                rw = None
+            if rw:
+                if out:
+                    out["systemMessage"] = out["systemMessage"] + " " + rw
+                    out.setdefault("hookSpecificOutput", {"hookEventName": "SessionStart"})["additionalContext"] = "Deus Witness note for the user: " + out["systemMessage"]
+                else:
+                    out = {"systemMessage": rw, "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "Deus Witness note for the user: " + rw}}
             ov = project_env_overrides(os.environ.get("CLAUDE_PROJECT_DIR") or d, plugin=bool(os.environ.get("CLAUDE_PLUGIN_ROOT")))    # 0.2.57 (QA D7)
             if ov:
                 t = ("DEUS WITNESS: this project's .claude/settings.json sets Witness settings for the hooks (%s). A cloned repository can "
