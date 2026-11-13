@@ -93,6 +93,26 @@ def refuse_reason(project_dir: str, home=None) -> str | None:
             % (proj, what))
 
 
+SHARED_TEMP_ROOTS = ("/tmp", "/var/tmp", "/dev/shm", "/run/shm", "/usr/tmp")    # r0279 = server hookjudge/mapping.SHARED_TEMP_ROOTS
+
+
+def personal_temp(tmp):
+    """r0279 (= server mapping.personal_temp): the realpath of the temp folder when it is the person's own; None when it is shared (a
+    shared temp root by name, or world-writable). On Linux without TMPDIR, gettempdir() is the machine's shared /tmp: never a target."""
+    if not isinstance(tmp, str) or not tmp:
+        return None
+    r = os.path.realpath(tmp)
+    q = r[len("/private"):] if r.startswith("/private/") else r
+    if q in SHARED_TEMP_ROOTS or os.path.dirname(r) == r:
+        return None
+    try:
+        if os.stat(r).st_mode & 0o002:
+            return None
+    except OSError:
+        pass
+    return r
+
+
 def _scratch_targets() -> list:
     """0.2.58 / 0.2.90: Claude Code's own scratch directory of this user (/private/tmp/claude-<uid>, /tmp/claude-<uid>: session files,
     task outputs) is a delete target of the recommended form too: the agent writes there on every session; under the old form every such
@@ -122,12 +142,12 @@ def default_form(project_dir: str, web_domains=None, safe_commands=None, home=No
     if why:
         raise ProjectRefused(why)
     proj = os.path.realpath(_expand(project_dir, home))
-    tmp = os.path.realpath(tempfile.gettempdir())
+    tmp = personal_temp(tempfile.gettempdir())         # r0279: None on Linux without a TMPDIR of the person's (shared /tmp)
     scratch = _scratch_targets()
     return {"currency": "USD", "valid_days": 30, "purchase": None,
             "message": {"domains": list(DEFAULT_WEB_DOMAINS if web_domains is None else web_domains), "to": []},
             "forbidden_data": [], "publish": None,
-            "delete": {"targets": [proj + "/*", tmp + "/*"] + scratch, "allow_irreversible": True},
+            "delete": {"targets": [proj + "/*"] + ([tmp + "/*"] if tmp else []) + scratch, "allow_irreversible": True},
             "command": {"allow": list(DEFAULT_SAFE_COMMANDS if safe_commands is None else safe_commands)
                                  + ([SANDBOXED_CODE] if DEFAULT_SANDBOXED_CODE else []), "unlisted": DEFAULT_UNLISTED,
                         "sandboxed": DEFAULT_SANDBOXED}}

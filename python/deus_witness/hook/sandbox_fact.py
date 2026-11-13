@@ -243,7 +243,24 @@ def _session_start(transcript):
         b = getattr(os.stat(transcript), "st_birthtime", None)
     except OSError:
         return None
+    if b is None and sys.platform.startswith("linux"):
+        b = _linux_birth(transcript)
     return b if isinstance(b, (int, float)) and b > 0 else None
+
+
+def _linux_birth(p):
+    """r0279 (Linux CI 13.11): Python's os.stat has no st_birthtime on Linux, so every Linux session was "session start unknown" and the
+    strict sandbox never counted there (quiet mode impossible on Linux). GNU stat reads the birth time through statx (%W: whole seconds,
+    0 when the file system does not keep it -> None, fail closed). Whole seconds round DOWN: a settings file changed in the same second
+    as the session started counts as changed after it (not strict) -- the safe side."""
+    import subprocess
+    try:
+        r = subprocess.run(["stat", "-c", "%W", "--", p], capture_output=True, text=True, timeout=2,
+                           env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+        v = int(r.stdout.strip()) if r.returncode == 0 else 0
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return v if v > 0 else None
 
 
 def _relevant(d):
