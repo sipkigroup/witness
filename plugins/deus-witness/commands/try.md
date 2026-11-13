@@ -1,14 +1,14 @@
 ---
 description: Set up Deus Witness in about 2 minutes - a trial account, two passkey prompts in your browser, then the waiting call; no sign-up form
-allowed-tools: Bash(deus-witness try), Bash(uvx --quiet --from "deus-witness==0.2.65" deus-witness try), Bash(deus-witness-hook --setup-strict --yes), Bash(uvx --quiet --from "deus-witness==0.2.65" deus-witness-hook --setup-strict --yes)
+allowed-tools: Bash(deus-witness try), Bash(uvx --quiet --from "deus-witness==0.2.66" deus-witness try), Bash(deus-witness-hook --setup-strict --yes), Bash(uvx --quiet --from "deus-witness==0.2.66" deus-witness-hook --setup-strict --yes)
 ---
 Set up Deus Witness for this project with a trial account. Use the Bash tool to run exactly ONE of these commands in the project
 directory, the first that works (do not add arguments):
 
 1. `deus-witness try`
-2. `uvx --quiet --from "deus-witness==0.2.65" deus-witness try`
+2. `uvx --quiet --from "deus-witness==0.2.66" deus-witness try`
 
-If neither exists, tell the user to install uv (https://docs.astral.sh/uv/) or run `pip install "deus-witness==0.2.65"` (Python 3.10+ in a venv), and stop.
+If neither exists, tell the user to install uv (https://docs.astral.sh/uv/) or run `pip install "deus-witness==0.2.66"` (Python 3.10+ in a venv), and stop.
 
 Then tell the user, in a few short sentences, what the command printed:
 - what it sent and what the hook will send to the witness (repeat its "will send" list in your own words): `try` already sent a trial
@@ -25,7 +25,7 @@ without quiet mode Witness asks about most commands (tests, installs, a virtuale
 reach only GitHub / npm / PyPI and cannot read their keys) it asks only about what could leave the Mac or cannot be undone - turn it on now?
 They approve it with their passkey; it starts with their next Claude Code session; /deus-witness:quiet shows the exact change first.
 - yes: AFTER they have done the two passkey touches on the page, run exactly ONE command with the same runner as above:
-  `deus-witness-hook --setup-strict --yes` or `uvx --quiet --from "deus-witness==0.2.65" deus-witness-hook --setup-strict --yes`.
+  `deus-witness-hook --setup-strict --yes` or `uvx --quiet --from "deus-witness==0.2.66" deus-witness-hook --setup-strict --yes`.
   Witness asks the USER to approve it (passkey); you cannot approve it. If it printed `written:`, say quiet mode starts with their next
   Claude Code session (/exit, then start claude again). If it was refused or not answered, say so and stop; do not retry.
 - anything else: say they can turn it on later with /deus-witness:quiet, and stop.
@@ -34,4 +34,4 @@ settings.json yourself and never run --undo-strict.
 
 Rules: do not open, print, search for or repeat any link; do not read or print the key file; do not try to finish the browser page yourself -
 after the first touch only the user's passkey signs (before it, a program that controls the user's browser could claim the account, which is why you must not touch the page). If the command says it could not show the link safely, tell the user to run
-`uvx --from deus-witness==0.2.65 deus-witness try` themselves in their own terminal (or `deus-witness try` if they installed it with pip).
+`uvx --from deus-witness==0.2.66 deus-witness try` themselves in their own terminal (or `deus-witness try` if they installed it with pip).
