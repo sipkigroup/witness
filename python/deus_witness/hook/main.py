@@ -2270,9 +2270,10 @@ def main(argv=None) -> None:
         hosts = None
         if argv[0] == "--setup-strict":
             extra = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--host"]
-            if "--host" in argv[-1:] or any(a not in ("--setup-strict", "--dry-run", "--yes", "--host") for i, a in enumerate(argv)
-                                            if not (i > 0 and argv[i - 1] == "--host")):
-                print("deus-witness-hook --setup-strict [--dry-run] [--yes] [--host NAME ...]", file=sys.stderr)
+            if "--host" in argv[-1:] or any(a not in ("--setup-strict", "--dry-run", "--yes", "--host", "--weaker-nested")
+                                            for i, a in enumerate(argv) if not (i > 0 and argv[i - 1] == "--host")):
+                print("deus-witness-hook --setup-strict [--dry-run] [--yes] [--host NAME ...] [--weaker-nested (Linux containers; "
+                      "a weaker sandbox, Witness keeps asking)]", file=sys.stderr)
                 sys.exit(2)
             hosts = strict.DEFAULT_HOSTS + [h for h in extra if h not in strict.DEFAULT_HOSTS]
         if not dry and not (sys.stdin.isatty() and sys.stdout.isatty()) and "--yes" not in argv:
@@ -2280,17 +2281,20 @@ def main(argv=None) -> None:
             print("deus-witness-hook %s: run it yourself in a terminal (it rewrites your Claude Code settings). From Claude Code: "
                   "`deus-witness-hook %s --yes` -- Witness asks you to approve it (passkey)." % (argv[0], argv[0]), file=sys.stderr)
             sys.exit(1)
+        weaker = "--weaker-nested" in argv                # r0268: Linux containers only; said as a weakening
         if argv[0] == "--setup-strict" and not dry and "--yes" not in argv and sys.stdin.isatty():
-            strict.setup(write=False, hosts=hosts, full=False)     # 0.2.61 (r0263): the short list before the yes
+            if strict.setup(write=False, hosts=hosts, full=False, weaker=weaker) != 0:    # 0.2.61 (r0263): the short list before the yes
+                sys.exit(1)                               # r0268: Linux preflight said what is missing; nothing to ask
             try:
-                if strict.state() == "off" and input("Turn on quiet mode (write the change above)? Type yes: ").strip() != "yes":
+                if strict.state() in ("off", "not-ready") and \
+                        input("Turn on quiet mode (write the change above)? Type yes: ").strip() != "yes":
                     strict.declined()                     # r0263: an explicit no: the session start stops reminding
                     print("not changed (no more reminders; later: deus-witness-hook --setup-strict)")
                     sys.exit(1)
             except EOFError:
                 sys.exit(1)
-            sys.exit(strict.setup(hosts=hosts, show=False))   # r0263 (L3): the change was shown above; not printed twice
-        sys.exit(strict.setup(write=not dry, hosts=hosts) if argv[0] == "--setup-strict" else strict.undo())
+            sys.exit(strict.setup(hosts=hosts, show=False, weaker=weaker))   # r0263 (L3): the change was shown above; not printed twice
+        sys.exit(strict.setup(write=not dry, hosts=hosts, weaker=weaker) if argv[0] == "--setup-strict" else strict.undo())
     if argv[:1] == ["--quiet-offer"]:
         from . import strict
         if argv[1:] not in ([], ["--full"]):

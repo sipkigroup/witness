@@ -546,6 +546,117 @@ def cred_files(project, home, env=None) -> list:
     return list(dict.fromkeys(out))[:MAX_LIST]
 
 
+# ---- 13.11 (r0268): Linux and WSL2 -- Claude Code's sandbox there is bubblewrap (namespaces) + socat (the network bridge) + a seccomp
+# filter Claude Code ships for x86_64 and arm64 that refuses socket(AF_UNIX) (the way to docker.sock, ssh-agent, the D-Bus keyring).
+# L3 13.11 (ACI, Claude Code 2.1.323, x86_64, sandbox on): in a sandboxed command /proc/self/status said "Seccomp: 2", Python's
+# socket(AF_UNIX) got EPERM (creating it, before any connect), /tmp was read-only except /tmp/claude-<uid>, ~ outside the project
+# read-only. The hook cannot see the filter itself; it reports what the filter and the sandbox depend on, and the witness decides
+# (server hookjudge/sandbox.linux_why): bwrap and socat on PATH, the machine's architecture, and on WSL2 whether Windows programs can be
+# started (interop: a .exe runs outside the Linux sandbox) and which Windows home folders /mnt shows (their keys must be denyRead too).
+LINUX_KINDS = ("linux", "wsl2", "wsl1")
+SECCOMP_ARCH = ("x86_64", "amd64", "aarch64", "arm64")
+PROC_VERSION = "/proc/version"
+BINFMT = "/proc/sys/fs/binfmt_misc"
+WIN_MNT = "/mnt"
+WIN_SKIP = {"public", "default", "default user", "all users", "defaultapppool", "wdagutilityaccount"}
+# 13.11 (r0268): where a Linux desktop keeps what CRED_SOURCES (macOS) names -- browsers' cookie stores (Chrome / Chromium cookies are
+# encrypted with a key from the keyring when one runs, in PLAIN "peanuts" mode when none does: a server, WSL), Firefox (plain), the
+# GNOME keyring files (~/.local/share/keyrings; the keyring daemon itself is reached over D-Bus = a Unix socket, closed by seccomp),
+# KDE wallet files, pass, keyrings.alt's plaintext file, editors' token stores, snap / flatpak copies of the same, and the CLI files
+# CRED_SOURCES lists for every system.
+CRED_SOURCES_LINUX = (".config/google-chrome", ".config/chromium", ".config/BraveSoftware", ".config/microsoft-edge", ".config/vivaldi",
+                      ".config/opera", ".mozilla", "snap/chromium", "snap/firefox", ".var/app", ".local/share/keyrings",
+                      ".local/share/kwalletd", ".password-store", ".local/share/python_keyring", ".config/Code/User/globalStorage",
+                      ".config/Cursor/User/globalStorage", ".config/hub", ".config/glab-cli", ".config/git/credentials", ".gcm",
+                      ".cargo/credentials", ".cargo/credentials.toml", ".gem/credentials", ".config/pypoetry/auth.toml")
+# 13.11 (r0268): in a Windows home seen from WSL2 (/mnt/c/Users/<name>): AppData (browsers, Credential Manager files, editors) and the
+# same CLI key places as in ~ (a person who uses git / ssh / aws on Windows has them there).
+WIN_SECRETS = ("AppData", ".ssh", ".aws", ".azure", ".kube", ".docker", ".config/gh", ".git-credentials", ".netrc", ".npmrc", ".pypirc",
+               ".gnupg", ".config/gcloud")
+
+
+def linux_kind(text) -> str:
+    """/proc/version -> linux | wsl2 | wsl1. The same rule Claude Code applies (L3 13.11: an ACI kernel "-microsoft-standard" without
+    "WSL2" was refused as "WSL1 is not supported"): a Microsoft kernel is WSL2 only when it says WSL2."""
+    t = (text or "").lower()
+    if "microsoft" not in t:
+        return "linux"
+    return "wsl2" if "wsl2" in t else "wsl1"
+
+
+def os_kind(platform=None) -> str:
+    """darwin | linux | wsl2 | wsl1 | sys.platform as it is. An explicit platform (tests, `--setup-strict` callers) is taken as given."""
+    if platform:
+        return "wsl2" if platform == "wsl" else platform
+    if not sys.platform.startswith("linux"):
+        return sys.platform
+    try:
+        with open(PROC_VERSION, encoding="utf-8") as f:
+            return linux_kind(f.read(4096))
+    except OSError:
+        return "linux"
+
+
+def _which(name):
+    import shutil
+    return shutil.which(name)
+
+
+def wsl_interop(base=None):
+    """True: Windows programs can be started from Linux (binfmt WSLInterop / WSLInterop-late enabled); False: registered disabled or not
+    registered while binfmt_misc is readable; None: cannot tell (binfmt_misc not mounted / unreadable) -> the witness fails closed."""
+    b = base or BINFMT
+    try:
+        names = os.listdir(b)
+    except OSError:
+        return None
+    for n in names:
+        if n.startswith("WSLInterop"):
+            try:
+                with open(os.path.join(b, n), encoding="utf-8", errors="replace") as f:
+                    if f.readline().strip() == "enabled":
+                        return True
+            except OSError:
+                return None
+    return False
+
+
+def win_homes(mnt=None) -> list:
+    """WSL2: the Windows user folders /mnt shows (/mnt/c/Users/<name> with an AppData), at most 8, sorted."""
+    m = mnt or WIN_MNT
+    out = []
+    try:
+        drives = sorted(d for d in os.listdir(m) if len(d) == 1 and d.isalpha())
+    except OSError:
+        return []
+    for d in drives:
+        u = os.path.join(m, d, "Users")
+        try:
+            names = sorted(os.listdir(u))
+        except OSError:
+            continue
+        for n in names:
+            p = os.path.join(u, n)
+            if n.lower() not in WIN_SKIP and os.path.isdir(os.path.join(p, "AppData")):
+                out.append(p)
+    return out[:8]
+
+
+def linux_probe(kind, which=None, machine=None, binfmt=None, mnt=None) -> dict:
+    """13.11 (r0268): what Claude Code's Linux sandbox and its seccomp filter depend on, for the witness. Never raises."""
+    w = which or _which
+    try:
+        import platform as _pl
+        arch = (machine if machine is not None else _pl.machine()) or ""
+    except Exception:      # noqa: BLE001
+        arch = ""
+    out = {"kind": kind, "bwrap": bool(w("bwrap")), "socat": bool(w("socat")), "arch": str(arch).lower()[:32]}
+    if kind in ("wsl2", "wsl1"):
+        out["interop"] = wsl_interop(binfmt)
+        out["win_homes"] = win_homes(mnt)
+    return out
+
+
 def fact(tool_input, project, env=None, home=None, platform=None, transcript=None, permission_mode=None, cli=None) -> dict:
     env = os.environ if env is None else env
     home = home or os.path.expanduser("~")
@@ -628,13 +739,7 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
             if x not in domains_user:
                 domains_user.append(x)
     managed_only = any(_get(d, "sandbox", "network", "allowManagedDomainsOnly") is True for n, st, d in L if st == "ok" and n == "managed")
-    plat = platform or sys.platform
-    if plat.startswith("linux"):
-        try:
-            with open("/proc/version", encoding="utf-8") as f:
-                plat = "wsl" if "microsoft" in f.read().lower() else "linux"
-        except OSError:
-            plat = "linux"
+    plat = os_kind(platform)
     envf = []
     if project:
         try:
@@ -679,7 +784,7 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
         "managed_domains_only": managed_only,
         "permission_mode": permission_mode[:32] if isinstance(permission_mode, str) and permission_mode else None,
         "settings_digest": fresh["settings_digest"], "since_start": fresh["since_start"], "doubt": doubt[:MAX_LIST],
-    }
+    } | ({"linux": linux_probe(plat)} if plat in LINUX_KINDS else {})
 
 
 # ---- 0.2.58b (L3 04.11): `--doctor` says whether the sandbox is strict for a folder -------------------------------------------------
@@ -700,6 +805,11 @@ CRED_SOURCES = ("Library/Keychains", "Library/Cookies", "Library/HTTPStorages", 
                 "Library/Application Support/Cursor/User/globalStorage", ".config/hub", ".config/glab-cli",
                 "Library/Application Support/glab-cli", ".config/git/credentials", ".gcm", ".cargo/credentials", ".cargo/credentials.toml",
                 ".gem/credentials", "Library/Application Support/pypoetry/auth.toml")
+
+
+def cred_sources(platform) -> tuple:
+    """13.11 (r0268): the credential places of ~ for this system (Linux / WSL2: CRED_SOURCES_LINUX)."""
+    return CRED_SOURCES_LINUX if platform in LINUX_KINDS else CRED_SOURCES
 
 
 def _covered(entry, path):
@@ -734,13 +844,46 @@ def write_hosts(domains) -> list:
     return out
 
 
+def linux_reasons(f) -> list:
+    """13.11 (r0268) = server hookjudge/sandbox.linux_why, the doctor's words: what the Linux / WSL2 fact lacks."""
+    lx = f.get("linux") if isinstance(f, dict) else None
+    if not isinstance(lx, dict):
+        return ["Linux sandbox facts not reported (update deus-witness)"]
+    why = []
+    miss = [n for n in ("bwrap", "socat") if lx.get(n) is not True]
+    if miss:
+        why.append("not installed: %s (Debian / Ubuntu: sudo apt install bubblewrap socat; Fedora: sudo dnf install bubblewrap socat)"
+                   % ", ".join("bubblewrap" if n == "bwrap" else n for n in miss))
+    if lx.get("arch") not in SECCOMP_ARCH:
+        why.append("architecture %s: Claude Code's Unix-socket filter (seccomp) exists only for x86_64 and arm64" % lx.get("arch"))
+    if f.get("platform") == "wsl2":
+        if lx.get("interop") is not False:
+            why.append("WSL: Windows programs (.exe) can be started from Linux and run outside the sandbox; turn interop off "
+                       "(/etc/wsl.conf: [interop] enabled=false, then wsl --shutdown)" if lx.get("interop") else
+                       "WSL: cannot tell whether Windows programs can be started (binfmt_misc unreadable)")
+        hs = lx.get("win_homes")
+        if not isinstance(hs, list):
+            why.append("WSL: Windows home folders not reported")
+        else:
+            deny, allow = f.get("deny_read") or [], f.get("allow_read") or []
+            open_ = [os.path.join(h, s) for h in hs if isinstance(h, str) for s in WIN_SECRETS
+                     if not any(_covered(e.lower(), os.path.join(h, s).lower()) for e in deny if isinstance(e, str))
+                     or any(isinstance(a, str) and (_covered(a.lower(), os.path.join(h, s).lower()) or
+                                                    _covered(os.path.join(h, s).lower(), a.lower())) for a in allow)]
+            if open_:
+                why.append("denyRead does not cover the Windows home's %s: run deus-witness-hook --setup-strict again" % open_[0])
+    return why
+
+
 def strict_reasons(f, home) -> list:
     """Every unmet condition (empty list = strict as far as the client can tell)."""
     why = []
     if not isinstance(f, dict):
         return ["no sandbox fact"]
-    if f.get("platform") != "darwin":
-        why.append("platform %s: only macOS is accepted" % f.get("platform"))
+    if f.get("platform") in ("linux", "wsl2"):
+        why += linux_reasons(f)                       # 13.11 (r0268): Claude Code's Linux sandbox (bubblewrap) counts too
+    elif f.get("platform") != "darwin":
+        why.append("platform %s: quiet mode needs macOS, Linux or WSL2" % f.get("platform"))
     bad = sorted(k for k, v in (f.get("sources") or {}).items() if v not in ("ok", "absent"))
     if bad:
         why.append("settings not readable: " + ", ".join(bad))
@@ -804,7 +947,7 @@ def strict_line(project, env=None, home=None, platform=None) -> str:
         if wh:
             h_ = home or os.path.expanduser("~")
             deny, allow = f.get("deny_read") or [], f.get("allow_read") or []
-            open_ = [s for s in SECRETS + CRED_SOURCES if not any(_covered(e, os.path.join(h_, s)) for e in deny)
+            open_ = [s for s in SECRETS + cred_sources(f.get("platform")) if not any(_covered(e, os.path.join(h_, s)) for e in deny)
                      or any(_covered(a, os.path.join(h_, s)) or _covered(os.path.join(h_, s), a) for a in allow)]
             cf = f.get("cred_files")
             if not open_ and cf == []:

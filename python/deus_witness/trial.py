@@ -310,7 +310,7 @@ QUIET_LATER = ("QUIET MODE: later. Fewer questions later: quiet mode (Claude Cod
 # by the agent (/deus-witness:try) it prints one machine-plain line and try.md has the agent ask the person (the switch is then the
 # owner's passkey question, as in /deus-witness:quiet).
 QUIET_NOW = ("QUIET MODE: offer-now. Without quiet mode Witness asks about most commands (tests, installs, a venv); with it, only about "
-             "what could leave this Mac or cannot be undone. Turn it on now: /deus-witness:quiet (you approve it with your passkey; it "
+             "what could leave this computer or cannot be undone. Turn it on now: /deus-witness:quiet (you approve it with your passkey; it "
              "starts with your next Claude Code session).")
 
 
@@ -324,7 +324,7 @@ def _tty(out):
 def quiet_offer(env=None, out=None, platform=None, ask=None) -> str | None:
     """0.2.61 (r0263): the end of `try` offers quiet mode (see QUIET_NOW above for why). ask: None = only in a terminal; a callable =
     the input function (tests); True / False = force. -> strict.state() after it ("on" when the person said yes and it was written), or
-    None. Never raises. Linux / WSL: nothing (quiet mode is macOS only)."""
+    None. Never raises. r0268: Linux / WSL2 too; where Claude Code's sandbox cannot start yet ("not-ready") or another system: nothing."""
     out = out or sys.stdout
     try:
         from .hook import strict
@@ -344,7 +344,9 @@ def quiet_offer(env=None, out=None, platform=None, ask=None) -> str | None:
         print("", file=out)
         print("Quiet mode (recommended): " + strict.QUIET_LINE, file=out)
         print("It changes %s (all your projects; a backup is kept; undo: deus-witness-hook --undo-strict):" % p, file=out)
-        print("\n".join(strict.summary(cur, strict.strict_settings(cur, strict.DEFAULT_HOSTS, env))), file=out)
+        plat = strict._platform(platform)
+        print("\n".join(strict.summary(cur, strict.strict_settings(cur, strict.DEFAULT_HOSTS, env, plat=plat, homes=strict._homes(plat)))),
+              file=out)
         inp = ask if callable(ask) else input
         try:
             yes = str(inp("Turn on quiet mode now? Type yes (Enter: later): ")).strip().lower() == "yes"

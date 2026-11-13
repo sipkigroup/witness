@@ -201,9 +201,85 @@ def open_signed(data: bytes, witness_pub, typ: str) -> bytes:
     return payload
 
 
-def args_sha256(tool: str, args: Optional[dict], salt: Optional[bytes] = None) -> str:
+def _jcs_num(x) -> str:
+    if isinstance(x, bool):
+        return "true" if x else "false"
+    if isinstance(x, int):
+        if abs(x) > 2 ** 53:
+            raise ValueError("JCS: integer outside the IEEE-754 exact range")
+        return str(x)
+    import math
+    if not math.isfinite(x):
+        raise ValueError("JCS: not a finite number")
+    if x == 0:
+        return "0"
+    sign, r = ("-", repr(-x)) if x < 0 else ("", repr(x))
+    m, _, e = r.partition("e")
+    ip, _, fp = m.partition(".")
+    digits = (ip + fp).lstrip("0")
+    n = len(ip.lstrip("0")) + int(e or 0) if ip.lstrip("0") else int(e or 0) - (len(fp) - len(fp.lstrip("0")))
+    digits = digits.rstrip("0")
+    k = len(digits)
+    if k <= n <= 21:
+        out = digits + "0" * (n - k)
+    elif 0 < n <= 21:
+        out = digits[:n] + "." + digits[n:]
+    elif -6 < n <= 0:
+        out = "0." + "0" * (-n) + digits
+    else:
+        out = digits[0] + ("." + digits[1:] if k > 1 else "") + "e" + ("+" if n - 1 >= 0 else "-") + str(abs(n - 1))
+    return sign + out
+
+
+def _jcs_str(s: str) -> str:
+    out = ['"']
+    for ch in s:
+        o = ord(ch)
+        if ch == '"':
+            out.append('\\"')
+        elif ch == "\\":
+            out.append("\\\\")
+        elif ch in "\b\f\n\r\t":
+            out.append({"\b": "\\b", "\f": "\\f", "\n": "\\n", "\r": "\\r", "\t": "\\t"}[ch])
+        elif o < 0x20 or 0xD800 <= o <= 0xDFFF:
+            out.append("\\u%04x" % o)
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def jcs(v) -> bytes:
+    """RFC 8785 (JCS), the same bytes as the server's signview.jcs."""
+    def enc(x):
+        if x is None:
+            return "null"
+        if isinstance(x, (bool, int, float)):
+            return _jcs_num(x)
+        if isinstance(x, str):
+            return _jcs_str(x)
+        if isinstance(x, (list, tuple)):
+            return "[" + ",".join(enc(i) for i in x) + "]"
+        if isinstance(x, dict):
+            if not all(isinstance(k, str) for k in x):
+                raise ValueError("JCS: member names are strings")
+            return "{" + ",".join(_jcs_str(k) + ":" + enc(x[k]) for k in sorted(x, key=lambda k: k.encode("utf-16-be"))) + "}"
+        raise ValueError("JCS: %s is not JSON" % type(x).__name__)
+    return enc(v).encode("utf-8", "surrogatepass")
+
+
+def args_sha256(tool: str, args: Optional[dict], salt: Optional[bytes] = None, v: int = 1) -> str:
     """The witness' binding of a call: SHA-256 of the canonical JSON of [tool, args] (server action.args_sha256).
-    0.2.26: with the account salt the server sends (GET /v1/salt, DW_ARGS_SALT=transition|on) it is HMAC-SHA-256(salt, "dw-args1\\0" + canonical)."""
+    0.2.26: with the account salt the server sends (GET /v1/salt, DW_ARGS_SALT=transition|on) it is HMAC-SHA-256(salt, "dw-args1\\0" + canonical).
+    r0269: v=2 (server action `args_v: 2`, rule mr-args-2): the bytes are "mr-args-2\\0" + RFC 8785 JCS of [tool, args] (bare SHA-256 or
+    the same HMAC); arguments JCS cannot encode fall back to the v1 bytes, as the server does."""
+    if v == 2:
+        try:
+            raw2 = b"mr-args-2\0" + jcs([tool, args or {}])
+        except (ValueError, TypeError, RecursionError):
+            raw2 = None
+        if raw2 is not None:
+            return hmac.new(salt, raw2, hashlib.sha256).hexdigest() if salt is not None else hashlib.sha256(raw2).hexdigest()
     raw = json.dumps([tool, args or {}], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
     if salt is not None:
         return hmac.new(salt, b"dw-args1\0" + raw, hashlib.sha256).hexdigest()
@@ -228,6 +304,7 @@ class Witness:
                  pin_path: Optional[str] = None, timeout: float = 30.0, transport: Optional[httpx.BaseTransport] = None,
                  pin_new: bool = True, connect_timeout: Optional[float] = None):
         self.url = (url or os.environ.get("DEUS_WITNESS_URL") or DEFAULT_URL).rstrip("/")
+        self.args_v = 2 if os.environ.get("DEUS_WITNESS_ARGS_V") == "2" else 1     # r0269: X-DW-Args-V opt-in (server r0269+)
         self.pin_new = pin_new           # 0.2.32 (K1): False = a URL without a pin is refused (WitnessNotPinned), not pinned at first use
         self.key = key or os.environ.get("DEUS_WITNESS_KEY")
         self.verify = verify
@@ -262,6 +339,8 @@ class Witness:
         rn = getattr(self, "run_nonce", None)             # RT-0.2.41 F1: the nonce of a `deus-witness run` (server 0.2.63+ counts the call)
         if headers and rn and path in ("/v1/hook/judge", "/v1/hook/run/start"):
             headers["X-DW-Run"] = rn
+        if headers and path == "/v1/actions" and getattr(self, "args_v", 1) == 2:
+            headers["X-DW-Args-V"] = "2"                  # r0269: opt-in to the JCS rule (DEUS_WITNESS_ARGS_V=2)
         timeout = kw.pop("timeout", None)
         if timeout is not None:
             kw["timeout"] = self._timeout(timeout)
@@ -359,9 +438,9 @@ class Witness:
         except OSError:
             pass
 
-    def args_hash(self, tool: str, args: Optional[dict]) -> str:
-        """args_sha256 of a call the way THIS server computes it (salted or bare)."""
-        return args_sha256(tool, args, self.salt())
+    def args_hash(self, tool: str, args: Optional[dict], v: int = 1) -> str:
+        """args_sha256 of a call the way THIS server computes it (salted or bare; v=2: the JCS rule, see args_sha256)."""
+        return args_sha256(tool, args, self.salt(), v)
 
     # ---- witness key pinning ----
     def witness_info(self) -> dict:
@@ -450,11 +529,14 @@ class Witness:
         if self._pub is None:
             self.witness_info()
         verify_aar(res.aar, self._pub, res.action or {})
-        if sent is not None and (res.action or {}).get("args_sha256") != self.args_hash(sent[0], sent[1]):
+        av = 2 if (res.action or {}).get("args_v") == 2 else 1         # r0269: the action names its rule; absent = v1
+        if av == 2 and getattr(self, "args_v", 1) != 2:
+            raise AARError("REQUEST_MISMATCH")                          # a v2 binding this client did not ask for
+        if sent is not None and (res.action or {}).get("args_sha256") != self.args_hash(sent[0], sent[1], av):
             if not self.refresh_salt():                  # 0.2.63: a salt from salt.json is asked once more from the server
                 self._salt = False                       # the server may have changed DW_ARGS_SALT since the salt was fetched: ask once more
             try:
-                again = self.args_hash(sent[0], sent[1])
+                again = self.args_hash(sent[0], sent[1], av)
             except WitnessError:
                 again = None
             if (res.action or {}).get("args_sha256") != again:

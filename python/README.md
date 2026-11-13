@@ -212,7 +212,12 @@ of questions per hour; it depends on your work and has not yet been measured on 
 Then start a NEW Claude Code session (the witness treats a session whose settings changed as not strict). Under that sandbox a line the
 classifier cannot read, and a file the agent wrote, run without a question when the sandbox contains them (no network, no write outside
 the project, no secrets): the receipt says `OK_SANDBOXED`. What leaves the sandbox (G2), secrets (G3) and persistence (G4) are asked anyway.
-Linux / Windows: no strict sandbox in this version -- the unreadable lines and written-file runs are questions.
+Linux / WSL2 (r0268): the same command, with Claude Code's Linux sandbox (bubblewrap + socat: `sudo apt install bubblewrap socat` or
+`sudo dnf install bubblewrap socat` first). `--setup-strict` checks the machine before it writes anything and says what is missing
+(the packages; Ubuntu 24.04's AppArmor rule for unprivileged user namespaces, with the AppArmor profile that allows it for bubblewrap;
+WSL1; Windows interop on WSL2, which must be off). A container without /proc: `--setup-strict --weaker-nested` writes Claude Code's
+weaker nested sandbox on request only; the witness does not count it. Windows (native): no strict sandbox -- the unreadable lines and
+written-file runs are questions.
 
 ## Cursor
 Cursor reads MCP servers from `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a project); the entry is the same as for Claude Desktop. Put the real MCP server after `--`:
