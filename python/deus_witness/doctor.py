@@ -14,7 +14,7 @@ import re
 import socket
 import sys
 
-from . import _compat
+from . import _compat, links
 
 TOOL = "doctor-0.2"
 PROXY_CMD = "deus-witness-mcp"
@@ -304,7 +304,7 @@ USAGE = ("deus-witness audit [--json] [--project DIR]\n"
          "       deus-witness run [--] claude <args...>\n"
          "       deus-witness doctor [--json] [--no-network] [--project DIR]\n"
          "       deus-witness [--url U] [--no-verify-aar] -- <upstream MCP server command...>")
-EPILOG = """commands:
+EPILOG_TEMPLATE = """commands:
   audit     how open is your Claude Code to the agent: grade A-F, what it can do without asking, how to close each (read only, no
             network, no account; --json for machines; exit code 0 always)
   try       a trial account in one command: agent key saved locally, two passkey touches in the browser when the agent first needs you;
@@ -314,13 +314,21 @@ EPILOG = """commands:
             before the run, exit 3 after it when no Witness hook ran (see: deus-witness run --help)
   --        run the MCP proxy in front of an upstream MCP server (same as deus-witness-mcp --):
               uvx deus-witness -- npx -y @modelcontextprotocol/server-filesystem /tmp/sandbox
-            needs DEUS_WITNESS_KEY in the environment (the agent key, shown once on the Agents page of https://witness.sipkigroup.com)
+            needs DEUS_WITNESS_KEY in the environment (the agent key, shown once on the Agents page of {site})
 Claude Code hook (built-in Bash / Edit / Write):  uvx --from deus-witness deus-witness-hook --help
-Setup: https://witness.sipkigroup.com/dl/docs/quickstart.html"""
+Setup: {quickstart}"""
+
+
+def epilog(url=None) -> str:
+    """r0274: the links name the witness this machine is set up for (a self-hosted one), not ours."""
+    return EPILOG_TEMPLATE.replace("{site}", links.site(url)).replace("{quickstart}", links.quickstart(url))
+
+
+EPILOG = epilog()                              # the default service's text (kept for callers of 0.2.69 and older)
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="deus-witness", formatter_class=argparse.RawDescriptionHelpFormatter, usage=USAGE, epilog=EPILOG)
+    ap = argparse.ArgumentParser(prog="deus-witness", formatter_class=argparse.RawDescriptionHelpFormatter, usage=USAGE, epilog=epilog(links.configured_url()))
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor", help="where can the agent go around the witness (reads configs, changes nothing)")
     d.add_argument("--json", action="store_true")

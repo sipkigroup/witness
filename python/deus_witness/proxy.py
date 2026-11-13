@@ -18,7 +18,7 @@ import json
 import os
 import sys
 
-from . import __version__, _compat
+from . import __version__, _compat, links
 from .client import AARError, Witness, WitnessError, WitnessKeyChanged, args_sha256
 from .doctor import coverage_body, diagnose
 
@@ -35,17 +35,26 @@ def log(msg: str) -> None:
     sys.stderr.flush()
 
 
-KEY_HELP = ("the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com "
-            "and use its key (dwk_...)")
-NO_KEY_HELP = ("set DEUS_WITNESS_KEY (dwk_...). The key is shown once when you create an agent on the Agents page of "
-               "https://witness.sipkigroup.com (quickstart step 2: https://witness.sipkigroup.com/dl/docs/quickstart.html)")
+def key_help(url=None) -> str:
+    """r0274: the Agents page of the witness this proxy talks to (a self-hosted one), not ours."""
+    return ("the agent key is wrong or was deleted: create a new agent on the Agents page of %s "
+            "and use its key (dwk_...)" % links.site(url))
 
 
-def witness_error_text(e: WitnessError) -> str:
+def no_key_help(url=None) -> str:
+    return ("set DEUS_WITNESS_KEY (dwk_...). The key is shown once when you create an agent on the Agents page of "
+            "%s (quickstart step 2: %s)" % (links.site(url), links.quickstart(url)))
+
+
+KEY_HELP = key_help()                          # the default service's texts (kept for callers of 0.2.69 and older)
+NO_KEY_HELP = no_key_help()
+
+
+def witness_error_text(e: WitnessError, url=None) -> str:
     """The text for the agent when the witness answered with an error. The call is blocked in every case (fail closed); only the words
-    differ: a refused key is not an unreachable witness."""
+    differ: a refused key is not an unreachable witness. `url`: the witness asked (its Agents page is named)."""
     if e.status == 401 or e.code == "BAD_KEY":
-        return "Blocked by Deus Witness: BAD_KEY (receipt none): %s" % KEY_HELP
+        return "Blocked by Deus Witness: BAD_KEY (receipt none): %s" % key_help(url)
     return "Blocked by Deus Witness: WITNESS_UNAVAILABLE %s (receipt none)" % e.code
 
 
@@ -197,7 +206,7 @@ class Proxy:
             return "block", "Blocked by Deus Witness: WITNESS_KEY_CHANGED (receipt none)"
         except WitnessError as e:
             log("tool=%s witness error %s %s" % (name, e.status, e.code))
-            return "block", witness_error_text(e)
+            return "block", witness_error_text(e, getattr(self.w, "url", None))
 
     async def handle_call(self, line: bytes, msg: dict, st: CallState = None) -> None:
         st = st or CallState()
@@ -319,7 +328,7 @@ class Proxy:
                 log("coverage: witness answered %s %s (not stored)" % (e.status, e.code))
         except WitnessError as e:
             log("start-up: witness unreachable (%s), every call of this run is blocked" % e.code)
-            self.startup_block = witness_error_text(e)
+            self.startup_block = witness_error_text(e, getattr(self.w, "url", None))
         finally:
             self.ready.set()
 
@@ -456,7 +465,7 @@ def main(argv=None) -> None:
         sys.exit(2)
     key = os.environ.get("DEUS_WITNESS_KEY")
     if not key:
-        sys.stderr.write("deus-witness-mcp: %s\n" % NO_KEY_HELP)
+        sys.stderr.write("deus-witness-mcp: %s\n" % no_key_help(o.url or os.environ.get("DEUS_WITNESS_URL")))
         sys.exit(2)
     verify = not (o.no_verify_aar or os.environ.get("DEUS_WITNESS_VERIFY") == "0")
     w = Witness(o.url, key, verify=verify)

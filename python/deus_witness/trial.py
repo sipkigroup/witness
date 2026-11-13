@@ -34,7 +34,7 @@ import time
 
 import httpx
 
-from . import __version__, _compat
+from . import __version__, _compat, links
 
 DEFAULT_URL = "https://witness.sipkigroup.com"
 KEY_FILE = "agent-key.json"
@@ -396,11 +396,20 @@ def _withdraw(key, url, transport) -> bool:
         return False                           # cannot ask: it expires by itself (7 days) and nothing holds its key
 
 
-INSTALL_HOW = ("in Claude Code: /plugin marketplace add sipkigroup/witness, then /plugin install deus-witness@sipkigroup; or add the hook "
-               "to settings.json - https://witness.sipkigroup.com/dl/docs/quickstart.html#hook")
-HOOK_MISSING_TEXT = ("The hook is NOT installed yet, so nothing is checked: Claude Code runs every call as before. Install the plugin "
-                     "(in Claude Code: /plugin marketplace add sipkigroup/witness, then /plugin install deus-witness@sipkigroup) or add "
-                     "the hook to settings.json - https://witness.sipkigroup.com/dl/docs/quickstart.html#hook")
+def install_how(url=None) -> str:
+    """r0274: the quickstart link is on the witness this key is for (a self-hosted one serves the same page), not on ours."""
+    return ("in Claude Code: /plugin marketplace add sipkigroup/witness, then /plugin install deus-witness@sipkigroup; or add the hook "
+            "to settings.json - " + links.quickstart(url, "#hook"))
+
+
+def hook_missing_text(url=None) -> str:
+    return ("The hook is NOT installed yet, so nothing is checked: Claude Code runs every call as before. Install the plugin "
+            "(in Claude Code: /plugin marketplace add sipkigroup/witness, then /plugin install deus-witness@sipkigroup) or add "
+            "the hook to settings.json - " + links.quickstart(url, "#hook"))
+
+
+INSTALL_HOW = install_how()                    # the default service's texts (kept for callers of 0.2.69 and older)
+HOOK_MISSING_TEXT = hook_missing_text()
 
 
 def hook_installed(project, env):
@@ -584,7 +593,7 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
     if hooked == "mixed":                      # RT-0.2.41 F5: found under one config dir, not under another: never a flat "NOT installed"
         print("The hook may not be installed: it is there for Claude Code with config dir %s, but not with %s. Claude Code uses the "
               "CLAUDE_CONFIG_DIR of the shell you start it from: start it with the config dir that has the hook, or install it there too "
-              "(%s)." % (", ".join(d for d, v in places.items() if v), ", ".join(d for d, v in places.items() if v is False), INSTALL_HOW),
+              "(%s)." % (", ".join(d for d, v in places.items() if v), ", ".join(d for d, v in places.items() if v is False), install_how(url)),
               file=out)
         print("Once the hook is there, the first call that needs you waits; " + touches, file=out)
         return 0
@@ -593,10 +602,10 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
         pr = seen.get("plugin_root") if isinstance(seen.get("plugin_root"), str) else None
         print("The Witness hook is active in this Claude Code session: it saw this very command%s. It is not registered as an installed "
               "plugin (for example Claude Code was started with --plugin-dir), so a Claude Code started without that checks nothing; to have "
-              "it always: %s." % ((" (plugin loaded from %s)" % _tilde(pr, e)) if pr else "", INSTALL_HOW), file=out)
+              "it always: %s." % ((" (plugin loaded from %s)" % _tilde(pr, e)) if pr else "", install_how(url)), file=out)
         hooked = True
     if hooked is False:                        # 0.2.41 (HN rehearsal 7): a key without a hook checks nothing - say it, never "as usual"
-        print(HOOK_MISSING_TEXT, file=out)
+        print(hook_missing_text(url), file=out)
         print("(Checked the Claude Code config dir(s) %s. If you start Claude Code with another CLAUDE_CONFIG_DIR, run this with that "
               "one set to check there.)" % ", ".join(places), file=out)
         print("Once the hook is there, the first call that needs you waits; " + touches, file=out)

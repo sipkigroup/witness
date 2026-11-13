@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 
-from .. import _compat
+from .. import _compat, links
 
 MIN_CC = (2, 1, 295)                       # first Claude Code with "onFailure": "block" for command hooks
 MARGIN_S = 5.0                             # our own decision must be printed this long before Claude Code cancels the hook
@@ -364,7 +364,7 @@ UNSURE_BANNER = "DEUS WITNESS: CANNOT TELL FROM HERE whether the hook is fail-cl
 TRY_CMD = "uvx --from deus-witness deus-witness try"     # 0.2.40: a uv user has no `deus-witness` on PATH
 
 
-QUICKSTART_HOOK = "https://witness.sipkigroup.com/dl/docs/quickstart.html#hook"
+QUICKSTART_HOOK = links.quickstart(None, "#hook")     # the default service's (r0274: next_steps names the configured witness's)
 SETTINGS_EXAMPLE = "https://github.com/sipkigroup/witness/blob/main/python/examples/unattended/settings.unattended.json"
 
 
@@ -373,16 +373,17 @@ def next_steps(env=None, r=None):
     0.2.40: the key counts when it is in the key file `try` saved too (the hook reads it there), as check() found it (r)."""
     e = os.environ if env is None else env
     out = [""]
+    url = links.configured_url(e)                    # r0274: a self-hosted witness's pages, not ours
     ks = r.get("key_source") if r is not None and "key_source" in r else agent_key_source(e)
     if ks is None:
         out.append("  DEUS_WITNESS_KEY not set -> sign up and create an agent with the claude-code preset: "
-                   "https://witness.sipkigroup.com/signup.html")
+                   + links.signup(url))
         out.append("  (no key file either; a trial account in one command: %s)" % TRY_CMD)
     if r is not None and r.get("plugin"):
         out.append("  Plugin install: its hooks.json already has \"onFailure\": \"block\", `|| exit 2` and the timeout; fix the lines above.")
         return out
     out.append("  Next: copy the settings from settings.unattended.json (%s) into <project>/.claude/settings.json" % SETTINGS_EXAMPLE)
-    out.append("  Guide (steps 1-3 of the hook section): " + QUICKSTART_HOOK)
+    out.append("  Guide (steps 1-3 of the hook section): " + links.quickstart(url, "#hook"))
     return out
 
 

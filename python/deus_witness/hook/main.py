@@ -81,7 +81,7 @@ import sys
 import threading
 import time
 
-from .. import __version__, _compat
+from .. import __version__, _compat, links
 from . import archlinks, envmask, failsafe, fingerprint, gitref, mask, offline, pin, samefile, sandbox_fact, selfpath, shadow
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
 from .form import default_form
@@ -1761,7 +1761,7 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
             return deny("WITNESS_NOT_CONFIGURED", detail="(the witness is NOT working: `deus-witness try` was started but saved no agent key "
                         "(see its last lines). Run /deus-witness:try again (in Claude Code, or `uvx --from deus-witness deus-witness try` "
                         "in your terminal); to use Claude Code without the witness, remove %s)" % try_mark(s.env))
-        return deny("WITNESS_NOT_CONFIGURED", detail="(run `uvx --from deus-witness deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of https://witness.sipkigroup.com)")
+        return deny("WITNESS_NOT_CONFIGURED", detail="(run `uvx --from deus-witness deus-witness try` in your terminal for a trial account, or set DEUS_WITNESS_KEY; the key is shown once when you create an agent on the Agents page of %s)" % links.site(getattr(s, "url", None)))
     own = witness is None
     if own and s.url_conflict:                            # 0.2.32 (K1): fail-closed, and the key is not sent anywhere
         return deny("WITNESS_URL_MISMATCH", detail="(DEUS_WITNESS_URL is %s, but the agent key on this machine was set up for %s "
@@ -1990,13 +1990,13 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
     except WitnessError as e:
         log("witness error %s %s" % (e.status, e.code))
         if e.status == 401 and e.code == "TRIAL_EXPIRED":
-            return deny("BAD_KEY", detail="(the trial account expired and is being erased: run `uvx --from deus-witness deus-witness try` for a new one, or sign up at https://witness.sipkigroup.com)")
+            return deny("BAD_KEY", detail="(the trial account expired and is being erased: run `uvx --from deus-witness deus-witness try` for a new one, or sign up at %s)" % links.site(getattr(w, "url", None)))
         if e.status in (401, 404) and _replaced(s):       # 0.2.29: a newer `deus-witness try` replaced this trial account (its key is gone)
             return deny("TRIAL_REPLACED", detail=REPLACED_TEXT)
         if (e.status == 401 or e.code == "BAD_KEY") and getattr(s, "key_trial", False):
             return deny("BAD_KEY", detail=TRIAL_GONE_TEXT)  # 27.10 (polygon O6): a trial user never saw an Agents page
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
-            return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of https://witness.sipkigroup.com and use its key, or run `uvx --from deus-witness deus-witness try`)")
+            return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of %s and use its key, or run `uvx --from deus-witness deus-witness try`)" % links.site(getattr(w, "url", None)))
         if e.status == 0 or 500 <= (e.status or 0) <= 599:   # 0.2.48: the network or the witness itself is down (not a refusal, not 4xx)
             slow = e.status == 0 and offline.is_timeout(getattr(e, "detail", ""))
             if slow and own:
