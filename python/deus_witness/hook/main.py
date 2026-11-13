@@ -214,8 +214,9 @@ def notify_text(info, local=()) -> str:
         elif info.get("muted"):
             t = "Notification: NOT sent (this agent's notifications are muted in Witness)"
         else:
-            t = ("Notification: NOT sent - this account has no phone push and no Telegram / Slack / e-mail channel (add one: "
-                 "open Witness Settings on your phone, Add to Home Screen, allow notifications)")
+            t = ("Notification: NOT sent - this account has no phone push and no Telegram / Slack / e-mail channel (add one: press "
+                 "\"Get questions on your phone\" on the Witness page after your passkey touch, or open the Dashboard on your phone; "
+                 "on iPhone add Witness to the Home Screen first)")
     else:
         t = "Notification: unknown (this witness does not report it)"
     return t + ("; " + " and ".join(here) if here else "") + "."
@@ -1196,6 +1197,49 @@ def _is_abs(p, windows=None):
     return _compat.is_abs_path(p, windows)
 
 
+def git_head(root):
+    """0.2.65 (server 0.2.96): the git branch of the project, read from .git/HEAD as text (git is not run): "main" for a branch,
+    "(detached) <12 hex>" for a detached HEAD, None outside a repository or on anything unreadable. The witness ends a "from now on"
+    of this project that was given on another branch (the files a `pytest` or a `make` runs are that branch's files)."""
+    if not isinstance(root, str) or not root.startswith("/"):
+        return None
+    d = root
+    for _ in range(64):
+        g = os.path.join(d, ".git")
+        if os.path.isdir(g):
+            gd = g
+            break
+        if os.path.isfile(g):
+            try:
+                with open(g, encoding="utf-8", errors="replace") as f:
+                    line = f.read(4096).strip()
+            except OSError:
+                return None
+            if not line.startswith("gitdir:"):
+                return None
+            gd = line[7:].strip()
+            gd = gd if os.path.isabs(gd) else os.path.normpath(os.path.join(d, gd))
+            break
+        up = os.path.dirname(d)
+        if up == d:
+            return None
+        d = up
+    else:
+        return None
+    try:
+        with open(os.path.join(gd, "HEAD"), encoding="utf-8", errors="replace") as f:
+            head = f.read(1024).strip()
+    except OSError:
+        return None
+    if head.startswith("ref:"):
+        ref = head[4:].strip()
+        b = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ref
+        return b[:256] if b and b.isprintable() else None
+    if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
+        return "(detached) " + head[:12]
+    return None
+
+
 def _git_self(cmd, root, home, env):
     """0.2.63 (ISPYTANIE-PERED-LYUDMI-1211 Н3, server 0.2.95): the SHA-256 of the person's own git user.email (the global config, the XDG
     one, the project's .git/config; read as text, git is not run), only when the line itself shows that address -- nothing the line does
@@ -1260,6 +1304,10 @@ class Facts:
         self.session_id = sid if isinstance(sid, str) and 0 < len(sid) <= 128 else None
         self.which = None
         self.git_self = None
+        try:
+            self.git_head = git_head(self.root)          # 0.2.65: the project's git branch (a "from now on" ends on another one)
+        except Exception:      # noqa: BLE001  no fact: nothing ends
+            self.git_head = None
         if ev.get("tool_name") == "Bash":
             try:
                 self.git_self = _git_self(inp.get("command"), self.root, self.env.get("HOME") or self.home, env)
@@ -1432,7 +1480,8 @@ class Facts:
                               **({"harness_held": True} if hh else {}),
                               **({"settings": self.settings} if self.settings is not None else {}),
                               **({"which": self.which} if self.which else {}),
-                              **({"git_self": self.git_self} if self.git_self else {})),
+                              **({"git_self": self.git_self} if self.git_self else {}),
+                              **({"git_head": self.git_head} if self.git_head else {})),
                 "client": CLIENT, "part": part, "nonce": self.nonce,
                 **({"session_id": self.session_id} if self.session_id is not None else {})}
 

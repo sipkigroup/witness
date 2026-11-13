@@ -4,6 +4,11 @@
 MCP proxy, Claude Code hook and SDK for Deus Witness: your agent's tool calls go to a witness service outside the agent before they
 run; a decision made against the rules you signed gets a signed receipt (a few automatic refusals stay in the server database only).
 
+**What is different:** your passkey signs exactly what you saw and exactly the command that will run - unlike the approve buttons of
+apps such as Pushary and Happy. A dialog the agent rewords or fakes (Lies-in-the-Loop, Loopjacking) cannot get your signature on
+another command: the signature covers the hash of the screen you were shown and the hash of the exact arguments. Anyone can check the
+receipt offline, without us.
+
 ## How open is your Claude Code? (no account, 10 seconds)
 ```
 uvx deus-witness audit            # or --json
