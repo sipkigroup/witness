@@ -257,11 +257,12 @@ def _relevant(d):
             "dirs": p.get("additionalDirectories")}
 
 
-def settings_view(project, env, home, transcript=None):
+def settings_view(project, env, home, transcript=None, cli=None):
     """0.2.56 client: -> (layers, {"settings_digest", "since_start"}) -- also sent with every non-Bash call (facts.settings), so that the
-    witness has the session's first view before the first Bash call."""
+    witness has the session's first view before the first Bash call. cli (0.2.64, `deus-witness audit`): a ready --settings view instead
+    of reading the process ancestry (`{}` = a terminal command, no Claude Code above it)."""
     paths = []
-    L = layers(project, env, home, transcript, paths, cli=cli_settings(_ancestry()))
+    L = layers(project, env, home, transcript, paths, cli=cli_settings(_ancestry()) if cli is None else cli)
     raw = json.dumps([[n, st, _relevant(d)] for n, st, d in L], sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
     start = _session_start(transcript)
     since = []
@@ -545,10 +546,10 @@ def cred_files(project, home, env=None) -> list:
     return list(dict.fromkeys(out))[:MAX_LIST]
 
 
-def fact(tool_input, project, env=None, home=None, platform=None, transcript=None, permission_mode=None) -> dict:
+def fact(tool_input, project, env=None, home=None, platform=None, transcript=None, permission_mode=None, cli=None) -> dict:
     env = os.environ if env is None else env
     home = home or os.path.expanduser("~")
-    L, fresh = settings_view(project, env, home, transcript)
+    L, fresh = settings_view(project, env, home, transcript, cli=cli)
     ok = [d for _, st, d in L if st == "ok"]
 
     def scalar(*path):
@@ -642,7 +643,7 @@ def fact(tool_input, project, env=None, home=None, platform=None, transcript=Non
             envf = []
     ti = tool_input if isinstance(tool_input, dict) else {}
     # 0.2.56 client: what the hook cannot see or what breaks the "no write outside the project" premise -> doubt (never strict)
-    doubt = cli_doubts(_ancestry())
+    doubt = cli_doubts(_ancestry()) if cli is None else []
     if any(_get(d, "sandbox", "filesystem", "allowWrite") not in (None, []) for d in ok):
         doubt.append("sandbox.filesystem.allowWrite is set: sandboxed code may write outside the project")
     if any(_get(d, "permissions", "additionalDirectories") not in (None, []) for d in ok):

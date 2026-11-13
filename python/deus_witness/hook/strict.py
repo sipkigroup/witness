@@ -25,7 +25,13 @@ that as the strict fact (env_hidden). The person's own CLAUDE_CODE_SUBPROCESS_EN
 lists DEFAULT_HOSTS (read hosts of GitHub, npm and PyPI, all narrow) in the same diff, under the same one yes; `--host NAME` adds the
 person's own (narrow names only). A wide entry the person had (`*`, `*.com`, an IP) is dropped (shown in the diff): it ends the strict fact.
 0.2.60 (r0263): the offer is not the first touch. `try` ends with ONE line (quiet mode exists, the command); the session-start hint comes
-from the second session after the key was saved, at most once in 7 days, never after an explicit no (hint_due / declined)."""
+from the second session after the key was saved, at most once in 7 days, never after an explicit no (hint_due / declined).
+0.2.64 (r0266): permissions.deny "Read(...)" for the places with keys that `deus-witness audit` names (READ_DENY). L3 12.11 (Claude Code
+2.1.323, fake key in a scratch folder): the Read tool does NOT honour sandbox.filesystem.denyRead (it read a file the sandbox denied to
+`cat`), a Read deny rule does stop it -- and Claude Code applies that rule to sandboxed commands too, so it adds nothing commands could
+read before (every path below is already in denyRead). `--undo-strict` takes out exactly these rules (READ_DENY minus the ones the
+backup had) and keeps any rule the person added since; the rest of the file comes back from the backup as before. No rule for the
+project's .env: it would also close .env to sandboxed commands (L3 above) and break tests that load it."""
 from __future__ import annotations
 
 import difflib
@@ -63,6 +69,10 @@ DEFAULT_HOSTS = ["github.com", "codeload.github.com", "objects.githubusercontent
 # 12.11 (r0263): hidden from sandboxed commands by name (sandbox.credentials.envVars, mode deny): the agent key, and the tokens that act
 # on those hosts. Nothing else: OPENAI_API_KEY, DATABASE_URL, AWS_* stay for the person's tests (no listed host takes them).
 HIDE_ENV = list(sandbox_fact.WITNESS_KEY_VARS) + list(sandbox_fact.FORGE_NAMES)
+# 0.2.64 (r0266): the Read tool's own lock on the places with keys = audit.SECRETS (a test keeps the two equal). Folders get /**.
+READ_SECRET_DIRS = [".ssh", ".aws", "Library/Keychains", ".config/gh", ".kube", ".gnupg", ".config/gcloud", ".azure"]
+READ_SECRET_FILES = [".netrc", ".docker/config.json", ".npmrc", ".pypirc", ".git-credentials"]
+READ_DENY = ["Read(~/%s/**)" % x for x in READ_SECRET_DIRS] + ["Read(~/%s)" % x for x in READ_SECRET_FILES]
 BLOCK = {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False, "excludedCommands": [],
          "network": {"allowedDomains": [], "strictAllowlist": True, "allowUnixSockets": [], "allowAllUnixSockets": False, "allowLocalBinding": False},
          "filesystem": {"denyRead": ["~/" + s for s in SECRETS + CRED_SOURCES]}}
@@ -138,6 +148,10 @@ def strict_settings(cur: dict, hosts=(), env=None) -> dict:
     cr["envVars"] = ev
     sb["credentials"] = cr
     out["sandbox"] = sb
+    perm = out.get("permissions") if isinstance(out.get("permissions"), dict) else {}
+    dn = [x for x in perm.get("deny")] if isinstance(perm.get("deny"), list) else []
+    perm["deny"] = dn + [r for r in READ_DENY if r not in dn]
+    out["permissions"] = perm
     env_ = out.get("env") if isinstance(out.get("env"), dict) else {}
     have = {k.lower() for k in env_}
     for k, v in tool_env().items():
@@ -224,6 +238,7 @@ def summary(cur, new, hosts=None) -> list:
     out = ["- every command the agent runs stays inside Claude Code's sandbox (no way to run it outside)",
            "- network for those commands: only %s" % (", ".join(dom) if dom else "none"),
            "- they cannot read %d places with keys (%s ...), your login keychain or browser cookies" % (len(deny), ", ".join(deny[:3])),
+           "- Claude Code's Read tool cannot open %d of them either (~/.ssh, ~/.aws, the keychain ...: permissions.deny)" % len(READ_DENY),
            "- hidden from them: %s" % (", ".join(hid[:4]) + (" and %d more token names" % (len(hid) - 4) if len(hid) > 4 else "") if hid else "nothing"),
            "- npm / uv caches move into Claude Code's own temp folder (so installs work inside the sandbox)"]
     gone = [k for k in WEAKER if k in sb0]
@@ -397,8 +412,27 @@ def undo(env=None) -> int:
         print("deus-witness-hook --undo-strict: no backup next to %s" % p, file=sys.stderr)
         return 1
     src = os.path.join(d, baks[-1])
-    with open(src, "rb") as f, open(p + ".tmp", "wb") as g:
-        g.write(f.read())
+    with open(src, "rb") as f:
+        raw = f.read()
+    try:
+        old = json.loads(raw.decode("utf-8")) if raw.strip() else {}
+        cur = json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
+    except (ValueError, OSError, UnicodeDecodeError):
+        old = cur = None
+    if isinstance(old, dict) and isinstance(cur, dict):
+        # 0.2.64 (r0266): exactly our Read rules go; a deny rule the person added after --setup-strict stays
+        op = old.get("permissions") if isinstance(old.get("permissions"), dict) else None
+        od = [x for x in (op or {}).get("deny") or []] if isinstance((op or {}).get("deny"), list) else []
+        cp = cur.get("permissions") if isinstance(cur.get("permissions"), dict) else {}
+        cd = [x for x in cp.get("deny") or []] if isinstance(cp.get("deny"), list) else []
+        added = [x for x in cd if x not in od and x not in READ_DENY]
+        if added:
+            op = op if op is not None else {}
+            op["deny"] = od + added
+            old["permissions"] = op
+            raw = (json.dumps(old, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    with open(p + ".tmp", "wb") as g:
+        g.write(raw)
     os.replace(p + ".tmp", p)
     print("restored %s from %s" % (p, src))
     return 0

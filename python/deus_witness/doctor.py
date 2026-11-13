@@ -298,12 +298,15 @@ def render(r: dict) -> str:
     return "\n".join(lines)
 
 
-SUBCOMMANDS = ("doctor", "try", "run")
-USAGE = ("deus-witness try [--project DIR] [--no-browser] [--force]\n"
+SUBCOMMANDS = ("doctor", "try", "run", "audit")
+USAGE = ("deus-witness audit [--json] [--project DIR]\n"
+         "       deus-witness try [--project DIR] [--no-browser] [--force]\n"
          "       deus-witness run [--] claude <args...>\n"
          "       deus-witness doctor [--json] [--no-network] [--project DIR]\n"
          "       deus-witness [--url U] [--no-verify-aar] -- <upstream MCP server command...>")
 EPILOG = """commands:
+  audit     how open is your Claude Code to the agent: grade A-F, what it can do without asking, how to close each (read only, no
+            network, no account; --json for machines; exit code 0 always)
   try       a trial account in one command: agent key saved locally, two passkey touches in the browser when the agent first needs you;
             run again, it replaces the previous trial while that has no passkey; --force: replace any saved key (see: deus-witness try --help)
   doctor    where can the agent go around the witness (reads client configs, changes nothing)
@@ -334,6 +337,9 @@ def cli() -> None:
     if argv[:1] == ["run"]:                   # 0.2.41: deus_witness/run.py (before the `--` proxy form: `run -- claude ...`)
         from .run import run as run_run
         sys.exit(run_run(argv[1:]))
+    if argv[:1] == ["audit"]:                 # 0.2.64: deus_witness/audit.py (read only, no network, rc 0 always)
+        from .audit import main as audit_main
+        sys.exit(audit_main(argv[1:]))
     if argv[:1] == ["try"]:                   # 0.2.28: deus_witness/trial.py
         from .trial import run as trial_run
         sys.exit(trial_run(argv[1:]))

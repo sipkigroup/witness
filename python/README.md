@@ -4,6 +4,16 @@
 MCP proxy, Claude Code hook and SDK for Deus Witness: your agent's tool calls go to a witness service outside the agent before they
 run; a decision made against the rules you signed gets a signed receipt (a few automatic refusals stay in the server database only).
 
+## How open is your Claude Code? (no account, 10 seconds)
+```
+uvx deus-witness audit            # or --json
+```
+Reads your Claude Code settings (managed, project, local, user), changes nothing, opens no network connection, needs no account. It
+prints a grade A-F and what the agent can do right now without asking you ("can send ~/.ssh, ~/.aws to any address on the internet"),
+each with the one setting that closes it (or `deus-witness-hook --setup-strict`), and says which of them only a check of each call at
+run time can close. Values of secrets are never shown, only names and paths; what the settings do not decide is printed as "not
+determined". Exit code 0 always: a report, not a gate.
+
 ## Install
 ```
 pip install deus-witness
