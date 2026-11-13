@@ -6,9 +6,9 @@
 #   deus-witness-hook.sh --post-tool-use   PostToolUse(Failure): says so when a call other than the approved one ran (r0272)
 #
 # Where the client comes from, in this order:
-#   1. `deus-witness-hook` on PATH (pip install "deus-witness==0.2.70"; Python 3.10+ in a venv OUTSIDE the project: one found inside
+#   1. `deus-witness-hook` on PATH (pip install "deus-witness==0.2.71"; Python 3.10+ in a venv OUTSIDE the project: one found inside
 #      the project, as found or resolved, is not used - the agent may write there)
-#   2. `uvx --from "deus-witness==0.2.70" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
+#   2. `uvx --from "deus-witness==0.2.71" deus-witness-hook` (needs uv: https://docs.astral.sh/uv/)
 #
 # The agent key: DEUS_WITNESS_KEY, else the key file `deus-witness try` saved (0.2.65: the plugin has no settings screen any more; a value
 # saved by an older plugin's "Configure" screen, CLAUDE_PLUGIN_OPTION_AGENT_KEY, is still read)
@@ -20,9 +20,9 @@
 # (`|| exit 2` and "onFailure": "block" in hooks.json).
 set -u
 
-SPEC="deus-witness==0.2.70"
+SPEC="deus-witness==0.2.71"
 SIGNUP="https://witness.sipkigroup.com/signup.html"
-TRY="/deus-witness:try (or in your terminal: uvx --from \"deus-witness==0.2.70\" deus-witness try)"
+TRY="/deus-witness:try (or in your terminal: uvx --from \"deus-witness==0.2.71\" deus-witness try)"
 
 # 0.2.65 (L3 Linux 13.11: the "Configure Deus Witness" screen after install left new users guessing): no userConfig in plugin.json.
 # Settings come from the environment (DEUS_WITNESS_KEY, DEUS_WITNESS_URL, DEUS_WITNESS_STRICT); options an older plugin saved still count.
@@ -159,7 +159,7 @@ elif [ -n "$dropped" ]; then
   done
 fi
 if [ ${#runner[@]} -eq 0 ] && command -v uvx >/dev/null 2>&1; then
-  runner=(uvx --quiet --from "deus-witness==0.2.70" deus-witness-hook)   # literal pin: the directory validator must see it
+  runner=(uvx --quiet --from "deus-witness==0.2.71" deus-witness-hook)   # literal pin: the directory validator must see it
 fi
 INPROJ_MSG="the deus-witness-hook on PATH ($inproj) is inside the project (or resolves there), where the agent may write, so it is not used. Install uv (https://docs.astral.sh/uv/), or install the client outside the project (a venv elsewhere)"
 
@@ -197,7 +197,7 @@ preflight() {
   if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
     p="$p Note: $INPROJ_MSG."
   elif [ ${#runner[@]} -eq 0 ]; then
-    p="$p First install uv (https://docs.astral.sh/uv/): without it /deus-witness:try cannot run (or: pip install \"deus-witness==0.2.70\" with Python 3.10+ in a venv)."
+    p="$p First install uv (https://docs.astral.sh/uv/): without it /deus-witness:try cannot run (or: pip install \"deus-witness==0.2.71\" with Python 3.10+ in a venv)."
   fi
   v="$("${CLAUDE_CODE_EXECPATH:-claude}" --version 2>/dev/null </dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
   if [ -n "$v" ]; then
@@ -233,7 +233,7 @@ if [ "$mode" = "--session-start" ]; then
     exit 0
   fi
   if [ ${#runner[@]} -eq 0 ]; then
-    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"deus-witness==0.2.70\" (Python 3.10+ in a venv)"
+    say_session "DEUS WITNESS plugin: the client is missing - every matched tool call is BLOCKED. Install uv (https://docs.astral.sh/uv/) or: pip install \"deus-witness==0.2.71\" (Python 3.10+ in a venv)"
     exit 0
   fi
   exec "${runner[@]}" --session-start </dev/null
@@ -308,6 +308,6 @@ if [ ${#runner[@]} -eq 0 ] && [ -n "$inproj" ]; then
 fi
 if [ ${#runner[@]} -eq 0 ]; then
   cat >/dev/null
-  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"deus-witness==0.2.70\" (Python 3.10+ in a venv). To work without Witness, the user runs in their own terminal: claude plugin disable deus-witness@sipkigroup (back on: claude plugin enable deus-witness@sipkigroup)"
+  deny "Blocked by Deus Witness: the client is not installed. Install uv (https://docs.astral.sh/uv/) or run: pip install \"deus-witness==0.2.71\" (Python 3.10+ in a venv). To work without Witness, the user runs in their own terminal: claude plugin disable deus-witness@sipkigroup (back on: claude plugin enable deus-witness@sipkigroup)"
 fi
 exec "${runner[@]}"
