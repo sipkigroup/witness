@@ -77,13 +77,13 @@ see `OPENAI_API_KEY`, `DATABASE_URL`, ...), your hooks and plugins.
 - `git clone` and `git init` into the project fail, because Claude Code's sandbox protects `.git/config`. Run them yourself in your
   terminal.
 - A host that isn't on the list is refused. Add your own in your terminal:
-  `uvx --from "deus-witness==0.2.67" deus-witness-hook --setup-strict --host git.example.com`
+  `uvx --from "deus-witness==0.2.68" deus-witness-hook --setup-strict --host git.example.com`
   (a host name only: no `*`, no IP, no port).
 
 **Turning it on:** `/deus-witness:quiet` shows the exact change to `~/.claude/settings.json` first. If you say yes, Witness asks YOU to
 approve it with your passkey; the agent can't switch it on or off by itself. Or, in your own terminal:
-`uvx --from "deus-witness==0.2.67" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
-backup and starts with your next Claude Code session. To undo it, run `uvx --from "deus-witness==0.2.67" deus-witness-hook --undo-strict` in your terminal.
+`uvx --from "deus-witness==0.2.68" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
+backup and starts with your next Claude Code session. To undo it, run `uvx --from "deus-witness==0.2.68" deus-witness-hook --undo-strict` in your terminal.
 
 **Reminders:** `/deus-witness:try` mentions quiet mode in one line at the end. From your second session on, the session start reminds
 you at most once a week. To stop the reminders, say no in `/deus-witness:quiet`, answer anything but yes in the terminal, or run
@@ -139,7 +139,7 @@ Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.y
 ## Turn it off / remove it
 
 - Off for now (the witness is down, or you want to work without it): in your own terminal `claude plugin disable deus-witness@sipkigroup`, then restart Claude Code. Back on: `claude plugin enable deus-witness@sipkigroup`.
-- Remove it: `claude plugin uninstall deus-witness@sipkigroup`. The agent key and pins stay in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`): delete that folder too if you will not come back. Quiet mode, if you turned it on: `uvx --from "deus-witness==0.2.67" deus-witness-hook --undo-strict` first.
+- Remove it: `claude plugin uninstall deus-witness@sipkigroup`. The agent key and pins stay in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`): delete that folder too if you will not come back. Quiet mode, if you turned it on: `uvx --from "deus-witness==0.2.68" deus-witness-hook --undo-strict` first.
 - The agent cannot do this for you: Witness refuses such a line from the agent like any other change to its own settings.
 
 ## Verify the receipts yourself
