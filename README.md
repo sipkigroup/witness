@@ -77,19 +77,19 @@ see `OPENAI_API_KEY`, `DATABASE_URL`, ...), your hooks and plugins.
 - `git clone` and `git init` into the project fail, because Claude Code's sandbox protects `.git/config`. Run them yourself in your
   terminal.
 - A host that isn't on the list is refused. Add your own in your terminal:
-  `uvx --from "deus-witness==0.2.66" deus-witness-hook --setup-strict --host git.example.com`
+  `uvx --from "deus-witness==0.2.67" deus-witness-hook --setup-strict --host git.example.com`
   (a host name only: no `*`, no IP, no port).
 
 **Turning it on:** `/deus-witness:quiet` shows the exact change to `~/.claude/settings.json` first. If you say yes, Witness asks YOU to
 approve it with your passkey; the agent can't switch it on or off by itself. Or, in your own terminal:
-`uvx --from "deus-witness==0.2.66" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
-backup and starts with your next Claude Code session. To undo it, run `deus-witness-hook --undo-strict` in your terminal.
+`uvx --from "deus-witness==0.2.67" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
+backup and starts with your next Claude Code session. To undo it, run `uvx --from "deus-witness==0.2.67" deus-witness-hook --undo-strict` in your terminal.
 
 **Reminders:** `/deus-witness:try` mentions quiet mode in one line at the end. From your second session on, the session start reminds
 you at most once a week. To stop the reminders, say no in `/deus-witness:quiet`, answer anything but yes in the terminal, or run
 `deus-witness-hook --quiet-no`. `DEUS_WITNESS_QUIET_HINT=0` silences them too.
 
-**Linux and WSL2:** quiet mode works there too, with Claude Code's own Linux sandbox (bubblewrap). First install two packages: `sudo apt install bubblewrap socat` (Fedora / RHEL: `sudo dnf install bubblewrap socat`). Then turn it on as above (`/deus-witness:quiet`, or `deus-witness-hook --setup-strict` in your terminal): it checks the machine first and, if something is missing, says what to do and changes nothing. Ubuntu 24.04 blocks bubblewrap by default (AppArmor, `kernel.apparmor_restrict_unprivileged_userns`): the command prints the small AppArmor profile that allows it for bubblewrap only. WSL2: turn Windows interop off (`[interop]` `enabled=false` in `/etc/wsl.conf`, then `wsl --shutdown`), because a `.exe` started from Linux runs outside the sandbox; WSL1 has no sandbox. In a container that cannot mount `/proc` (Docker without extra rights, Azure Container Instances) Claude Code's sandbox runs only in a weaker mode: `--setup-strict --weaker-nested` writes it if you want it, but Witness does not count it as quiet mode and keeps asking. Our check (13.11, Debian 12 on Azure, Claude Code 2.1.323): `python3 hello.py` and `git commit` ran in the sandbox, `~/.ssh` was hidden, a write outside the project and example.com were refused, github.com was reachable. Ubuntu 24.04 and a real WSL2 are not measured by us yet.
+**Linux and WSL2:** quiet mode works there too, with Claude Code's own Linux sandbox (bubblewrap). First install two packages: `sudo apt install bubblewrap socat` (Fedora / RHEL: `sudo dnf install bubblewrap socat`). Then turn it on as above (`/deus-witness:quiet`, or `deus-witness-hook --setup-strict` in your terminal): it checks the machine first and, if something is missing, says what to do and changes nothing. Ubuntu 24.04 blocks bubblewrap by default (AppArmor, `kernel.apparmor_restrict_unprivileged_userns`): the command prints the small AppArmor profile that allows it for bubblewrap only. WSL2: turn Windows interop off (`[interop]` `enabled=false` in `/etc/wsl.conf`, then `wsl --shutdown`), because a `.exe` started from Linux runs outside the sandbox; WSL1 has no sandbox. Containers are not supported: Azure Container Instances and similar (their `/proc/version` names Microsoft, so Claude Code takes them for WSL1, and `--setup-strict` says so and changes nothing, with or without `--weaker-nested`); in a Docker container that cannot mount `/proc`, `--setup-strict --weaker-nested` writes Claude Code's weaker sandbox if you ask for it, and Witness does not count it as quiet mode and keeps asking. What we checked (13.11, Debian 12 on Azure Container Instances, Claude Code 2.1.323): Claude Code's sandbox itself, run with two workarounds of our test bench that this tool does not apply (a substituted `/proc/version` and the weaker nested mode) - a test of the sandbox, not a path you can take. Ubuntu and WSL2 are not checked live yet.
 
 Without the plugin: `uvx --from deus-witness deus-witness try`. As an MCP proxy in front of any MCP server: `uvx deus-witness -- <your MCP server command>` (see `python/README.md`).
 
@@ -139,7 +139,7 @@ Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.y
 ## Turn it off / remove it
 
 - Off for now (the witness is down, or you want to work without it): in your own terminal `claude plugin disable deus-witness@sipkigroup`, then restart Claude Code. Back on: `claude plugin enable deus-witness@sipkigroup`.
-- Remove it: `claude plugin uninstall deus-witness@sipkigroup`. The agent key and pins stay in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`): delete that folder too if you will not come back. Quiet mode, if you turned it on: `uvx --from "deus-witness==0.2.66" deus-witness-hook --undo-strict` first.
+- Remove it: `claude plugin uninstall deus-witness@sipkigroup`. The agent key and pins stay in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`): delete that folder too if you will not come back. Quiet mode, if you turned it on: `uvx --from "deus-witness==0.2.67" deus-witness-hook --undo-strict` first.
 - The agent cannot do this for you: Witness refuses such a line from the agent like any other change to its own settings.
 
 ## Verify the receipts yourself
