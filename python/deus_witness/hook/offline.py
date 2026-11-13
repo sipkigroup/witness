@@ -246,6 +246,12 @@ def _args_sha(ev):
     return hashlib.sha256(json.dumps([ev.get("tool_name"), inp], sort_keys=True, ensure_ascii=False).encode("utf-8", "replace")).hexdigest()
 
 
+def _why_out(code) -> str:
+    """r0285: why the call was decided outside the witness, in the journal's words."""
+    c = str(code)
+    return "witness busy" if c.startswith("WITNESS_BUSY") else "daily limit used up" if c.startswith("WITNESS_QUOTA") else "witness unreachable"
+
+
 def journal(ev, env, code, allowed) -> str | None:
     """One line in <key dir>/offline.log: time, tool, the SHA-256 of [tool, tool_input] (never the arguments, as the stderr log), the
     witness error, the decision. -> the journal path, or None when it could not be written (then the call is refused)."""
@@ -260,7 +266,7 @@ def journal(ev, env, code, allowed) -> str | None:
         except OSError:
             pass
         line = json.dumps({"t": int(time.time()), "tool": str(ev.get("tool_name"))[:200], "args_sha256": _args_sha(ev), "witness": code,
-                           "decision": "witness unreachable, local read allowed" if allowed else "witness unreachable, refused"})
+                           "decision": "%s, %s" % (_why_out(code), "local read allowed" if allowed else "refused")})
         fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
         try:
             os.write(fd, (line + "\n").encode("utf-8"))
@@ -299,7 +305,14 @@ def way_out(env=None) -> str:
 
 
 def message(code, path, env=None) -> str:
-    slow = str(code).startswith("WITNESS_TIMEOUT")
+    c = str(code)
+    if c.startswith("WITNESS_BUSY"):           # r0285: the witness is up; nothing to switch off
+        return ("Deus Witness: the witness is busy at this moment (%s), so a read of this project ran outside it; such reads are listed in "
+                "%s. Everything else waits for the witness as usual; nothing to do." % (c, path))
+    if c.startswith("WITNESS_QUOTA"):          # r0285: the daily limit, in the server's words
+        return ("Deus Witness: %s Until then only reading files of this project runs, outside the witness (listed in %s); every other "
+                "call is refused." % (c[len("WITNESS_QUOTA:"):].strip() or "the daily limit is used up.", path))
+    slow = c.startswith("WITNESS_TIMEOUT")
     return ("Deus Witness: the witness %s (%s). Until it answers, only reading files of this project runs, outside the witness "
             "(no credential files, nothing that writes, runs code or uses the network); every such read is listed in %s. %s." % (
                 "did not answer in time" if slow else "cannot be reached", code, path, way_out(env)))
@@ -310,13 +323,16 @@ def _down_path(env):
     return os.path.join(home_dir(env), DOWN)
 
 
-def down_age(env, url):
-    """-> seconds since the witness at `url` last timed out, while that is under DOWN_S; else None (no mark, an old one, another URL)."""
+def down_age(env, url, read=True):
+    """-> seconds since the witness at `url` last timed out, while that is under DOWN_S; else None (no mark, an old one, another URL).
+    r0285: a mark a READ left (reads=True: its short budget ran out) holds back only reads (read=True); a write still asks the witness."""
     try:
         p = _down_path(env)
         with open(p, encoding="utf-8") as f:
             d = json.load(f)
         age = time.time() - float(d.get("t"))
+        if d.get("reads") is True and not read:
+            return None
         if d.get("url") == url and -5.0 <= age < DOWN_S:
             return max(0.0, age)
     except Exception:      # noqa: BLE001  no mark, a broken one: ask the witness, as before
@@ -324,14 +340,17 @@ def down_age(env, url):
     return None
 
 
-def mark_down(env, url, code) -> None:
+def mark_down(env, url, code, reads=False) -> None:
+    """reads=True (r0285): left by a read whose budget ran out: it holds back only reads (down_age) and never replaces a fresh full mark."""
     try:
         from ..trial import home_dir
         os.makedirs(home_dir(env), mode=0o700, exist_ok=True)
         p = _down_path(env)
+        if reads and down_age(env, url, read=False) is not None:
+            return
         tmp = p + ".tmp%d" % os.getpid()
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"t": time.time(), "url": url, "code": str(code)[:80]}, f)
+            json.dump(dict({"t": time.time(), "url": url, "code": str(code)[:80]}, **({"reads": True} if reads else {})), f)
         os.replace(tmp, p)
     except Exception:      # noqa: BLE001  no mark: the next call waits again (as before 0.2.63)
         pass

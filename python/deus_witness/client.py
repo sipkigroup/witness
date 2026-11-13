@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import sys
 import tempfile
 import time
@@ -24,6 +25,10 @@ from . import _compat
 DEFAULT_URL = "https://witness.sipkigroup.com"
 TYP_AAR = "application/aar-receipt+cbor"
 ALG_EDDSA = -8
+# r0286 (crypto agility, POSTKVANT-1311): the COSE algorithms this client verifies, by the pinned key's type (an Ed25519 key is 32 bytes).
+# A receipt whose alg is not in the list of the pinned key is ALG_MISMATCH; a pinned key of a type this client cannot use (another length,
+# e.g. a future ML-DSA-65 key) is ALG_UNSUPPORTED -- "cannot check", never accepted, never a crash.
+SIG_ALGS = {32: (ALG_EDDSA,)}
 H_ALG, H_KID, H_TYP = 1, 4, 16
 AGENT_PATHS = ("/v1/actions", "/v1/catalog", "/v1/coverage", "/v1/hook/", "/v1/salt")     # paths that carry the agent key
 
@@ -37,6 +42,13 @@ class WitnessError(Exception):
         self.retry_after = retry_after       # seconds from a Retry-After header (429/503), else None
 
 
+def busy(e) -> bool:
+    """r0285: the witness refused only because it is busy at this moment, before doing anything: too many requests of this key / account
+    at once (429 RATE_LIMIT "... at a time"), or the whole server (503 OVERLOADED). Not: the per-minute rate, the daily quota (429 QUOTA)."""
+    st, code = getattr(e, "status", None), getattr(e, "code", None)
+    return (st == 429 and code == "RATE_LIMIT" and "at a time" in str(getattr(e, "detail", ""))) or (st == 503 and code == "OVERLOADED")
+
+
 class WitnessKeyChanged(Exception):
     """The witness key differs from the one pinned at first use."""
 
@@ -47,8 +59,8 @@ class WitnessNotPinned(WitnessKeyChanged):
 
 
 class AARError(Exception):
-    """str(e) is a reason code: MALFORMED, TYP_MISMATCH, KID_UNKNOWN, ALG_MISMATCH, SIGNATURE_INVALID, NOT_ALLOWED,
-    REQUEST_MISMATCH, RECEIPT_EXPIRED, AUDIENCE, NO_RECEIPT."""
+    """str(e) is a reason code: MALFORMED, TYP_MISMATCH, KID_UNKNOWN, ALG_MISMATCH, ALG_UNSUPPORTED (r0286: the pinned key is of a type
+    this client cannot verify), SIGNATURE_INVALID, NOT_ALLOWED, REQUEST_MISMATCH, RECEIPT_EXPIRED, AUDIENCE, NO_RECEIPT."""
 
 
 @dataclass
@@ -92,9 +104,14 @@ def _plain(x):
 
 def _pub_bytes(pub) -> bytes:
     if isinstance(pub, str):
-        pub = bytes.fromhex(pub)
-    if not isinstance(pub, (bytes, bytearray)) or len(pub) != 32:
+        try:
+            pub = bytes.fromhex(pub)
+        except ValueError:
+            raise AARError("KID_UNKNOWN")
+    if not isinstance(pub, (bytes, bytearray)) or not pub:
         raise AARError("KID_UNKNOWN")
+    if len(pub) not in SIG_ALGS:              # r0286: a key of another algorithm: this client cannot check it (not "invalid", not "valid")
+        raise AARError("ALG_UNSUPPORTED")
     return bytes(pub)
 
 
@@ -150,7 +167,7 @@ def verify_aar(aar_bytes: Optional[bytes], witness_pub, expect_request: dict, no
         raise AARError("TYP_MISMATCH")
     if prot[H_KID] != _kid(pub):
         raise AARError("KID_UNKNOWN")
-    if prot[H_ALG] != ALG_EDDSA:
+    if prot[H_ALG] not in SIG_ALGS[len(pub)]:
         raise AARError("ALG_MISMATCH")
     try:
         ed25519.Ed25519PublicKey.from_public_bytes(pub).verify(
@@ -192,7 +209,7 @@ def open_signed(data: bytes, witness_pub, typ: str) -> bytes:
         raise AARError("TYP_MISMATCH")
     if prot.get(H_KID) != _kid(pub):
         raise AARError("KID_UNKNOWN")
-    if prot.get(H_ALG) != ALG_EDDSA:
+    if prot.get(H_ALG) not in SIG_ALGS[len(pub)]:
         raise AARError("ALG_MISMATCH")
     try:
         ed25519.Ed25519PublicKey.from_public_bytes(pub).verify(sig, cbor2.dumps(["Signature1", pb, b"", payload], canonical=True))
@@ -318,6 +335,13 @@ class Witness:
         self._salt: Any = False          # False = not asked yet; None = the server uses the bare SHA-256; bytes = the account salt
         self.salt_cache = False          # 0.2.63: keep the salt next to the pin (salt.json); the hook turns it on (one request less per call)
         self._salt_cached = False        # the salt in use came from that file (a mismatch asks the server once: refresh_salt)
+        # r0285 (NAGRUZKA-I-EKONOMIKA-1311 p.1): a request the witness refused only because it is busy at this moment (busy()) is sent again
+        # after a short pause, for at most busy_wait s from its first refusal and never past time.monotonic() == busy_until (None = never
+        # repeated, as before); busy_retries counts the repeats, busy_last keeps the last such refusal
+        self.busy_until: Optional[float] = None
+        self.busy_wait = 5.0
+        self.busy_retries = 0
+        self.busy_last: Optional[WitnessError] = None
 
     def _timeout(self, t):
         if self.connect_timeout is None or isinstance(t, httpx.Timeout):
@@ -344,6 +368,28 @@ class Witness:
         timeout = kw.pop("timeout", None)
         if timeout is not None:
             kw["timeout"] = self._timeout(timeout)
+        pause, first = 0.05, None
+        while True:
+            try:
+                return self._call_once(method, path, headers, kw)
+            except WitnessError as e:
+                until = getattr(self, "busy_until", None)
+                if until is None or not busy(e):
+                    raise
+                self.busy_last = e
+                first = time.monotonic() if first is None else first
+                until = min(until, first + float(getattr(self, "busy_wait", 5.0)))
+                # the server refused before any work (Shed, the judge's waiting room): repeating the same request is safe
+                wait = pause * (0.5 + random.random())
+                if e.status == 503 and e.retry_after:
+                    wait = max(wait, min(e.retry_after, 1.0))
+                if time.monotonic() + wait >= until:
+                    raise
+                time.sleep(wait)
+                self.busy_retries += 1
+                pause = min(pause * 2, 0.8)
+
+    def _call_once(self, method, path, headers, kw) -> Any:
         try:
             r = self._http.request(method, path, headers=headers, **kw)
         except httpx.HTTPError as e:

@@ -35,7 +35,13 @@ a view file is MALFORMED (I-JSON); files under views/ that are not read are `war
 0.2.55: runs/<id>.cose, the CI run context the witness signed (server 0.2.85+; run_context.py, the same bytes as the server's checker):
 signature, ledger position, linked RECEIPT entries (RUN_CONTEXT_SIG / _MALFORMED / _CHAIN / _LINK are INVALID); prints whether the values
 were VERIFIED by the witness from a GitHub OIDC token or DECLARED by the CI job, the repository, commit, run, workflow_ref, actor and how
-many decisions are linked. A member from a later server is `warning RUN_CONTEXT_UNKNOWN_FIELD`, not INVALID."""
+many decisions are linked. A member from a later server is `warning RUN_CONTEXT_UNKNOWN_FIELD`, not INVALID.
+r0286 (POSTKVANT-1311): --pq-cutoff=YYYY-MM-DD, the long-term (post-quantum) mode: `pq anchor <batch>: PROVEN before <date> (bitcoin
+block H, <time>; ...)` | `pq anchor <batch>: NOT PROVEN (<why>)`; `pq: N of M receipt entries under a Bitcoin anchor dated before <date>`;
+RESULT: VALID only if all are; else RESULT: NOT PROVEN (exit 3); a forgery is INVALID as always. A `pending` OpenTimestamps proof is a
+calendar's promise, not a Bitcoin anchor (said so in the normal mode too). Block date: --pq-headers=<json {"<height>": "<80-byte header
+hex>"}> (Merkle root + proof of work checked here, >= 2^74 hashes; compare the printed block hash with any Bitcoin node) or online
+(mempool.space and blockstream.info must both confirm the block and agree on its time)."""
 import glob
 import hashlib
 import json
@@ -48,8 +54,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 _FLAGS_BOOL = ["--offline", "--require-anchors", "--require-tee", "--require-node2", "--use-pack-code", "--no-node2-pin-write",
               "--tee-second-verifier-strict", "--require-views"]
-_FLAGS_VAL = ["--witness-kid", "--owner-kid", "--tsa-ca", "--tee-expect", "--tee-intel-root", "--tee-collateral", "--tee-now", "--tee-second-verifier",
+_FLAGS_VAL = ["--pq-cutoff", "--pq-headers", "--pq-min-work-bits", "--witness-kid", "--owner-kid", "--tsa-ca", "--tee-expect", "--tee-intel-root", "--tee-collateral", "--tee-now", "--tee-second-verifier",
               "--node2-amd-ark", "--node2-expect", "--node2-genesis", "--node2-pin"]
+
+
+# r0286 (crypto agility, POSTKVANT-1311): witness key algorithms this checker verifies, by the name manifest.json gives (COSE alg id).
+# Another name (e.g. a future ML-DSA-65 = -49) is "CANNOT CHECK" + RESULT: NOT PROVEN (exit 3): never VALID, never a crash.
+WITNESS_ALGS = {"EdDSA": -8}
 
 
 def main(argv):
@@ -94,6 +105,10 @@ def _main(argv):
         if a.startswith("--") and not (" " not in a and ((name in _FLAGS_BOOL and not eq) or (name in _FLAGS_VAL and eq))):
             print("verify_pack: unknown or malformed argument: %s (one flag per argument; value flags are --name=value)" % repr(a))
             return 2
+    pq = _pq_opts(argv)                      # r0286: --pq-cutoff=YYYY-MM-DD, long-term (post-quantum) mode; None = off
+    if isinstance(pq, str):
+        print("verify_pack: " + pq)
+        return 2
     sv = next((a.split("=", 1)[1] for a in argv if a.startswith("--tee-second-verifier=")), None)
     if (sv is not None and sv != "dcap-qvl") or ("--tee-second-verifier-strict" in argv and sv is None):
         print("verify_pack: --tee-second-verifier=dcap-qvl is the only second verifier; --tee-second-verifier-strict needs it")
@@ -164,7 +179,16 @@ def _main(argv):
     print("manifest: %s (%d files)" % ("ok" if not bad else "%d problems" % bad, len(man["files"])))
     ok &= not bad
 
-    wk = cose.Key.public(cose.ALG_EDDSA, bytes.fromhex(man["witness"]["pub_hex"]))
+    walg = man["witness"].get("alg", "EdDSA")     # r0286 (crypto agility): absent = EdDSA (packs before 0.2.x named none)
+    if walg not in WITNESS_ALGS:
+        print("witness: CANNOT CHECK (key algorithm %r is not one this checker verifies: %s; a newer checker may)"
+              % (walg, ", ".join(sorted(WITNESS_ALGS))))
+        if not ok:
+            print("RESULT: INVALID")
+            return 1
+        print("RESULT: NOT PROVEN")
+        return 3
+    wk = cose.Key.public(WITNESS_ALGS[walg], bytes.fromhex(man["witness"]["pub_hex"]))
     if wk.kid.hex() != man["witness"]["kid_hex"]:
         print("witness: kid does not match pub"); ok = False
     iss = man["witness"].get("iss") if isinstance(man["witness"].get("iss"), str) else "<witness>"
@@ -433,6 +457,7 @@ def _main(argv):
     leaves_of_cps = {hashlib.sha256(c).hexdigest() for c in cps.values()}
     unmet = []                               # 0.2.5 (R4-01): anchor records that disclose a batch that was NOT stamped ("failed", or "off": anchoring was switched off)
     good_anchors = {}
+    pq_seen = []                             # r0286: (batch, leaf, what the .ots proved) for --pq-cutoff
     confirmed_leaves = set()                 # 0.2.30: leaves whose batch has a Bitcoin attestation that was read (not a bare pending / not-checked proof)
     anchored_leaves = set()                  # 0.2.4: leaves of checkpoints under a batch that was stamped (OpenTimestamps `pending` or confirmed): the anchored CHECKPOINT entries of promises
     for jp in sorted(glob.glob(os.path.join(root, "anchors", "*.json"))):
@@ -460,6 +485,8 @@ def _main(argv):
             print("anchor %s: MISMATCH (unreadable .ots: %s)" % (b, type(e).__name__))
             ok = False
             continue
+        if "MISMATCH" not in _last:
+            pq_seen.append((b, a["leaf"], dict(_last_btc)))
         if "MISMATCH" in _last:
             ok = False
         elif a.get("status") in ("pending", "bitcoin", "confirmed") and os.path.exists(os.path.join(root, "anchors", b + ".ots")):
@@ -472,7 +499,10 @@ def _main(argv):
     n_anchor_files = len(glob.glob(os.path.join(root, "anchors", "*.json")))
     anchored_seqs = sorted(s_ for s_, raw in cps.items() if hashlib.sha256(raw).hexdigest() in anchored_leaves)
     if anchored_seqs:
-        print("anchors: %d of %d checkpoints under a stamped batch (newest anchored: seq %d)" % (len(anchored_seqs), len(cps), anchored_seqs[-1]))
+        n_conf = sum(1 for s_, raw in cps.items() if hashlib.sha256(raw).hexdigest() in confirmed_leaves)
+        print("anchors: %d of %d checkpoints under a stamped batch (newest anchored: seq %d; %d with a Bitcoin attestation, %d only "
+              "promised by an OpenTimestamps calendar, not confirmed in Bitcoin)" % (len(anchored_seqs), len(cps), anchored_seqs[-1],
+                                                                                      n_conf, len(anchored_seqs) - n_conf))
         if cps and max(cps) > anchored_seqs[-1]:
             trust.append("the entries after seq %d (newer than the newest anchored checkpoint) are vouched for by the witness alone" % anchored_seqs[-1])
     else:
@@ -517,11 +547,19 @@ def _main(argv):
     for line, bad in _tee_lines(root, wk, cps, good_anchors, receipt_seqs, argv, trust):
         print(line)
         ok &= not bad
+    pq_full = True
+    if pq is not None:
+        pq_out, pq_full = _pq_lines(pq, pq_seen, cps, entries, receipt_seqs, trust)
+        for line in pq_out:
+            print(line)
     for t_ in trust:
         print("trust: " + t_)
     if want_wk is None:      # 0.2.40 (HN rehearsal 6, K3/K9): right above RESULT, which stays the exact last line
         print("note: RESULT below means internally consistent (witness key taken from the pack; pass --witness-kid=<kid from "
               "/v1/witness> to pin it)")
+    if ok and not pq_full:                   # r0286: consistent, but not provable after the cutoff (exit 3, as an UNPROVEN bundle)
+        print("RESULT: NOT PROVEN")
+        return 3
     print("RESULT: VALID" if ok else "RESULT: INVALID")
     return 0 if ok else 1
 
@@ -1303,10 +1341,12 @@ def _tsa_lines(root, tsa_ca):
 
 
 _last = ""
+_last_btc = {}          # r0286: what the last _ots call read: {"height", "msg"(bytes), "times": {explorer: unix t}} | {"pending": True} | {}
 
 
 def _ots(path, root_hex, off):
-    global _last
+    global _last, _last_btc
+    _last_btc = {}
     if not os.path.exists(path):
         _last = "pending (inclusion in batch root proven; not stamped)"
         return _last
@@ -1332,9 +1372,12 @@ def _ots(path, root_hex, off):
     walk(d.timestamp)
     btc = [(m, a.height) for m, a in atts if isinstance(a, BitcoinBlockHeaderAttestation)]
     if not btc:
-        _last = "pending"
+        # r0286: a pending attestation is only a calendar server's promise to put the digest into Bitcoin later -- not a Bitcoin anchor
+        _last_btc = {"pending": any(isinstance(a, PendingAttestation) for _, a in atts)}
+        _last = "pending (promised by an OpenTimestamps calendar, not confirmed in Bitcoin)"
         return _last
     msg, h = btc[0]
+    _last_btc = {"height": h, "msg": bytes(msg), "times": {}}
     if off:
         _last = "bitcoin block %d (offline: block header not cross-checked)" % h
         return _last
@@ -1344,12 +1387,127 @@ def _ots(path, root_hex, off):
             bh = urllib.request.urlopen("%s/block-height/%d" % (base, h), timeout=30).read().decode().strip()
             blk = json.load(urllib.request.urlopen("%s/block/%s" % (base, bh), timeout=30))
             res[name] = "OK" if bytes.fromhex(blk["merkle_root"])[::-1] == msg else "MISMATCH"
+            if res[name] == "OK" and isinstance(blk.get("timestamp"), int):
+                _last_btc["times"][name] = blk["timestamp"]
         except Exception:
             res[name] = "UNREACHABLE"
     _last = "bitcoin block %d (%s)" % (h, " ".join("%s=%s" % kv for kv in res.items()))
     if "MISMATCH" in res.values():
         _last = "MISMATCH " + _last
+        _last_btc = {}
     return _last
+
+
+# ---------------------------------------------------------------- r0286: long-term (post-quantum) mode, --pq-cutoff=YYYY-MM-DD
+# Ed25519 / ES256 / RSA can be forged once a large quantum computer exists. What survives it is the hash chain: a ledger entry under a
+# checkpoint whose batch root is in a Bitcoin block mined BEFORE that day cannot be changed or back-dated later (SHA-256 + proof of work,
+# no signature in the path). In this mode only that counts: a calendar's `pending` promise, RFC 3161 tokens, TEE quotes and CI tokens do
+# not. RESULT: VALID (everything asked is under such an anchor) | NOT PROVEN (exit 3) | INVALID (a forgery, as in the normal mode).
+PQ_TIME_SLACK = 7200        # a header's time is only loosely tied to the real one (consensus: above the median of the 11 blocks before,
+                            # ~1 h behind; up to 2 h ahead): a block counts if its time + 2 h is before the cutoff
+PQ_MIN_WORK_BITS = 74       # a header given with --pq-headers must carry >= 2^74 expected hashes of work (mainnet has had more since 2020)
+
+
+def _pq_opts(argv):
+    """-> None (mode off) | dict | str (a usage error)."""
+    def val(n):
+        return next((a.split("=", 1)[1] for a in argv if a.startswith(n + "=")), None)
+    c, hp, mw = val("--pq-cutoff"), val("--pq-headers"), val("--pq-min-work-bits")
+    if c is None:
+        return None if hp is None and mw is None else "--pq-headers and --pq-min-work-bits need --pq-cutoff=YYYY-MM-DD"
+    import datetime
+    try:
+        if len(c) != 10:
+            raise ValueError
+        cut = int(datetime.datetime.strptime(c, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc).timestamp())
+    except ValueError:
+        return "--pq-cutoff needs a date YYYY-MM-DD (00:00 UTC of that day), got %r" % c
+    hdrs = {}
+    if hp is not None:
+        try:
+            raw = _read_json(hp)
+            for k, x in raw.items():
+                hb = bytes.fromhex(x)
+                if len(hb) != 80:
+                    raise ValueError
+                hdrs[int(k)] = hb
+        except (OSError, ValueError, AttributeError, TypeError):
+            return "--pq-headers=<file> needs a JSON object {\"<block height>\": \"<80-byte block header, hex>\"}"
+    try:
+        mwb = PQ_MIN_WORK_BITS if mw is None else int(mw)
+        if not 0 <= mwb <= 255:
+            raise ValueError
+    except ValueError:
+        return "--pq-min-work-bits needs a number 0..255 (tests only: a low floor lets a cheap header pass)"
+    return {"cutoff": cut, "date": c, "headers": hdrs, "min_work": mwb}
+
+
+def _pq_header(hdr, msg, min_work):
+    """A Bitcoin block header checked locally. -> (time, block hash hex, None) | (None, None, why)."""
+    if hdr[36:68] != msg:
+        return None, None, "the header's Merkle root is not the one the .ots commits to"
+    bits = int.from_bytes(hdr[72:76], "little")
+    exp, mant = bits >> 24, bits & 0x7fffff
+    target = (mant << (8 * (exp - 3))) if exp >= 3 else (mant >> (8 * (3 - exp)))
+    if bits & 0x800000 or target <= 0 or target >= 1 << 256:
+        return None, None, "the header's target (bits) is malformed"
+    hh = hashlib.sha256(hashlib.sha256(hdr).digest()).digest()
+    if int.from_bytes(hh, "little") > target:
+        return None, None, "the header does not meet its own proof-of-work target"
+    if (1 << 256) // (target + 1) < (1 << min_work):
+        return None, None, "the header's work is below 2^%d hashes (a cheap header anyone can make)" % min_work
+    return int.from_bytes(hdr[68:72], "little"), hh[::-1].hex(), None
+
+
+def _pq_lines(pq, seen, cps, entries, receipt_seqs, trust):
+    """seen: [(batch, checkpoint leaf hex, _last_btc)] of the anchors that are well-formed and include their checkpoint.
+    -> ([lines], full): full = every receipt entry (or, with no receipt, every ledger entry but CHECKPOINT) is under a Bitcoin anchor
+    dated before the cutoff."""
+    import datetime
+
+    def day(t):
+        return datetime.datetime.fromtimestamp(t, datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    leaf_seq = {hashlib.sha256(raw).hexdigest(): s for s, raw in cps.items()}
+    out, proven = [], []
+    for b, leaf, info in seen:
+        why, t, src = None, None, ""
+        h = info.get("height")
+        if h is None:
+            why = ("pending: promised by an OpenTimestamps calendar, not confirmed in Bitcoin" if info.get("pending")
+                   else "no Bitcoin attestation was read (no .ots proof, or opentimestamps is not installed)")
+        elif h in pq["headers"]:
+            t, hh, why = _pq_header(pq["headers"][h], info["msg"], pq["min_work"])
+            src = "header %s checked here: Merkle root, proof of work; compare its hash with any Bitcoin node" % hh
+        else:
+            ts = info.get("times") or {}
+            if len(ts) == 2 and len(set(ts.values())) == 1:
+                t, src = list(ts.values())[0], "time from %s" % " and ".join(sorted(ts))
+            else:
+                why = ("the date of block %d is not known here: pass --pq-headers=<file> with its header, or run online (both block "
+                       "explorers must confirm it)" % h)
+        if why is None and t + PQ_TIME_SLACK >= pq["cutoff"]:
+            why = "block %d is dated %s, not before the cutoff %s (2 h margin)" % (h, day(t), pq["date"])
+        if why is None:
+            proven.append(leaf_seq[leaf])
+            out.append("pq anchor %s: PROVEN before %s (bitcoin block %d, %s; %s)" % (b, pq["date"], h, day(t), src))
+        else:
+            out.append("pq anchor %s: NOT PROVEN (%s)" % (b, why))
+    last = max(proven) if proven else None
+    if receipt_seqs:
+        targets, what = sorted(set(receipt_seqs)), "receipt entries"
+    else:
+        targets = sorted(e["seq"] for e in entries if isinstance(e, dict) and isinstance(e.get("seq"), int) and e.get("type") != "CHECKPOINT")
+        what = "ledger entries"
+    cov = sum(1 for s in targets if last is not None and s <= last)
+    full = bool(targets) and cov == len(targets)
+    out.append("pq: %d of %d %s under a Bitcoin anchor dated before %s%s" % (cov, len(targets), what, pq["date"],
+                                                                            "" if last is None else " (through seq %d)" % last))
+    if not full:
+        out.append("pq: NOT PROVEN -- the rest rests on classical signatures (Ed25519 / ES256) alone, which a quantum computer could forge")
+    trust.append("--pq-cutoff=%s: only the hash chain under a Bitcoin block before that day is counted; classical signatures (a receipt's "
+                 ".aar.cose, the passkey's ES256), RFC 3161 tokens, TEE quotes and CI tokens are not evidence on their own in this mode; "
+                 "what is proven of a receipt is its ledger entry (action, verdict, mandate)" % pq["date"])
+    return out, full
 
 
 

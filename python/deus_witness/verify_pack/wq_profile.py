@@ -181,6 +181,8 @@ def validate_policy(p):
         for key in ("policy", "revocation", "ceiling"):
             if not _req_ok(rl[key], REQ_ROLES):
                 return "POLICY_MALFORMED"
+        if rl["revocation"] != {"role": "any", "k": 1}:      # law Z3: stopping is easy -- any ONE signer, in every version
+            return "POLICY_MALFORMED"
         for key in ("mandate", "approval"):
             if not isinstance(rl[key], list) or not all(_tier_ok(t) for t in rl[key]):
                 return "POLICY_MALFORMED"

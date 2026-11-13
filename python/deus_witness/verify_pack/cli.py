@@ -31,9 +31,11 @@ def _unzip(zpath, dest):
 HELP = """usage: deus-witness-verify-pack <pack.zip | unpacked folder> [flags]
 Offline check of a Deus Witness evidence pack. Flags (one per argument, value flags are --name=value):
   --offline  --use-pack-code  --require-anchors  --require-views  --witness-kid=<hex>  --owner-kid=<hex>  --tsa-ca=<dir>  (more: see the README)
+  --pq-cutoff=YYYY-MM-DD  long-term (post-quantum) mode: only entries under a Bitcoin block before that day count; a calendar's
+    pending promise does not (--pq-headers=<json {height: header hex}> gives block headers checked here; online, two explorers)
 A folder with bundle.cbor + vector.json is a Mandate Receipt v0 conformance bundle: RESULT: VALID | UNPROVEN <codes> (exit 3) | INVALID <code>
 example: deus-witness-verify-pack evidence-pack.zip --offline
-exit: 0 pack VALID (also for -h / --help), 1 INVALID, 64 wrong usage (a bad argument is an error, not help)
+exit: 0 pack VALID (also for -h / --help), 1 INVALID, 3 NOT PROVEN (--pq-cutoff), 64 wrong usage (a bad argument is an error, not help)
 """
 
 

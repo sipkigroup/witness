@@ -9,6 +9,8 @@ LOCAL = {
     "WITNESS_NOT_CONFIGURED": ("deny", "the hook has no agent key (set DEUS_WITNESS_KEY)"),
     "WITNESS_UNAVAILABLE": ("deny", "the witness cannot be reached; the call does not run without it"),
     "WITNESS_TIMEOUT": ("deny", "the witness did not answer in time; the call does not run without it"),
+    "WITNESS_BUSY": ("deny", "the witness is busy at this moment (too many calls of this agent at once, or the server is full); nothing ran, the witness itself is fine: retry the same call in a few seconds"),     # r0285
+    "WITNESS_QUOTA": ("deny", "the daily limit of this account at the witness is used up (the text says when it frees up); nothing ran: reading files of the project still works, tell the user"),     # r0285
     "WITNESS_KEY_CHANGED": ("deny", "the witness key is not the one pinned on this machine"),
     "TRIAL_NOT_CLAIMED": ("deny", "this trial account has no passkey yet (nothing ran): open the trial page from `/deus-witness:try` or `uvx --from deus-witness deus-witness try` (or the link it showed you), touch the passkey, then ask again"),     # 0.2.34
     "TRIAL_REPLACED": ("deny", "a newer `try` (/deus-witness:try or uvx --from deus-witness deus-witness try) replaced the trial account this call was waiting in (that account is gone, nothing ran): retry the same call, it goes to the new trial account"),     # 0.2.29

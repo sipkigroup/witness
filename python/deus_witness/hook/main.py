@@ -31,6 +31,10 @@ Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_HOME (key pin d
      DEUS_WITNESS_HOOK_OFFLINE  read | strict, default read (0.2.48, offline.py): while the witness cannot be reached (network, 5xx,
                                 timeout) a call that only reads a non-secret file of the project is not blocked (journal offline.log,
                                 one notice); everything else is refused. strict (or any other value): every call refused, as before.
+                                r0285: the same for a read while the witness is busy (429 RATE_LIMIT / 503 OVERLOADED) or at its daily
+                                limit (429 QUOTA): said as such (WITNESS_BUSY / WITNESS_QUOTA), never as "cannot be reached".
+     DEUS_WITNESS_HOOK_BUSY_WAIT  seconds, default 5 (r0285): a request refused only because the witness is busy at this moment is
+                                repeated within this, never past the hook's own deadline (a read: its read budget).
 0.2.32 (K1): the URL is the one the key file (`deus-witness try`) was set up for; DEUS_WITNESS_URL may only repeat it (else a deny,
 WITNESS_URL_MISMATCH). A URL without a pinned key is pinned at first use only when nothing is pinned yet (or it is the key file's URL);
 otherwise a deny, WITNESS_URL_UNPINNED (`deus-witness-hook --trust URL` in a terminal pins it). A call that touches the agent's own
@@ -83,7 +87,7 @@ import time
 
 from .. import __version__, _compat, links
 from . import archlinks, envmask, failsafe, fingerprint, gitref, mask, offline, pin, samefile, sandbox_fact, selfpath, shadow
-from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, request_sha256
+from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, busy, request_sha256
 from .form import default_form
 from .messages import LOCAL
 
@@ -452,7 +456,7 @@ def decision(kind: str | None, reason: str = "") -> dict:
 
 
 USER_SEES = {"APPROVAL_RATE", "AGENT_FROZEN", "RESOURCE", "PERSIST_PLACE", "AGENT_CONFIG_UNAPPROVED", "STRICT_SWITCH_UNAPPROVED", "WITNESS_UNAVAILABLE", "BAD_KEY", "RECIPIENT",
-             "WITNESS_TIMEOUT"}
+             "WITNESS_TIMEOUT", "WITNESS_BUSY", "WITNESS_QUOTA"}
 
 
 INTERNAL = {"HOOK_ERROR"}
@@ -523,6 +527,8 @@ class Settings:
         self.connect = _num(e.get("DEUS_WITNESS_HOOK_CONNECT"), 3.0, 0.5, 60.0)
         self.reply = _num(e.get("DEUS_WITNESS_HOOK_REPLY"), 8.0, 1.0, 900.0)
         self.read_budget = _num(e.get("DEUS_WITNESS_HOOK_READ_WAIT"), 3.0, 0.5, 60.0)
+        # r0285: how long one request the witness refused only because it was busy (client.busy) is repeated (never past the hook's deadline)
+        self.busy_wait = _num(e.get("DEUS_WITNESS_HOOK_BUSY_WAIT"), 5.0, 0.0, 60.0)
         # the answer must be printed before our own deadline: a wait that eats the whole timeout ends as WITNESS_TIMEOUT
         self.wait = min(_num(e.get("DEUS_WITNESS_HOOK_WAIT"), 0.0, 0.0, 900.0), max(0.0, self.timeout - failsafe.MARGIN_S))
         v = e.get("DEUS_WITNESS_HOOK_ON_DEFER", "deny")
@@ -1679,7 +1685,8 @@ def unreachable(ev, s, state, code, strict) -> dict:
         h = strict.get("hookSpecificOutput") or {}
         r = h.get("permissionDecisionReason", "")
         if r:
-            h["permissionDecisionReason"] = r + " While the witness cannot be reached only reading files of the project runs; this call: %s." % why
+            h["permissionDecisionReason"] = r + " %s only reading files of the project runs; this call: %s." % (
+                "Until then" if str(code).startswith(("WITNESS_BUSY", "WITNESS_QUOTA")) else "While the witness cannot be reached", why)
         return strict
     path = offline.journal(ev, s.env, code, True)
     if path is None:
@@ -1710,6 +1717,9 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
     if tool_name == "Bash":
         _seen_try(ev, s, inp)
     out = _judge(ev, s, witness, deadline, state, tool_name, inp)
+    qn = quota_notice(state.get("quota"), s.env)
+    if qn and isinstance(out, dict):
+        out["systemMessage"] = (out["systemMessage"] + " " + qn) if out.get("systemMessage") else qn
     if upd is not None:
         hs = out.get("hookSpecificOutput") if isinstance(out, dict) else None
         if not hs:                                        # Claude Code's own rules would decide: it must still run the masked line
@@ -1722,6 +1732,44 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
     # r0272 (gate 6, L3 13.11): another PreToolUse hook (rtk) may rewrite the call after this decision; a witnessed allow pins the judged
     # input (updatedInput) and leaves a record that the PostToolUse check compares with what ran (pin.py)
     return pin.pin(ev, out, s.env, orig=upd if upd is not None else orig, cosmetic=COSMETIC.get(tool_name, ()))
+
+
+QUOTA_STEPS = (95, 90, 80)
+
+
+def quota_notice(q, env) -> str | None:
+    """r0285 (PARALLEL-I-KVOTA-1311 p.2): the witness says `quota` {"used", "limit", "of"} from 80 % of a daily limit on. The person is told
+    once per step (80, 90, 95 %) and limit within 24 h (a mark next to the key), in plain words: what is used, what counts, what happens at
+    the limit. -> the sentence, or None. Never raises."""
+    try:
+        used, lim, of = int(q["used"]), int(q["limit"]), q.get("of")
+        if lim <= 0 or of not in ("account", "agent"):
+            return None
+        pct = 100 * used // lim
+        step = next((x for x in QUOTA_STEPS if pct >= x), None)
+        if step is None:
+            return None
+        from ..trial import home_dir
+        mp = os.path.join(home_dir(env), "quota-notice.json")
+        try:
+            with open(mp, encoding="utf-8") as f:
+                m = json.load(f)
+        except (OSError, ValueError):
+            m = {}
+        key = "%s:%d" % (of, lim)
+        last = m.get(key) if isinstance(m.get(key), dict) else {}
+        if last.get("step", 0) >= step and time.time() - float(last.get("t", 0)) < 86400:
+            return None
+        m[key] = {"step": step, "t": time.time()}
+        os.makedirs(home_dir(env), mode=0o700, exist_ok=True)
+        with open(mp, "w", encoding="utf-8") as f:
+            json.dump(m, f)
+        who = "this agent has" if of == "agent" else "this account has"
+        return ("Deus Witness: %s used %d of its %d actions a day (%d%%; reads such as Read, Grep and Glob do not count, the count is over the "
+                "last 24 hours). At the limit every call except reading files of the project is refused until the oldest actions pass 24 hours%s." % (
+                    who, used, lim, pct, "; another agent of the account can go on" if of == "agent" else ""))
+    except Exception:      # noqa: BLE001
+        return None
 
 
 def _seen_try(ev, s, inp) -> None:
@@ -1767,8 +1815,9 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
         return deny("WITNESS_URL_MISMATCH", detail="(DEUS_WITNESS_URL is %s, but the agent key on this machine was set up for %s "
                     "(agent-key.json). The hook sends only to the witness the key was set up for. Unset DEUS_WITNESS_URL, or run "
                     "`uvx --from deus-witness deus-witness try --url URL` in your own terminal to move to another witness)" % s.url_conflict)
+    lread = own and _local_read_ok(ev, s)
     if own:
-        age = offline.down_age(s.env, s.url)
+        age = offline.down_age(s.env, s.url, read=lread)   # r0285: a mark left by a read that timed out holds only reads back
         if age is not None:
             # 0.2.63 (Н1): the witness did not answer a moment ago: not asked again until the mark is old (offline.DOWN_S); a read of the
             # project runs as while it is unreachable, everything else is refused at once (fail-closed, without the wait)
@@ -1786,6 +1835,13 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
                            connect_timeout=s.connect)
     if own:
         w.salt_cache = True                               # 0.2.63 (Н1): the account salt from salt.json next to the pin: one request less
+        # r0285 (NAGRUZKA-I-EKONOMIKA-1311 p.1): a request refused only because the witness is busy at this moment (10 tool calls of one
+        # agent at once, subagents on the same key) is repeated within busy_wait, never past the hook's own deadline; a read of the
+        # project only within its read budget (after that it runs as while the witness is unreachable, run())
+        w.busy_wait = s.busy_wait
+        w.busy_until = deadline - 0.5
+        if lread:
+            w.busy_until = min(w.busy_until, deadline - s.timeout + s.read_budget - 0.4)
     state["pinned"] = _pinned(w)
     if own and s.run_nonce:
         w.run_nonce = s.run_nonce
@@ -1810,6 +1866,8 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
         facts.prescan(w, tool_name)
         r, body = _ask(w, ev, facts)
         state["answered"] = True                          # 0.2.48: from here a lost connection never lets a read through (unreachable)
+        if isinstance(r.get("quota"), dict):
+            state["quota"] = r["quota"]                   # r0285: near a daily limit (judge() tells the person once per step)
         if own:
             offline.clear_down(s.env)                     # 0.2.63: it answers again
         texts = r.get("texts") if isinstance(r.get("texts"), dict) else {}
@@ -1997,6 +2055,16 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
             return deny("BAD_KEY", detail=TRIAL_GONE_TEXT)  # 27.10 (polygon O6): a trial user never saw an Agents page
         if e.status == 401 or e.code == "BAD_KEY":        # the witness answered and refused the key: not "unreachable"; the call still does not run
             return deny("BAD_KEY", detail="(the agent key is wrong or was deleted: create a new agent on the Agents page of %s and use its key, or run `uvx --from deus-witness deus-witness try`)" % links.site(getattr(w, "url", None)))
+        if busy(e) or (e.status == 429 and e.code == "RATE_LIMIT"):
+            # r0285: the witness is up and refused only because of how many calls come at once / a minute: said as such (before: "the witness
+            # cannot be reached" + the advice to disable the plugin); a read of the project runs as while it is unreachable (offline.py)
+            n = getattr(w, "busy_retries", 0)
+            out = deny("WITNESS_BUSY", detail="(%s%s)" % ((e.detail or e.code)[:200], ", asked again %d times" % n if n else ""))
+            return unreachable(ev, s, state, "WITNESS_BUSY %s" % e.code, out)
+        if e.status == 429 and e.code == "QUOTA":
+            # r0285: the daily limit (the server's words say which one and when it frees up); a read of the project still runs (offline.py)
+            out = deny("WITNESS_QUOTA", detail="(%s)" % (e.detail or e.code)[:400])
+            return unreachable(ev, s, state, "WITNESS_QUOTA: %s" % (e.detail or e.code)[:300], out)
         if e.status == 0 or 500 <= (e.status or 0) <= 599:   # 0.2.48: the network or the witness itself is down (not a refusal, not 4xx)
             slow = e.status == 0 and offline.is_timeout(getattr(e, "detail", ""))
             if slow and own:
@@ -2084,6 +2152,9 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
         # with the trial page, or the owner's answer), never "did not answer in time" + "disable the plugin" after 3 s
         if "r" not in out and not state.get("answered"):
             log("no decision within %.1f s for a read of the project" % lim)
+            # r0285 (NAGRUZKA-I-EKONOMIKA-1311 p.3): a mark for the next READS (a hanging witness cost every read 3 s); the next write still
+            # asks the witness (3 s is not proof enough to refuse it at once), and an answer of the witness clears the mark
+            offline.mark_down(s.env, s.url, "WITNESS_TIMEOUT read", reads=True)
             strict = down_deny("WITNESS_TIMEOUT", "(no answer within %.1f s)" % lim, s.env)
             return unreachable(ev, s, dict(state), "WITNESS_TIMEOUT", strict)
     t.join(max(0.0, s.timeout - (time.monotonic() - t0)))
