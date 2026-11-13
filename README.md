@@ -1,10 +1,12 @@
 # Deus Witness
 
+**What is different:** your passkey signs exactly what you saw and exactly the command that will run - unlike the approve buttons of apps such as Pushary and Happy. A dialog the agent rewords or fakes (Lies-in-the-Loop, Loopjacking) cannot get your signature on another command: the signature covers the hash of the screen you were shown and the hash of the exact arguments. Anyone can check the receipt offline, without us.
+
 **Let Claude Code work on its own; get asked only before the few things a sandbox cannot undo or contain - publishing, running a program outside the sandbox, writing a file that starts itself later, irreversible changes inside your project. You answer with one passkey touch; every decision gets a signed receipt you can verify offline.**
 
 ## The problem
 
-Claude Code asks before it runs commands or edits files. Anthropic's own write-up of auto mode names what happens next: "approval fatigue, where people stop paying close attention to what they're approving", and "users accept 93% of them anyway". The other way out, `--dangerously-skip-permissions`, "disables all permission prompts and lets Claude act freely" ([Anthropic, 25.03.2026](https://anthropic.com/engineering/claude-code-auto-mode)).
+Claude Code asks before it runs commands or edits files. Anthropic's own write-up of auto mode names what happens next: "approval fatigue, where people stop paying close attention to what they're approving". The other way out, `--dangerously-skip-permissions`, "disables all permission prompts and lets Claude act freely" ([Anthropic, 25.03.2026](https://anthropic.com/engineering/claude-code-auto-mode)).
 
 A prompt you approve without reading protects nothing. What you need is fewer questions, and a real one when it matters.
 
@@ -36,13 +38,18 @@ What these numbers do **not** show: they are our corpora, labeled by us; no outs
 
 ## Install (3 lines in Claude Code)
 
+Before these lines: install uv (`curl -LsSf https://astral.sh/uv/install.sh | sh`, then open a new terminal) - the plugin runs its client with `uvx`; without uv, `try` stops with "uvx: command not found".
+
 ```
 /plugin marketplace add sipkigroup/witness
 /plugin install deus-witness@sipkigroup
 /deus-witness:try
 ```
 
-`try` makes a trial account (no sign-up form) and opens a page in your browser; a trial account has no phone notifications - questions wait on that page. For the quiet mode measured above, run `/deus-witness:quiet` (details below).
+If Claude Code shows a "Configure Deus Witness" screen after the install (plugin 0.2.64 and older): leave every field empty and save - `try` needs none of them; plugin 0.2.65 has no such screen.
+On a server or over SSH (no browser on that machine): run `uvx --from deus-witness deus-witness try` in your own terminal there; it prints the link to open on your laptop or phone.
+
+`try` makes a trial account (no sign-up form) and opens a page in your browser. After your passkey touch the page offers "Get questions on your phone" (Web Push; on iPhone it works only from Witness added to the Home Screen); the page itself keeps showing the questions too. For the quiet mode measured above, run `/deus-witness:quiet` (details below).
 
 ### Quiet mode (fewer questions, macOS)
 
@@ -68,19 +75,19 @@ see `OPENAI_API_KEY`, `DATABASE_URL`, ...), your hooks and plugins.
 - `git clone` and `git init` into the project fail, because Claude Code's sandbox protects `.git/config`. Run them yourself in your
   terminal.
 - A host that isn't on the list is refused. Add your own in your terminal:
-  `uvx --from "deus-witness==0.2.64" deus-witness-hook --setup-strict --host git.example.com`
+  `uvx --from "deus-witness==0.2.65" deus-witness-hook --setup-strict --host git.example.com`
   (a host name only: no `*`, no IP, no port).
 
 **Turning it on:** `/deus-witness:quiet` shows the exact change to `~/.claude/settings.json` first. If you say yes, Witness asks YOU to
 approve it with your passkey; the agent can't switch it on or off by itself. Or, in your own terminal:
-`uvx --from "deus-witness==0.2.64" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
+`uvx --from "deus-witness==0.2.65" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes. Quiet mode keeps a
 backup and starts with your next Claude Code session. To undo it, run `deus-witness-hook --undo-strict` in your terminal.
 
 **Reminders:** `/deus-witness:try` mentions quiet mode in one line at the end. From your second session on, the session start reminds
 you at most once a week. To stop the reminders, say no in `/deus-witness:quiet`, answer anything but yes in the terminal, or run
 `deus-witness-hook --quiet-no`. `DEUS_WITNESS_QUIET_HINT=0` silences them too.
 
-**Linux and WSL2:** Claude Code's sandbox runs there too, but Witness hasn't measured it there yet. Quiet mode is macOS only for now.
+**Linux and WSL2:** no quiet mode yet, so expect many questions - even a harmless first command (`python3 hello.py`, `git commit`) is asked (our L3 on Linux, 13.11). Quiet mode is macOS only for now.
 
 Without the plugin: `uvx --from deus-witness deus-witness try`. As an MCP proxy in front of any MCP server: `uvx deus-witness -- <your MCP server command>` (see `python/README.md`).
 
@@ -94,7 +101,7 @@ Needs Claude Code 2.1.295+ and uv (`curl -LsSf https://astral.sh/uv/install.sh |
 /deus-witness:try
 ```
 
-`try` makes a trial account and opens a page in your browser. The first tool call that needs you waits; the page asks for two passkey touches (one makes your passkey, one signs the recommended rules), then that call is decided - allowed, refused, or shown to you for one more touch. Until your first touch a call waits up to 45 s, then it is refused (`TRIAL_NOT_CLAIMED`): ask again after the touches. A trial account has no phone notifications: the call waits for you on that page. A trial account you do not keep is erased after 7 days. A trial account has one passkey and no recovery codes: if you lose that passkey (or the device it lives on), start a new trial with `/deus-witness:try` and, when it says the account already has your passkey, `uvx --from deus-witness deus-witness try --force` in your own terminal (10 new trial accounts per hour per network).
+`try` makes a trial account and opens a page in your browser. The first tool call that needs you waits; the page asks for two passkey touches (one makes your passkey, one signs the recommended rules), then that call is decided - allowed, refused, or shown to you for one more touch. Until your first touch a call waits up to 45 s, then it is refused (`TRIAL_NOT_CLAIMED`): ask again after the touches. After the first touch the page offers "Get questions on your phone"; without it the call waits for you on that page. A trial account you do not keep is erased after 7 days. A trial account has one passkey and no recovery codes: if you lose that passkey (or the device it lives on), start a new trial with `/deus-witness:try` and, when it says the account already has your passkey, `uvx --from deus-witness deus-witness try --force` in your own terminal (10 new trial accounts per hour per network).
 `/plugin install` opens the plugin panel: pick a scope and install; if it says so, run `/reload-plugins`. Skipped the third line? Every new session starts with "Deus Witness is not set up: run /deus-witness:try" until you run it (the plugin never runs it by itself).
 Without the plugin: `uvx --from deus-witness deus-witness try` (`pip install deus-witness` only with Python 3.10+ in a venv).
 
@@ -130,7 +137,7 @@ Any other language: speak HTTP, see [`contract/openapi.yaml`](contract/openapi.y
 ## Turn it off / remove it
 
 - Off for now (the witness is down, or you want to work without it): in your own terminal `claude plugin disable deus-witness@sipkigroup`, then restart Claude Code. Back on: `claude plugin enable deus-witness@sipkigroup`.
-- Remove it: `claude plugin uninstall deus-witness@sipkigroup`. The agent key and pins stay in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`): delete that folder too if you will not come back. Quiet mode, if you turned it on: `uvx --from "deus-witness==0.2.64" deus-witness-hook --undo-strict` first.
+- Remove it: `claude plugin uninstall deus-witness@sipkigroup`. The agent key and pins stay in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`): delete that folder too if you will not come back. Quiet mode, if you turned it on: `uvx --from "deus-witness==0.2.65" deus-witness-hook --undo-strict` first.
 - The agent cannot do this for you: Witness refuses such a line from the agent like any other change to its own settings.
 
 ## Verify the receipts yourself
