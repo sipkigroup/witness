@@ -21,7 +21,10 @@ server) and is never printed, logged or saved by this command - an agent that re
 No browser here (SSH, a container)? The link is written to your terminal (/dev/tty) only, never to stdout or stderr; with no terminal either
 (0.2.34), nothing is saved, the trial account is withdrawn (POST /v1/trial/retire) and the exit code is 3: run `deus-witness try` yourself in
 a terminal (`uvx --from deus-witness deus-witness try`), not through the agent.
-A quick start account nobody claims with a passkey is erased after 7 days; once you make the passkey it stays for good, free (Open Core: a single person pays nothing)."""
+A quick start account nobody claims with a passkey and whose hook never calls is erased after 7 days; an account in use is kept (server r0288:
+erased only after 90 days with no hook call and no sign-in, with a push 14 days before). Free for one person; if this ever changes, existing
+accounts stay free on the limits in force at that time, announced at least 30 days in advance. Before the account is made it prints one
+line: using the witness means agreeing to its Terms and Privacy summary (r0289)."""
 from __future__ import annotations
 
 import argparse
@@ -396,6 +399,9 @@ def _withdraw(key, url, transport) -> bool:
         return False                           # cannot ask: it expires by itself (7 days) and nothing holds its key
 
 
+TERMS_TEXT = "By continuing you agree to the Terms (%s/terms.html) and Privacy (%s/privacy.html)."
+
+
 def install_how(url=None) -> str:
     """r0274: the quickstart link is on the witness this key is for (a self-hosted one serves the same page), not on ours."""
     return ("in Claude Code: /plugin marketplace add sipkigroup/witness, then /plugin install deus-witness@sipkigroup; or add the hook "
@@ -500,6 +506,8 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
     body = {"form": default_form(o.project, home=e.get("HOME")), "client": {"name": "deus-witness", "version": __version__}}
     if o.internal or e.get("DEUS_WITNESS_INTERNAL") == "1":
         body["internal"] = True
+    # r0289 (TERMS-REVIEW #1): the notice of the terms comes BEFORE the account is made, in one line, with the links of this witness
+    print(TERMS_TEXT % (url, url), file=out)
     try:
         with httpx.Client(base_url=url, timeout=30.0, transport=transport) as h:
             r = h.post("/v1/trial", json=body)

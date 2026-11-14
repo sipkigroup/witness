@@ -513,6 +513,22 @@ def down_deny(code, detail, env) -> dict:
     h["permissionDecisionReason"] = h["permissionDecisionReason"].replace(" Do not try to reach the same effect another way.", "") + \
         " Do not try to reach the same effect another way; tell the user. " + offline.way_out(env) + "."
     out["systemMessage"] = (out.get("systemMessage") or "Deus Witness refused a call: %s" % code) + ". " + offline.way_out(env) + "."
+    return with_status(out, links.configured_url(env), env)
+
+
+def with_status(out, url, env) -> dict:
+    """r0288: a refusal because the witness is down or busy names the witness' status page (kept off its server), when one is known for
+    THIS witness (links.status: the default service, or DEUS_WITNESS_STATUS_URL); nothing for another witness."""
+    try:
+        st = links.status(url, env)
+    except Exception:  # noqa: BLE001 - a link never breaks a refusal
+        st = None
+    if st:
+        h = out.get("hookSpecificOutput") or {}
+        if h.get("permissionDecisionReason"):
+            h["permissionDecisionReason"] += " Status of the witness: %s" % st
+        if out.get("systemMessage"):
+            out["systemMessage"] = out["systemMessage"].rstrip(".") + ". Status: %s" % st
     return out
 
 
@@ -2059,7 +2075,8 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
             # r0285: the witness is up and refused only because of how many calls come at once / a minute: said as such (before: "the witness
             # cannot be reached" + the advice to disable the plugin); a read of the project runs as while it is unreachable (offline.py)
             n = getattr(w, "busy_retries", 0)
-            out = deny("WITNESS_BUSY", detail="(%s%s)" % ((e.detail or e.code)[:200], ", asked again %d times" % n if n else ""))
+            out = with_status(deny("WITNESS_BUSY", detail="(%s%s)" % ((e.detail or e.code)[:200], ", asked again %d times" % n if n else "")),
+                              getattr(w, "url", None), s.env)
             return unreachable(ev, s, state, "WITNESS_BUSY %s" % e.code, out)
         if e.status == 429 and e.code == "QUOTA":
             # r0285: the daily limit (the server's words say which one and when it frees up); a read of the project still runs (offline.py)

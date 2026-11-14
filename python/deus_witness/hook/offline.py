@@ -313,9 +313,14 @@ def message(code, path, env=None) -> str:
         return ("Deus Witness: %s Until then only reading files of this project runs, outside the witness (listed in %s); every other "
                 "call is refused." % (c[len("WITNESS_QUOTA:"):].strip() or "the daily limit is used up.", path))
     slow = c.startswith("WITNESS_TIMEOUT")
+    try:                                       # r0288: the status page of THIS witness (links.status), when one is known
+        from .. import links
+        st = links.status(links.configured_url(env), env if env is not None else os.environ)
+    except Exception:  # noqa: BLE001 - a link never breaks the notice
+        st = None
     return ("Deus Witness: the witness %s (%s). Until it answers, only reading files of this project runs, outside the witness "
-            "(no credential files, nothing that writes, runs code or uses the network); every such read is listed in %s. %s." % (
-                "did not answer in time" if slow else "cannot be reached", code, path, way_out(env)))
+            "(no credential files, nothing that writes, runs code or uses the network); every such read is listed in %s. %s.%s" % (
+                "did not answer in time" if slow else "cannot be reached", code, path, way_out(env), (" Status: %s" % st) if st else ""))
 
 
 def _down_path(env):

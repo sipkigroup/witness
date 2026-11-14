@@ -13,6 +13,9 @@ import os
 import re
 
 DEFAULT_URL = "https://witness.sipkigroup.com"     # the same value as client.DEFAULT_URL / trial.DEFAULT_URL (tests check)
+# r0288: the status page of the DEFAULT service, kept off its server (GitHub Actions + Pages of the open repository). Never shown for
+# another witness: a self-hoster names their own with DEUS_WITNESS_STATUS_URL (https only), or none is shown.
+DEFAULT_STATUS = "https://sipkigroup.github.io/witness-server/"
 _PLAIN = re.compile(r"https?://[A-Za-z0-9.\-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~\-/]*)?")
 
 
@@ -44,3 +47,13 @@ def quickstart(url=None, anchor: str = "") -> str:
 
 def signup(url=None) -> str:
     return site(url) + "/signup.html"
+
+
+def status(url=None, env=None):
+    """r0288: the status page for the witness at `url` (None = none known). DEUS_WITNESS_STATUS_URL (a plain https URL) wins; the default
+    service has DEFAULT_STATUS; any other witness has none (its operator did not tell us one, and ours would be about somebody else)."""
+    e = os.environ if env is None else env
+    v = (e.get("DEUS_WITNESS_STATUS_URL") or "").strip().rstrip("/")
+    if v:
+        return v + "/" if v.startswith("https://") and _PLAIN.fullmatch(v) else None
+    return DEFAULT_STATUS if isinstance(url, str) and url.strip().rstrip("/") == DEFAULT_URL else None
