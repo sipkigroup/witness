@@ -1,6 +1,6 @@
 # Teams: roles, the organisation policy, quorum
 
-A Witness account is an **organisation** (principal `dw:<account_id>`, one ledger). People join it with their own passkeys; who may
+A Deus Witness account is an **organisation** (principal `dw:<account_id>`, one ledger). People join it with their own passkeys; who may
 sign what is written in a **signed policy**, and the witness checks every signature against the policy that was in force at the time.
 An account without a policy works exactly as in 0.1 ("solo": the owner's pinned key signs everything).
 

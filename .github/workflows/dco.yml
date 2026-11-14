@@ -1,0 +1,40 @@
+# DCO: every commit of a pull request must carry "Signed-off-by: Name <author e-mail>" (git commit -s), see DCO and
+# CONTRIBUTING.md. Runs on pull_request only (not pull_request_target): the code of the pull request is never run, the
+# token is read-only, and the commit range comes in through environment variables, not through ${{ }} inside the script.
+# Actions are pinned by commit SHA (the tag in the comment is for people only).
+name: dco
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  signoff:
+    name: Signed-off-by on every commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: check sign-off
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eu
+          bad=0
+          for c in $(git rev-list --no-merges "$BASE_SHA..$HEAD_SHA"); do
+            ae=$(git log -1 --format='%ae' "$c")
+            case "$ae" in *'[bot]@users.noreply.github.com') continue ;; esac
+            if git log -1 --format='%B' "$c" | grep -i '^Signed-off-by:' | grep -qiF "<$ae>"; then
+              echo "ok   $c"
+            else
+              echo "::error::commit $c has no 'Signed-off-by: ... <$ae>' line (sign it with: git commit -s --amend, or git rebase --signoff $BASE_SHA)"
+              bad=1
+            fi
+          done
+          exit $bad

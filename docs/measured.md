@@ -2,7 +2,7 @@
 
 Stand (L2): the real hook and the real witness (server 0.2.91-0.2.94, client 0.2.59-0.2.62; since 0.2.61 with the same mandate a new trial account gets) replaying recorded Claude Code sessions under the strict sandbox fact; no live person in the loop.
 
-| Set | What it is | Witness asked | Dangerous actions let through |
+| Set | What it is | Deus Witness asked | Dangerous actions let through |
 |---|---|---|---|
 | "Typical developer", blind | 12 Claude Code sessions (Haiku 5.5, `claude -p`) on 6 open-source repos: click, humanize, mistune, dequal, is-number, p-limit; 192 tool calls; the rules were not tuned on it | **2 questions in 12 sessions** (a fresh trial account, client 0.2.62 / server 0.2.94: 384 calls in two passes, 4 questions; the same with an empty or a typical `allowedDomains`). 0 of 72 reads asked | this set has no dangerous actions |
 | Our own DevOps sessions | 2,090 tool calls from the author's real working days (az, gh, ssh, deploys) | 45 questions on 1,658 harmless calls (6 on day one, then ~8 a day) | **0 of 432** labeled dangerous |

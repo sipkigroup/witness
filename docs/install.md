@@ -6,9 +6,9 @@ Short version: the [README](../README.md#install-3-lines-in-claude-code). This p
 
 The plugin is a thin wrapper. The hook itself is the Python client `deus-witness` (PyPI, Apache-2.0, >= 0.2.34). The plugin finds it:
 
-1. [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) - then the plugin runs `uvx --from "deus-witness==0.2.72" deus-witness-hook`
+1. [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) - then the plugin runs `uvx --from "deus-witness==0.2.73" deus-witness-hook`
    (first call downloads the client into the uv cache, about 30 packages). This is the way we test.
-2. `deus-witness-hook` on your PATH - `pip install "deus-witness==0.2.72"`, only with Python 3.10+ in a venv (the stock macOS Python 3.9 and
+2. `deus-witness-hook` on your PATH - `pip install "deus-witness==0.2.73"`, only with Python 3.10+ in a venv (the stock macOS Python 3.9 and
    PEP 668 system Pythons refuse it). Put that venv OUTSIDE the project: the agent may write inside the project, so the plugin does not
    use a `deus-witness-hook` (or any program) found on PATH inside the project - it falls back to uvx, or blocks the call without uv.
 
@@ -31,7 +31,7 @@ terminal (without uv, `try` stops with "uvx: command not found"). macOS, Linux, 
   your passkey, one signs the recommended rules); then the call that waited is decided - allowed, refused, or shown to you for one more
   touch. **Until the first touch nothing runs:** a call waits up to 45 s, then it is refused with `TRIAL_NOT_CLAIMED` and the link to
   the trial page: finish there, then ask the agent to retry. After the first touch the page offers "Get questions on your phone" (Web
-  Push; on iPhone only from Witness added to the Home Screen).
+  Push; on iPhone only from Deus Witness added to the Home Screen).
 - Skipped the third line? Every new session starts with "Deus Witness is not set up: run /deus-witness:try" (the plugin never runs it
   by itself). On a server or over SSH (no browser there): run `uvx --from deus-witness deus-witness try` in your own terminal; it
   prints the link to open on your laptop or phone.
@@ -42,7 +42,7 @@ terminal (without uv, `try` stops with "uvx: command not found"). macOS, Linux, 
   `uvx deus-witness -- <your MCP server command>` (see `python/README.md`).
 
 **Check your set-up (optional, no account, nothing sent):** in your own terminal, in your project folder, `uvx deus-witness audit`
-(a fixed version: `uvx deus-witness==0.2.72 audit`). It reads your Claude Code settings and prints a grade (A-F) and what the agent
+(a fixed version: `uvx deus-witness==0.2.73 audit`). It reads your Claude Code settings and prints a grade (A-F) and what the agent
 can do without asking you; it writes nothing and opens no network connection. Run it in the project folder, not in your home folder:
 started in the home folder it judges a project in general and says so.
 
@@ -57,7 +57,7 @@ link to open on your laptop or phone.
 
 ## Set up in 2 minutes (trial, no sign-up form)
 
-In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness==0.2.72" deus-witness try`).
+In Claude Code: `/deus-witness:try` (or in your own terminal: `uvx --from "deus-witness==0.2.73" deus-witness try`).
 It prints what the hook sends to the witness, saves a trial agent key to `~/.config/deus-witness/agent-key.json` (mode 600; the plugin
 picks it up at once) and opens a page in your browser. The first call of the agent that needs you waits; on that page ONE button asks
 for two passkey touches (Touch ID / Windows Hello / phone): one makes your passkey, one signs the recommended rules for the project. The
@@ -80,7 +80,7 @@ Quiet mode (fewer questions): [quiet-mode.md](quiet-mode.md).
 | Variable | Default | What |
 |---|---|---|
 | `DEUS_WITNESS_KEY` | empty | Your agent key. Empty = the key saved by `/deus-witness:try`, if any; none = not set up |
-| `DEUS_WITNESS_URL` | `https://witness.sipkigroup.com` | Witness server |
+| `DEUS_WITNESS_URL` | `https://witness.sipkigroup.com` | Deus Witness server |
 | `DEUS_WITNESS_STRICT` | `false` | `true`: while no key is set, every matched call is denied |
 
 ## What happens when
@@ -94,9 +94,9 @@ Quiet mode (fewer questions): [quiet-mode.md](quiet-mode.md).
 | Trial account, nobody has touched the page yet | Every call, a read too, waits 45 s, then denied (`TRIAL_NOT_CLAIMED`); nothing runs | "finish the setup first": the trial page link, touch the passkey, then ask again |
 
 How open your Claude Code is, with no account and nothing sent: `uvx deus-witness audit` in your project folder (grade A-F, read only).
-Check your setup: `uvx --from "deus-witness==0.2.72" deus-witness-hook --doctor` - from 0.2.41 on it finds the plugin from a plain shell too (Claude Code's plugin registry and `enabledPlugins`) and the key file `try` saved; when no settings file says whether the plugin is enabled it says "CANNOT TELL" instead of guessing. Inside Claude Code the session-start message is the authoritative check.
+Check your setup: `uvx --from "deus-witness==0.2.73" deus-witness-hook --doctor` - from 0.2.41 on it finds the plugin from a plain shell too (Claude Code's plugin registry and `enabledPlugins`) and the key file `try` saved; when no settings file says whether the plugin is enabled it says "CANNOT TELL" instead of guessing. Inside Claude Code the session-start message is the authoritative check.
 
-CI and cron: `claude --bare` (and `CLAUDE_CODE_SIMPLE=1`) skips the hooks of plugins, so this plugin does not run and nothing says so; Claude Code's docs say `--bare` will become the default for `claude -p` in a future release. Run `uvx --from "deus-witness==0.2.72" deus-witness run -- claude -p "..."`: it refuses `--bare` before the run and exits non-zero after it when no Witness hook ran.
+CI and cron: `claude --bare` (and `CLAUDE_CODE_SIMPLE=1`) skips the hooks of plugins, so this plugin does not run and nothing says so; Claude Code's docs say `--bare` will become the default for `claude -p` in a future release. Run `uvx --from "deus-witness==0.2.73" deus-witness run -- claude -p "..."`: it refuses `--bare` before the run and exits non-zero after it when no Deus Witness hook ran.
 
 ## Testing with another HOME (CI, containers, a scratch folder)
 
@@ -104,25 +104,25 @@ The hook looks for traces of an earlier set-up (agent-key.json, witness.json, sc
 `~/Library/Application Support/deus-witness`, `~/.deus-witness`) in your **real** home folder, taken from the system's user database
 (`dscl` on macOS, `getent` on Linux), not from `$HOME`. This is on purpose: a project's `.claude/settings.json` can set `"env"` for hooks,
 and a `HOME` (or `DEUS_WITNESS_HOME`) pointing at an empty folder must not turn a set-up witness into "not set up, calls run
-unwitnessed". So on a machine where Witness was set up, a run with a different `HOME` and no key in it blocks every call with "the
+unwitnessed". So on a machine where Deus Witness was set up, a run with a different `HOME` and no key in it blocks every call with "the
 agent key is MISSING (the witness was set up on this machine: <path>)". To test in a scratch `HOME`, run `deus-witness try` with that
-`HOME` first (its key is then found there), or test as another user / on a machine (CI runner, container) where Witness was never set up.
+`HOME` first (its key is then found there), or test as another user / on a machine (CI runner, container) where Deus Witness was never set up.
 
 ## MCP servers
 
 The plugin does not add an MCP server: `deus-witness-mcp` is a proxy in front of *your* MCP server, so it needs your server's command.
-Put it in your own `.mcp.json`: `"command": "uvx", "args": ["--from", "deus-witness==0.2.72", "deus-witness-mcp", "--", "<your server command>", "..."]`.
+Put it in your own `.mcp.json`: `"command": "uvx", "args": ["--from", "deus-witness==0.2.73", "deus-witness-mcp", "--", "<your server command>", "..."]`.
 MCP tool calls are already covered by the hook (`mcp__.*` in the matcher).
 
 ## Other hooks that rewrite tool calls
 
-- Other hooks that rewrite tool calls (tested: rtk 1.2.0; everything-claude-code 2.2.3 found no conflict on stdin): Claude Code runs hooks in parallel and takes the rewrite of the one that finishes last. From 0.2.69 a call Witness approved is pinned to the input it judged, which normally runs, and a PostToolUse check tells you if a different call ran; a hook that finishes later than Witness can still win, and the check only reports it after the fact. rtk no longer shortens the output of calls Witness approved; calls Witness did not decide, and `DEUS_WITNESS_HOOK_ALLOW=neutral`, are not pinned. The check adds about 0.1-0.2 s to each tool call. Hooks of other plugins run outside Witness.
+- Other hooks that rewrite tool calls (tested: rtk 1.2.0; everything-claude-code 2.2.3 found no conflict on stdin): Claude Code runs hooks in parallel and takes the rewrite of the one that finishes last. From 0.2.69 a call Deus Witness approved is pinned to the input it judged, which normally runs, and a PostToolUse check tells you if a different call ran; a hook that finishes later than Deus Witness can still win, and the check only reports it after the fact. rtk no longer shortens the output of calls Deus Witness approved; calls Deus Witness did not decide, and `DEUS_WITNESS_HOOK_ALLOW=neutral`, are not pinned. The check adds about 0.1-0.2 s to each tool call. Hooks of other plugins run outside Deus Witness.
 
 ## Remove
 
 - Off for now (the witness is down, or you want to work without it): in your own terminal `claude plugin disable deus-witness@sipkigroup`, then restart Claude Code. Back on: `claude plugin enable deus-witness@sipkigroup`.
-- Remove it: quiet mode first, if you turned it on (`uvx --from "deus-witness==0.2.72" deus-witness-hook --undo-strict`), then
+- Remove it: quiet mode first, if you turned it on (`uvx --from "deus-witness==0.2.73" deus-witness-hook --undo-strict`), then
   `claude plugin uninstall deus-witness@sipkigroup` and `claude plugin marketplace remove sipkigroup`. What stays on disk: the agent key
   and pins in `~/.config/deus-witness` (or `DEUS_WITNESS_HOME`) - `rm -rf ~/.config/deus-witness` if you will not come back - and the
   quiet-mode backups `~/.claude/settings.json.bak-strict-*`.
-- The agent cannot do this for you: Witness refuses such a line from the agent like any other change to its own settings.
+- The agent cannot do this for you: Deus Witness refuses such a line from the agent like any other change to its own settings.

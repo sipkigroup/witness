@@ -1,11 +1,11 @@
 ---
 description: Quiet mode - Claude Code's own strict sandbox, so Witness asks far fewer questions; see the change first, you approve it with your passkey
-allowed-tools: Bash(deus-witness-hook --quiet-offer), Bash(uvx --quiet --from "deus-witness==0.2.72" deus-witness-hook --quiet-offer), Bash(deus-witness-hook --quiet-offer --full), Bash(uvx --quiet --from "deus-witness==0.2.72" deus-witness-hook --quiet-offer --full), Bash(deus-witness-hook --setup-strict --yes), Bash(uvx --quiet --from "deus-witness==0.2.72" deus-witness-hook --setup-strict --yes), Bash(deus-witness-hook --quiet-no), Bash(uvx --quiet --from "deus-witness==0.2.72" deus-witness-hook --quiet-no)
+allowed-tools: Bash(deus-witness-hook --quiet-offer), Bash(uvx --quiet --from "deus-witness==0.2.73" deus-witness-hook --quiet-offer), Bash(deus-witness-hook --quiet-offer --full), Bash(uvx --quiet --from "deus-witness==0.2.73" deus-witness-hook --quiet-offer --full), Bash(deus-witness-hook --setup-strict --yes), Bash(uvx --quiet --from "deus-witness==0.2.73" deus-witness-hook --setup-strict --yes), Bash(deus-witness-hook --quiet-no), Bash(uvx --quiet --from "deus-witness==0.2.73" deus-witness-hook --quiet-no)
 ---
 Use the Bash tool to run exactly ONE of these, the first that works (no other arguments):
 
 1. `deus-witness-hook --quiet-offer`
-2. `uvx --quiet --from "deus-witness==0.2.72" deus-witness-hook --quiet-offer`
+2. `uvx --quiet --from "deus-witness==0.2.73" deus-witness-hook --quiet-offer`
 
 It changes nothing; it prints a line that starts with `QUIET MODE:`.
 - `QUIET MODE: offer.` - tell the user in three short sentences: what quiet mode is (Claude Code's own strict sandbox: commands reach
@@ -17,7 +17,7 @@ It changes nothing; it prints a line that starts with `QUIET MODE:`.
   If they want the line-by-line change, run the same command with `--full`. Their own hosts are added with `--host` in their terminal.
   Then ASK the user: turn it on?
   - yes: run exactly ONE command with the same runner: `deus-witness-hook --setup-strict --yes` or
-    `uvx --quiet --from "deus-witness==0.2.72" deus-witness-hook --setup-strict --yes`. Witness asks the USER to approve it (passkey);
+    `uvx --quiet --from "deus-witness==0.2.73" deus-witness-hook --setup-strict --yes`. Witness asks the USER to approve it (passkey);
     you cannot approve it. If it printed `written:`, say quiet mode starts with their next Claude Code session (/exit, then start claude
     again). If it was refused or not answered, say so and stop; do not retry.
   - no: run `deus-witness-hook --quiet-no` (or the uvx form) - no more reminders at session start - and stop.
