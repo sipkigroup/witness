@@ -22,7 +22,7 @@ see `OPENAI_API_KEY`, `DATABASE_URL`, ...), your hooks and plugins.
 - `git clone` and `git init` into the project fail, because Claude Code's sandbox protects `.git/config`. Run them yourself in your
   terminal.
 - A host that isn't on the list is refused. Add your own in your terminal:
-  `uvx --from "deus-witness==0.2.74" deus-witness-hook --setup-strict --host git.example.com`
+  `uvx --from "deus-witness==0.2.75" deus-witness-hook --setup-strict --host git.example.com`
   (a host name only: no `*`, no IP, no port).
 
 ## Turning it on
@@ -32,13 +32,13 @@ asks you after the setup. Without quiet mode Deus Witness asks about most comman
 stand, ~40-110 questions on the first day of real work instead of 0-6. `/deus-witness:quiet` lists what changes in `~/.claude/settings.json`
 in a few lines (the line-by-line change: `--quiet-offer --full`). If you say yes, Deus Witness asks YOU to
 approve it with your passkey; the agent can't switch it on or off by itself. Or, in your own terminal:
-`uvx --from "deus-witness==0.2.74" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes (a real terminal:
+`uvx --from "deus-witness==0.2.75" deus-witness-hook --setup-strict`, which shows the change and asks you to type yes (a real terminal:
 `echo yes |` and runs from a script or an agent are refused). Quiet mode keeps a backup next to the file,
 `~/.claude/settings.json.bak-strict-<date>`, and starts with your next Claude Code session.
 
 ## Undo
 
-Run `uvx --from "deus-witness==0.2.74" deus-witness-hook --undo-strict` in your terminal: it restores the newest backup and keeps the
+Run `uvx --from "deus-witness==0.2.75" deus-witness-hook --undo-strict` in your terminal: it restores the newest backup and keeps the
 backup files (delete them when you no longer need them).
 
 ## Reminders

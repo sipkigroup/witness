@@ -16,7 +16,7 @@ Needs Claude Code 2.1.295+ and uv (`curl -LsSf https://astral.sh/uv/install.sh |
 /deus-witness:try
 ```
 
-The plugin runs `uvx --from deus-witness==0.2.74 deus-witness-hook` (a pinned PyPI package whose source is in this repository under
+The plugin runs `uvx --from deus-witness==0.2.75 deus-witness-hook` (a pinned PyPI package whose source is in this repository under
 `python/`). `try` makes a trial account and opens a page that asks for two passkey touches; until then nothing runs. Fewer questions:
 `/deus-witness:quiet`. Details, SSH, an existing account, CI, MCP servers: [docs/install.md](../../docs/install.md);
 quiet mode, Linux and WSL2 (`sudo apt install bubblewrap socat` first): [docs/quiet-mode.md](../../docs/quiet-mode.md).
@@ -43,7 +43,7 @@ is limited to a short list of hosts (npm, PyPI, GitHub downloads; you add your o
 keychain and browser cookies are added to `sandbox.filesystem.denyRead`; the Witness key and GitHub / npm / PyPI token names are hidden
 from commands (`sandbox.credentials`); `permissions.deny` gets `Read(...)` rules for `~/.ssh`, `~/.aws` and the like; npm and uv caches move
 into Claude Code's temp folder (`env`); settings that weaken the sandbox are removed and wide host entries are dropped. The old file is
-kept next to it as `~/.claude/settings.json.bak-strict-<date>`, and `uvx --from "deus-witness==0.2.74" deus-witness-hook --undo-strict`
+kept next to it as `~/.claude/settings.json.bak-strict-<date>`, and `uvx --from "deus-witness==0.2.75" deus-witness-hook --undo-strict`
 (in your terminal) restores it. Quiet mode starts with your next Claude Code session. Without quiet mode the plugin writes no
 Claude Code setting. Line by line: [docs/quiet-mode.md](../../docs/quiet-mode.md).
 
@@ -61,7 +61,7 @@ Claude Code setting. Line by line: [docs/quiet-mode.md](../../docs/quiet-mode.md
 ## Turn it off / remove it
 
 Off for now: `claude plugin disable deus-witness@sipkigroup` in your own terminal, then restart Claude Code. Remove: undo quiet mode
-first if you turned it on (`uvx --from "deus-witness==0.2.74" deus-witness-hook --undo-strict`), then
+first if you turned it on (`uvx --from "deus-witness==0.2.75" deus-witness-hook --undo-strict`), then
 `claude plugin uninstall deus-witness@sipkigroup` and `claude plugin marketplace remove sipkigroup`;
 `rm -rf ~/.config/deus-witness` deletes the agent key.
 
