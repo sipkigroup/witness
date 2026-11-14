@@ -9,6 +9,9 @@ apps such as Pushary and Happy. A dialog the agent rewords or fakes (Lies-in-the
 another command: the signature covers the hash of the screen you were shown and the hash of the exact arguments. Anyone can check the
 receipt offline, without us.
 
+**Constitution:** the laws Deus Witness keeps whatever the setting or the price, each with the test that checks it:
+https://witness.sipkigroup.com/constitution.html
+
 ## How open is your Claude Code? (no account, 10 seconds)
 ```
 uvx deus-witness audit            # or --json

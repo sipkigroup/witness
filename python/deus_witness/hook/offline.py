@@ -59,8 +59,10 @@ BAD_LONG = {"grep": ("--recursive", "--dereference-recursive", "--directories", 
 # 0.2.53: + ssh_host_*_key and ~/.config/deus-witness (server 0.2.82)
 SECRET_NAME = re.compile(r"(^|/)(\.env(\.[\w.-]+)?|\.envrc|\.netrc|\.npmrc|\.pypirc|\.pgpass|\.git-credentials|\.?credentials(\.json)?|"
                          r"\.vault-token|\.terraformrc|credentials\.tfrc\.json|\.s3cfg|\.boto|\.my\.cnf|\.authinfo(\.gpg)?|rclone\.conf|\.(zsh|bash)_history|[\w.-]+\.ovpn|"
-                         r"id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|ssh_host_[\w-]+_key|[\w.-]+\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|p8)|secrets?\.(ya?ml|json|toml|env))$", re.I)
-SECRET_DIR = re.compile(r"(^|/)(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.config/(gcloud|gh|op|hub|doctl|fly|rclone|containers|sops|deus-witness)|\.azure|Library/Keychains)(/|$)", re.I)
+                         r"id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|ssh_host_[\w-]+_key|[\w.-]+\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|p8)|secrets?\.(ya?ml|json|toml|env)|"
+                         r"Login Data|Cookies|Web Data|logins\.json|key4\.db|cookies\.sqlite|Cookies\.binarycookies|[\w .-]*passwords[\w .-]*\.csv|[\w.-]+\.1pux|"   # r0293: browser stores, password exports
+                         r"(bitwarden|lastpass|1password|keepass|dashlane|nordpass)[\w .-]*\.(csv|json|xml|txt))$", re.I)
+SECRET_DIR = re.compile(r"(^|/)(\.ssh|\.aws|\.gnupg|\.kube|\.docker|\.config/(gcloud|gh|op|hub|doctl|fly|rclone|containers|sops|deus-witness)|\.azure|Library/Keychains|Library/(Mail|Messages|Cookies)|\.thunderbird|Library/Thunderbird|[\w .-]+\.mbox)(/|$)", re.I)
 CREDENTIAL_NAMES = (".env", ".env.local", ".env.production", ".envrc", ".netrc", ".npmrc", ".pypirc", ".pgpass", ".git-credentials", "credentials",
                   "credentials.json", ".vault-token", "id_rsa", "id_ed25519", "id_ecdsa", "server.pem", "server.key", "cert.p12", "store.jks",
                   "db.kdbx", "secrets.yaml", "secrets.yml", "secret.json", "secrets.toml", "secrets.env", ".terraformrc")
