@@ -26,7 +26,12 @@ Env: DEUS_WITNESS_KEY (required), DEUS_WITNESS_URL, DEUS_WITNESS_HOME (key pin d
                                 the person at the terminal must not approve in the owner's place. `ask` shows a yes/no prompt in
                                 the terminal - yes runs the call WITHOUT a witness receipt - so it is an explicit choice only.
                                 defer: print mode / Agent SDK only - interactive Claude Code ignores it. Anything else: deny,
-     DEUS_WITNESS_HOOK_ALLOW    allow | neutral, default allow (neutral: a witnessed allow still goes through Claude Code's prompts),
+     DEUS_WITNESS_HOOK_ALLOW    allow | neutral | unset (0.2.76). neutral: a witnessed allow gives no decision, so Claude Code's own check
+                                still decides (its prompts; in auto mode its classifier). allow: always allow (0.2.75 and older).
+                                Unset: neutral when Claude Code runs in auto mode (permission_mode "auto"), except a call the owner
+                                approved or allowed "from now on"; allow otherwise. Deny and ask of the witness are never neutral.
+                                After a neutral allow the check after the call (PostToolUse / PermissionDenied) tells the witness
+                                whether the call ran (pin.py).
      DEUS_WITNESS_VERIFY=0      do not check receipts (not recommended). 0.2.32: ignored once the URL has a pinned key.
      DEUS_WITNESS_HOOK_OFFLINE  read | strict, default read (0.2.48, offline.py): while the witness cannot be reached (network, 5xx,
                                 timeout) a call that only reads a non-secret file of the project is not blocked (journal offline.log,
@@ -556,7 +561,11 @@ class Settings:
             self.on_defer = "deny"
             self.ask_ignored = True
         self.ask_ignored = getattr(self, "ask_ignored", False)
-        self.allow = "neutral" if e.get("DEUS_WITNESS_HOOK_ALLOW") == "neutral" else "allow"
+        # r0297 (client 0.2.76): unset = "auto" -- a witnessed allow is neutral (no decision) when Claude Code runs in auto mode, so the
+        # auto mode classifier still looks at the call (docs: a hook's "allow" skips the permission prompt; "With no permissionDecision,
+        # auto mode can deny"); "neutral" = always neutral (as before); "allow" = always allow (the behaviour of 0.2.75 and older)
+        v = e.get("DEUS_WITNESS_HOOK_ALLOW")
+        self.allow = v if v in ("neutral", "allow") else "auto"
         # 0.2.32 (K1): DEUS_WITNESS_VERIFY=0 is only a request; judge() keeps the check on when this URL already has a pinned key
         self.verify_off = e.get("DEUS_WITNESS_VERIFY") == "0"
         self.verify = not self.verify_off
@@ -1736,6 +1745,10 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
     qn = quota_notice(state.get("quota"), s.env)
     if qn and isinstance(out, dict):
         out["systemMessage"] = (out["systemMessage"] + " " + qn) if out.get("systemMessage") else qn
+    if upd is not None and state.get("neutral"):
+        # r0297: the env mask rewrites the call (updatedInput) and docs: "With no permissionDecision, auto mode can deny the changed call"
+        # (the classifier reviewed the line Claude wrote). A masked line is the witness's own, safer form of it: it stays `allow`
+        out = dict(out or {}, **decision("allow", "Deus Witness: allowed by the owner's mandate (receipt %s)" % ", ".join(state.pop("neutral"))))
     if upd is not None:
         hs = out.get("hookSpecificOutput") if isinstance(out, dict) else None
         if not hs:                                        # Claude Code's own rules would decide: it must still run the masked line
@@ -1747,7 +1760,29 @@ def judge(ev, s: Settings, witness: Witness | None = None, deadline: float | Non
                 " (Deus Witness ran it as `... | awk ...`: values of variables that may hold a secret are printed as [masked].)"
     # r0272 (gate 6, L3 13.11): another PreToolUse hook (rtk) may rewrite the call after this decision; a witnessed allow pins the judged
     # input (updatedInput) and leaves a record that the PostToolUse check compares with what ran (pin.py)
+    if state.get("neutral") and not (out or {}).get("hookSpecificOutput"):
+        # r0297: no decision and no updatedInput (auto mode may deny a changed call); the record says the receipts are used and waits for
+        # PostToolUse (ran) or PermissionDenied (auto mode refused it: not run)
+        pin.pin_neutral(ev, state["neutral"], s.env, orig=orig, cosmetic=COSMETIC.get(tool_name, ()))
+        return out
     return pin.pin(ev, out, s.env, orig=upd if upd is not None else orig, cosmetic=COSMETIC.get(tool_name, ()))
+
+
+def neutral_allow(s, ev, owned) -> bool:
+    """r0297 (client 0.2.76): answer a witnessed allow with NO decision (Claude Code's own check decides after Witness), or with `allow`?
+      DEUS_WITNESS_HOOK_ALLOW=neutral -> always neutral (as before 0.2.76); =allow -> never (0.2.75 and older).
+      unset ("auto") -> neutral when the event says permission_mode "auto": the classifier of auto mode then still looks at the call, so
+        Witness adds a check and never removes one. Except a call a person decided: an owner's approval of THIS call (status approved:
+        the question showed the whole call) or the owner's signed "allow such from now on" for every witnessed part (OK_ALLOWANCE, the
+        Witness form of an allow rule; Claude Code's own allow rules also resolve before its classifier). Those stay `allow`.
+    deny and ask are never neutral (they are not allows)."""
+    if s.allow == "neutral":
+        return True
+    if s.allow != "auto" or not isinstance(ev, dict) or ev.get("permission_mode") != "auto":
+        return False
+    if any(res.status == "approved" for res in owned):
+        return False
+    return not all(res.reason == "OK_ALLOWANCE" for res in owned)
 
 
 QUOTA_STEPS = (95, 90, 80)
@@ -2044,8 +2079,15 @@ def _judge(ev, s, witness, deadline, state, tool_name, inp) -> dict:
             if pr.get("result") != "accept":
                 return deny(str(pr.get("reason", "NOT_ACCEPTED")), res.rid, texts=texts)
         owned = [(m, res) for m, res in allowed if res.reason != "OK_PASS"]   # 0.2.4+: a `pass` call under a signed map is answered allow/OK_PASS WITH a receipt (consumed above); it is still not the mandate's decision
-        if not owned or s.allow == "neutral":
+        if not owned:
             return decision(None)                         # only `pass` parts: Claude Code's own permission rules decide
+        if neutral_allow(s, ev, [res for _, res in owned]):
+            # r0297: allowed by the witness (receipts consumed above), and Claude Code's own check still decides: in auto mode its
+            # classifier. The record lets the check after the call tell the witness whether the call ran (pin.pin_neutral / pin.check)
+            state["neutral"] = [res.rid for _, res in owned]
+            log("tool=%s allowed by the witness (%s); no decision: Claude Code's own check decides" % (
+                tool_name, ", ".join(res.rid for _, res in owned)))
+            return decision(None)
         return decision("allow", "Deus Witness: allowed by the owner's mandate (%s)" % ", ".join(
             "%s, receipt %s" % (res.reason, res.rid) for _, res in owned))
     except Fail as e:
@@ -2147,8 +2189,9 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
         ev = json.loads(stdin_bytes.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
         return deny("EVENT_MALFORMED")
-    if isinstance(ev, dict) and ev.get("hook_event_name") in ("PostToolUse", "PostToolUseFailure"):
-        return pin.check(ev, s.env, COSMETIC)               # r0272: did the approved call run, or one another hook rewrote?
+    if isinstance(ev, dict) and ev.get("hook_event_name") in pin.AFTER_EVENTS:
+        # r0272: did the approved call run, or one another hook rewrote? r0297: and for a neutral allow, did it run at all (the witness is told)
+        return pin.check(ev, s.env, COSMETIC, report=_reporter(s))
     if isinstance(ev, dict) and ev.get("hook_event_name") not in (None, "PreToolUse"):
         return None
     out, state = {}, {}
@@ -2186,6 +2229,22 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
         # 0.2.48: a witness that hangs is unreachable too; a read decided here never waits for the thread (it may still be judging)
         return unreachable(ev, s, dict(state), "WITNESS_TIMEOUT", strict) if isinstance(ev, dict) else strict
     return out["r"]
+
+
+def _reporter(s):
+    """r0297: -> report(rid, executed) that tells the witness the key was set up for whether a call it allowed ran (POST
+    /v1/actions/{rid}/report, the journal then says "executed" / "not executed"), or None when there is no such witness here."""
+    if not s.key or s.url_conflict:
+        return None
+
+    def report(rids, executed):
+        w = Witness(s.url, s.key, verify=False, timeout=5.0, pin_new=False, connect_timeout=s.connect)
+        try:
+            for rid in rids:
+                w.report(rid, executed)
+        finally:
+            w.close()
+    return report
 
 
 def _local_read_ok(ev, s) -> bool:

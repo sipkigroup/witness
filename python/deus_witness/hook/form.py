@@ -124,7 +124,18 @@ def _scratch_targets() -> list:
     return ["/private/tmp/claude-%d/*" % uid, "/tmp/claude-%d/*" % uid]
 
 
-def default_form(project_dir: str, web_domains=None, safe_commands=None, home=None) -> dict:
+# r0296 (server hookjudge/mapping.py AUTO_PROFILE, web/js/mandate_form.js): the profile "auto mode + Witness" = two reserved entries of
+# the signed command list. AUTO_PROFILE is the one line the person reads and signs ("ask only what cannot be undone"); AUTO_OUTSIDE lets
+# the core allow the pseudo-command "(write outside the project) <path>", which the witness makes only for a write in the home folder,
+# outside the project, that is no secret / persistence / agent or git configuration and whose file this hook copied first (undo). Delete,
+# network, git push, money, secrets, autostart, the agent's settings stay asked; code stays quiet only in the strict sandbox. Same strings
+# as the server's (a test keeps them equal).
+AUTO_PROFILE = "(auto mode: ask only what cannot be undone)"
+AUTO_OUTSIDE = "(write outside the project) /*"
+PROFILES = ("default", "auto")
+
+
+def default_form(project_dir: str, web_domains=None, safe_commands=None, home=None, profile="default") -> dict:
     """Recommended mandate form for a Claude Code agent (the 'default rules'):
       - writes (Write/Edit/NotebookEdit/Bash redirections) only inside the project and the temp dir; elsewhere deny RESOURCE;
         0.2.32 (K1): EXCEPT the agent's own harness (<proj>/.claude/**, <proj>/.mcp.json, <proj>/.git/hooks/**, ~/.claude/**, the Deus
@@ -144,10 +155,14 @@ def default_form(project_dir: str, web_domains=None, safe_commands=None, home=No
     proj = os.path.realpath(_expand(project_dir, home))
     tmp = personal_temp(tempfile.gettempdir())         # r0279: None on Linux without a TMPDIR of the person's (shared /tmp)
     scratch = _scratch_targets()
+    if profile not in PROFILES:
+        raise ValueError("profile: default | auto")
+    allow = list(DEFAULT_SAFE_COMMANDS if safe_commands is None else safe_commands) + ([SANDBOXED_CODE] if DEFAULT_SANDBOXED_CODE else [])
+    if profile == "auto":
+        allow = [x for x in allow if x not in (AUTO_PROFILE, AUTO_OUTSIDE)] + [AUTO_PROFILE, AUTO_OUTSIDE]
     return {"currency": "USD", "valid_days": 30, "purchase": None,
             "message": {"domains": list(DEFAULT_WEB_DOMAINS if web_domains is None else web_domains), "to": []},
             "forbidden_data": [], "publish": None,
             "delete": {"targets": [proj + "/*"] + ([tmp + "/*"] if tmp else []) + scratch, "allow_irreversible": True},
-            "command": {"allow": list(DEFAULT_SAFE_COMMANDS if safe_commands is None else safe_commands)
-                                 + ([SANDBOXED_CODE] if DEFAULT_SANDBOXED_CODE else []), "unlisted": DEFAULT_UNLISTED,
+            "command": {"allow": allow, "unlisted": DEFAULT_UNLISTED,
                         "sandboxed": DEFAULT_SANDBOXED}}

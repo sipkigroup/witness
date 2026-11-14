@@ -461,6 +461,8 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
     ap.add_argument("--force", action="store_true", help="replace the saved agent key even if it belongs to a full account or to a "
                     "trial account that already has your passkey (default: refuse and change nothing)")
     ap.add_argument("--internal", action="store_true", help=argparse.SUPPRESS)       # our own test runs: never counted by the witness
+    ap.add_argument("--profile", choices=("default", "auto"), default="default",
+                    help="auto: ask only what cannot be undone (with Claude Code's auto mode); the trial page shows it ticked")   # r0296
     o = ap.parse_args(argv)
     from .hook.form import default_form, refuse_reason
     why = refuse_reason(o.project, e.get("HOME"))    # 29.10 (RT-BASHRC-2910): before anything is made or retired
@@ -503,7 +505,7 @@ def run(argv=None, env=None, transport=None, opener=None, out=None) -> int:
             if rc is not None:
                 return rc
     kept = later                               # the previous trial is still there (and its page works) until the retire below
-    body = {"form": default_form(o.project, home=e.get("HOME")), "client": {"name": "deus-witness", "version": __version__}}
+    body = {"form": default_form(o.project, home=e.get("HOME"), profile=o.profile), "client": {"name": "deus-witness", "version": __version__}}
     if o.internal or e.get("DEUS_WITNESS_INTERNAL") == "1":
         body["internal"] = True
     # r0289 (TERMS-REVIEW #1): the notice of the terms comes BEFORE the account is made, in one line, with the links of this witness
