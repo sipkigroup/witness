@@ -55,7 +55,7 @@ attack probes let through. What these numbers do and do not show: [docs/measured
   off on purpose: `claude plugin disable deus-witness@sipkigroup`.
 - **Data leaves your machine.** The full command line, file paths, the text being written and your `$HOME` path go to the hosted
   witness (Sipki LLC) or to one you run yourself. Your conversation does not. Details: [docs/data.md](docs/data.md).
-- **Trial account:** erased after 7 days unless you keep it; one passkey and no recovery codes.
+- **Trial account:** it lives while you use it (erased 90 days after the last hook call or sign-in; a push warns you 14 days before; an unclaimed one whose hook never called goes after 7 days). Right after you make an account Deus Witness offers recovery codes.
 - **Few questions only in quiet mode.** Without it Deus Witness asks about most commands (our friction stand: ~40-110 questions on the
   first day instead of 0-6). Quiet mode needs Claude Code's strict sandbox: macOS; Linux and WSL2 after
   `sudo apt install bubblewrap socat`. Containers are not supported.
