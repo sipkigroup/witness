@@ -50,15 +50,17 @@ attack probes let through. What these numbers do and do not show: [docs/measured
 
 ## Honest limits
 
-- **Early (0.x).** No outside users, audits or deployments yet; the spec is an individual draft, not an IETF standard.
+- **Early (0.x).** No outside users, audits or deployments yet; the spec is a draft specification in `spec/`, not submitted to the IETF.
 - **Fail closed.** If the witness is unreachable, every call except a read of a non-secret project file is refused. Switch Deus Witness
   off on purpose: `claude plugin disable deus-witness@sipkigroup`.
-- **Data leaves your machine.** The full command line, file paths, the text being written and your `$HOME` path go to the hosted
-  witness (Sipki LLC) or to one you run yourself. Your conversation does not. Details: [docs/data.md](docs/data.md).
+- **Data leaves your machine.** The tool input as given (the full command line, file paths, the text being written or replaced), your
+  working, project, home and temp directory paths (`$HOME`, so your user name), the Claude Code session id, file hashes and masked
+  settings go to the hosted witness (Sipki LLC) or to one you run yourself; the plugin's `uvx` downloads the client from PyPI. Your
+  conversation does not. Every field: [docs/data.md](docs/data.md).
 - **Trial account:** it lives while you use it (erased 90 days after the last hook call or sign-in; a push warns you 14 days before; an unclaimed one whose hook never called goes after 7 days). Right after you make an account Deus Witness offers recovery codes.
 - **Few questions only in quiet mode.** Without it Deus Witness asks about most commands (our friction stand: ~40-110 questions on the
   first day instead of 0-6). Quiet mode needs Claude Code's strict sandbox: macOS; Linux and WSL2 after
-  `sudo apt install bubblewrap socat`. Containers are not supported.
+  `sudo apt install bubblewrap socat` (not yet tested live on Linux and WSL2). Containers are not supported.
 
 ## Turn it off / remove it
 
