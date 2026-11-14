@@ -42,9 +42,14 @@ from . import __version__, _compat, links
 DEFAULT_URL = "https://witness.sipkigroup.com"
 KEY_FILE = "agent-key.json"
 TRY_CMD = "uvx --from deus-witness deus-witness try"      # 0.2.40: what a person types; a uv user has no `deus-witness` on PATH
+# r0303 (PRAVDA-TEKSTOV-1411): the short form of docs/data.md, the one full list (a test keeps that page in step with the code).
 SENT = ("the tool name and the full input of every call the hook sees (shell commands, file paths, URLs, the text of a Write/Edit)",
-        "the working directory and the project directory",
-        "answers to the witness' questions about paths of that call and SHA-256 fingerprints of project files a command runs")
+        "the working, project, home and temp directory paths (so your user name) and the Claude Code session id",
+        "answers to the witness' questions about paths of that call, SHA-256 hashes of project files a command runs, and masked values "
+        "of git settings that start programs",
+        "for shell commands: a summary of your Claude Code sandbox settings, your permission mode, and the NAMES (never the values) of "
+        ".env files and token-like environment variables",
+        "the full list: https://github.com/sipkigroup/witness/blob/main/docs/data.md")
 
 
 def key_dirs(env=None) -> list:

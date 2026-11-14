@@ -140,9 +140,12 @@ TDX verifier, judge the same quotes with the same saved Intel collateral, offlin
 ## Claude Code hook (built-in tools)
 `deus-witness-hook` is a Claude Code PreToolUse hook: `Bash`, `Edit`, `Write`, `NotebookEdit`, `Read`, `WebFetch` and `mcp__*` calls are
 judged by the witness before they run. Answers `allow` / `deny` / `ask`; fail closed. It is a thin client: it sends the call as Claude Code
-gave it (the command line, paths, cwd, `CLAUDE_PROJECT_DIR`), the realpath / existence of the paths the witness asks about and SHA-256
-fingerprints of project files from a list the witness signs; the witness classifies and decides, the hook verifies the signed receipts. What leaves the machine:
-https://witness.sipkigroup.com/dl/docs/coverage.html.
+gave it (the full command line, paths, the text being written) with the working, project, home and temp directory paths, the Claude Code
+session id, the realpath / existence of the paths the witness asks about, SHA-256 fingerprints of project files from a list the witness
+signs, masked values of git settings that start programs, and for shell calls a summary of the sandbox settings, the permission mode and
+the names (never the values) of `.env` files and token-like environment variables; the witness classifies and decides, the hook verifies
+the signed receipts. What leaves the machine, field by field: https://github.com/sipkigroup/witness/blob/main/docs/data.md.
+What the witness checks and what it does not: https://witness.sipkigroup.com/dl/docs/coverage.html.
 
 Set-up (full text: https://witness.sipkigroup.com/dl/docs/quickstart.html, section "Claude Code hook"):
 1. Create an agent with the `claude-code` preset on the Agents page and copy its key.
@@ -154,7 +157,7 @@ Set-up (full text: https://witness.sipkigroup.com/dl/docs/quickstart.html, secti
 3. Put this into `<project>/.claude/settings.json` (or `~/.claude/settings.json`). The key does NOT go into this file: `export DEUS_WITNESS_KEY=dwk_...` in the shell that starts `claude`, or `env` in `<project>/.claude/settings.local.json`.
 ```json
 {"hooks": {
-  "SessionStart": [{"hooks": [{"type": "command", "command": "uvx --from deus-witness deus-witness-hook --session-start", "timeout": 15}]}],
+  "SessionStart": [{"hooks": [{"type": "command", "command": "uvx --from deus-witness deus-witness-hook --session-start", "timeout": 60}]}],
   "PreToolUse": [{"matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit|NotebookRead|Read|Grep|Glob|LS|WebFetch|WebSearch|ReadMcpResourceTool|ListMcpResourcesTool|mcp__.*",
     "hooks": [{"type": "command", "command": "uvx --from deus-witness deus-witness-hook || exit 2", "timeout": 30, "onFailure": "block"}]}]},
  "env": {"DEUS_WITNESS_URL": "https://witness.sipkigroup.com", "DEUS_WITNESS_HOOK_TIMEOUT": "20"}}
