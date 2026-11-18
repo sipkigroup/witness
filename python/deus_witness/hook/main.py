@@ -91,7 +91,7 @@ import threading
 import time
 
 from .. import __version__, _compat, links
-from . import archlinks, envmask, failsafe, fingerprint, gitref, mask, offline, pin, samefile, sandbox_fact, selfpath, shadow
+from . import archlinks, envmask, failsafe, fingerprint, gitref, mask, offline, pin, progid, samefile, samplefile, sandbox_fact, selfpath, shadow
 from ..client import AARError, ActionResult, Witness, WitnessError, WitnessKeyChanged, WitnessNotPinned, args_sha256, busy, request_sha256
 from .form import default_form
 from .messages import LOCAL
@@ -623,9 +623,29 @@ _CONFIG_WORDS = re.compile(r"(\.claude(?![\w-])(?!/worktrees/)(?!/projects/[^/\s
                            r"agent-key\.json|deus-witness-hook\s+--trust" + _GIT_WORDS + ")", re.I)
 # 0.2.33: the Deus Witness key files stay owner-only even for a read (the key itself); .claude / .mcp.json / .git/hooks do not (below)
 _KEY_WORDS = re.compile(r"(\.deus-witness|config[/\\]deus-witness|Support[/\\]deus-witness|agent-key\.json|deus-witness-hook\s+--trust)", re.I)
+# r0335: a word a shell passes on as it is: single-quoted, double-quoted without $ ` \\, or plain without any shell character
+_INERT_WORD = r"(?:'[^']*'|\"[^\"$`\\\\]*\"|[^\s'\"`$;&|<>()\\\\]+)"
 # 0.2.58c: an exclusion pattern (`find ... -not -path '*/.git/*'`, `! -name .git`, `--exclude-dir=.git`) only names what to skip: single-quoted or
 # plain word, nothing a shell would expand or run. Removed before the .git words are searched (never for .claude / .mcp.json / keys).
-_FIND_EXCLUDE = re.compile(r"(?:(?:!|-not)\s+-(?:i?path|i?wholename|i?name)\s+|--exclude(?:-dir)?(?:=|\s+))(?:'[^']*'|[^\s'\"`$;&|<>()\\]+)")
+_FIND_EXCLUDE = re.compile(r"(?:(?:!|-not)\s+-(?:i?path|i?wholename|i?name)\s+|--exclude(?:-dir)?(?:=|\s+))" + _INERT_WORD)
+# r0335 (live run nabor-1 17.11, S023 / S029 / S056 / S058 / S012): the same exclusions the agents write every day were not dropped --
+# a pattern in DOUBLE quotes (`-not -path "*/.git/*"`: nothing a shell expands when it holds no $ ` \), find's `-path ./.git -prune -o`
+# (a pruned tree is never entered; only with `-o` after it: `-prune -exec rm {} +` acts ON .git, and a `!` / `-not` before it prunes the
+# rest), and the pattern of `grep -v` (`find . | grep -v "^./.git/"`: it filters the listing, grep writes nothing)
+_FIND_PRUNE = re.compile(r"(?:^|(?<=[\s(]))-(?:i?path|i?wholename|i?name)\s+" + _INERT_WORD + r"\s+-prune\s+-o(?:r)?(?=\s)")
+_GREP_V_PATTERN = re.compile(r"(?:^|(?<=[\s;&|(]))grep\s+(?:-[A-Za-z]+\s+)*?-[A-Za-z]*v[A-Za-z]*\s+(?:-[A-Za-z]+\s+)*" + _INERT_WORD)
+
+
+def _drop_exclusions(cmd):
+    """r0335: `cmd` with every find / grep exclusion of a place replaced by a blank (see _FIND_EXCLUDE, _FIND_PRUNE, _GREP_V_PATTERN)."""
+    out = _FIND_EXCLUDE.sub(" ", cmd)
+    out = _GREP_V_PATTERN.sub(" ", out)
+    for x in reversed(list(_FIND_PRUNE.finditer(out))):
+        before = out[:x.start()].rstrip()
+        if before.endswith("!") or re.search(r"(?:^|\s)-not$", before):
+            continue                                      # `! -path X -prune`: prunes everything else, not X
+        out = out[:x.start()] + " " + out[x.end():]
+    return out
 
 # 0.2.33 (friction of K1, residual risk 3): `cat .claude/settings.json`, `ls .git/hooks`, `git diff .mcp.json` were refused with no way to
 # approve them. A Bash command that can only READ is not the agent's harness being changed: it goes the normal way (the witness judges
@@ -771,11 +791,44 @@ def _ro_segment(argv):
     return True
 
 
+def drop_fd_numbers(cmd):
+    """r0335 (live run 17.11, S012: `git config --list --show-origin 2>/dev/null | grep -i user`): the descriptor number of a redirection
+    (`2>/dev/null`, `2>&1`: digits glued to `>` and standing after a blank, outside quotes) is part of the redirection, not a word of the
+    command; shlex splits it off as one ("2"), and `git config --list 2` is no longer a read. Removed here; `x 2 >f` (a blank between)
+    keeps its argument "2", as bash does."""
+    out, q, i, n = [], None, 0, len(cmd)
+    while i < n:
+        ch = cmd[i]
+        if q:
+            if ch == q:
+                q = None
+            elif q == '"' and ch == "\\" and i + 1 < n:
+                out.append(ch + cmd[i + 1])
+                i += 2
+                continue
+        elif ch in "'\"":
+            q = ch
+        elif ch.isdigit() and (i == 0 or cmd[i - 1] in " \t;&|(") :
+            j = i
+            while j < n and cmd[j].isdigit():
+                j += 1
+            if j < n and cmd[j] == ">":
+                i = j
+                continue
+            out.append(cmd[i:j])
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def read_only_shell(cmd):
     """0.2.33: True only when the Bash command `cmd` surely just reads (see above). False on any doubt."""
     import shlex
     if not isinstance(cmd, str) or not cmd.strip() or len(cmd) > 4096 or not _ro_scan(cmd):
         return False
+    cmd = drop_fd_numbers(cmd)
     try:
         lx = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>")
         lx.whitespace_split, lx.commenters = True, ""
@@ -922,8 +975,9 @@ def agent_config_target(ev, facts, env):
             m = None if ro else next((x for x in _CONFIG_WORDS.finditer(cmd) if not _KEY_WORDS.search(x.group(0))), None)
         else:
             m = _KEY_WORDS.search(cmd) if ro else _config_word(cmd)
-        if m and m.group(0).lower().startswith(".git") and not _CONFIG_WORDS.search(_FIND_EXCLUDE.sub(" ", cmd)):
+        if m and m.group(0).lower().startswith(".git") and not _config_word(_drop_exclusions(cmd)):
             m = None                                      # 0.2.58c: `find . -not -path '*/.git/*'` NAMES .git as a pattern to skip, touches nothing
+            #                                               r0335: a read-only `git config` left in the line is no harness either (_config_word)
         if m:
             return m.group(0)
         from ..trial import home_dir
@@ -1164,6 +1218,17 @@ WHICH_NAMES = re.compile(r"(python([23](\.\d{1,2})?)?|pypy3?|pip3?|pytest|py\.te
 WHICH_MAX = 16
 
 
+def _caller_path(env):
+    """r0338: the PATH Claude Code runs commands with (as _which_fact reads it), or None when it is not known here."""
+    e = env or {}
+    path = e.get("DEUS_WITNESS_CALLER_PATH")
+    if not isinstance(path, str):
+        if e.get("CLAUDE_PLUGIN_ROOT"):
+            return None
+        path = e.get("PATH")
+    return path if isinstance(path, str) else None
+
+
 def _which_fact(cmd, env):
     """-> {name: realpath | None} for the Python tools named in `cmd`, or None when the PATH Claude Code runs commands with is not known
     here (under a plugin older than 0.2.57: it filtered PATH; no fact = the witness asks as before)."""
@@ -1324,6 +1389,7 @@ class Facts:
         # call: the witness asks an `archive` question only of a hook that can answer it (an older hook is never asked)
         self.fs["samefile"], self.fs["archive"] = {}, {}
         self.fs["shadow"] = {}                        # 0.2.58: {path outside the project: shadow.save(...)} -- sent empty: the witness asks
+        self.fs["sample"] = {}                        # r0335: {a .env template: samplefile.answer(...)} -- sent empty: the witness asks
         self._secrets, self._env_all = None, env
         self.exec = "off" if self.env.get("DEUS_WITNESS_EXEC_SCAN") == "0" else None
         self.spec = None                              # the fingerprint list of the last walk (a preview's digest is made with it)
@@ -1345,6 +1411,7 @@ class Facts:
         sid = ev.get("session_id")
         self.session_id = sid if isinstance(sid, str) and 0 < len(sid) <= 128 else None
         self.which = None
+        self.prog = None                              # r0338: {"v", "w": {word: ident}, "p": {path: ident}} (progid.fact), Bash only
         self.git_self = None
         try:
             self.git_head = git_head(self.root)          # 0.2.65: the project's git branch (a "from now on" ends on another one)
@@ -1359,6 +1426,10 @@ class Facts:
                 self.which = _which_fact(inp.get("command"), env)
             except Exception:      # noqa: BLE001  no fact: asked as before
                 self.which = None
+            try:                                      # r0338: the identity of each program of the line by its file (progid.py)
+                self.prog = progid.fact(inp.get("command"), cwd, _caller_path(env), self.root, self.env.get("HOME") or self.home)
+            except Exception:      # noqa: BLE001  no fact: judged by the name, as before
+                self.prog = None
             try:
                 self.sandbox = sandbox_fact.fact(inp, self.root, env, self.env.get("HOME") or self.home,
                                                 transcript=ev.get("transcript_path"), permission_mode=ev.get("permission_mode"))
@@ -1522,8 +1593,10 @@ class Facts:
                               **({"harness_held": True} if hh else {}),
                               **({"settings": self.settings} if self.settings is not None else {}),
                               **({"which": self.which} if self.which else {}),
+                              **({"prog": self.prog} if isinstance(self.prog, dict) else {}),
                               **({"git_self": self.git_self} if self.git_self else {}),
-                              **({"git_head": self.git_head} if self.git_head else {})),
+                              **({"git_head": self.git_head} if self.git_head else {}),
+                              **({"lock": _lock_fact()} if _lock_fact() is not None else {})),
                 "client": CLIENT, "part": part, "nonce": self.nonce,
                 **({"session_id": self.session_id} if self.session_id is not None else {})}
 
@@ -1554,6 +1627,22 @@ class Facts:
                         self.fs["samefile"][p] = a    # 0.2.73 (N13): a hard link of a credential file is judged as that file
         for p in arch:                                # 0.2.73 (N13): the links an extraction makes (headers only, archlinks.py)
             self.fs["archive"][p] = archlinks.answer(p)
+        pa = need.get("prog") or []                   # r0338: the identity of a program file the witness found in the line (progid.py)
+        if not isinstance(pa, list) or len(pa) > 16 or not all(isinstance(p, str) and 0 < len(p) <= 4096 for p in pa):
+            raise Fail("HOOK_ERROR", "(bad witness answer)")
+        if not all(self.related(p) for p in pa):
+            raise Fail("HOOK_ERROR", "(the witness asked about a path unrelated to this call)")
+        if pa and not isinstance(self.prog, dict):
+            self.prog = {"v": progid.V, "w": {}, "p": {}}
+        for p in pa:
+            self.prog["p"][p] = progid.answer_path(p, self.root, self.env.get("HOME") or self.home)
+        smp = need.get("sample") or []                # r0335: is this .env template only names (samplefile.py, text of the call's own file)
+        if not isinstance(smp, list) or len(smp) > 16 or not all(isinstance(p, str) and 0 < len(p) <= 4096 for p in smp):
+            raise Fail("HOOK_ERROR", "(bad witness answer)")
+        if not all(self.related(p) and re.search(r"(^|[/\\])\.env\.(example|sample|template)$", p, re.I) for p in smp):
+            raise Fail("HOOK_ERROR", "(the witness asked about a path unrelated to this call)")
+        for p in smp:
+            self.fs["sample"][p] = samplefile.answer(p)
         refs = need.get("gitref") or []
         if not isinstance(refs, list) or len(refs) > 16 or not all(isinstance(x, list) and len(x) == 2 and all(isinstance(y, str) and 0 < len(y) <= 4096 for y in x)
                                                                   for x in refs):
@@ -1590,6 +1679,21 @@ class Facts:
             spec = self.spec = fingerprint.Spec(w.scan_list(need.get("scan_rev")))
             rep = fingerprint.scan(self.root, spec)
             self.exec = dict(fingerprint.with_gitcfg(fingerprint.with_sizes(rep, self.root), self.root, spec), rev=spec.rev) if rep is not None else {"root": self.root, "rev": spec.rev, "none": True}
+
+
+_LOCK = []
+
+
+def _lock_fact():
+    """r0315: {"locked": bool, "sha256": hash of the root hook copy or None} (deus-witness lock --check, without the venv walk), once
+    per hook process. A claim of this client, not a proof: a changed client may say anything (the witness only records it)."""
+    if not _LOCK:
+        try:
+            from ..lock import fact
+            _LOCK.append(fact())
+        except Exception:      # noqa: BLE001  no fact
+            _LOCK.append(None)
+    return _LOCK[0]
 
 
 def _preview(p, root, is_git, spec):

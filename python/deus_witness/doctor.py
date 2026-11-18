@@ -298,10 +298,11 @@ def render(r: dict) -> str:
     return "\n".join(lines)
 
 
-SUBCOMMANDS = ("doctor", "try", "run", "audit")
+SUBCOMMANDS = ("doctor", "try", "run", "audit", "lock")
 USAGE = ("deus-witness audit [--json] [--project DIR]\n"
          "       deus-witness try [--project DIR] [--no-browser] [--force]\n"
          "       deus-witness run [--] claude <args...>\n"
+         "       deus-witness lock --print | --plan | --check\n"
          "       deus-witness doctor [--json] [--no-network] [--project DIR]\n"
          "       deus-witness [--url U] [--no-verify-aar] -- <upstream MCP server command...>")
 EPILOG_TEMPLATE = """commands:
@@ -309,6 +310,8 @@ EPILOG_TEMPLATE = """commands:
             network, no account; --json for machines; exit code 0 always)
   try       a trial account in one command: agent key saved locally, two passkey touches in the browser when the agent first needs you;
             run again, it replaces the previous trial while that has no passkey; --force: replace any saved key (see: deus-witness try --help)
+  lock      pin the Witness hook with Claude Code managed settings (root copy of the hook; bypassPermissions off): --print the
+            settings file, --plan the steps and ONE sudo command for you to run, --check LOCKED / NOT LOCKED (see: deus-witness lock --help)
   doctor    where can the agent go around the witness (reads client configs, changes nothing)
   run       run Claude Code (CI, cron) and fail when the Witness hook did not run in it: refuses --bare / CLAUDE_CODE_SIMPLE
             before the run, exit 3 after it when no Witness hook ran (see: deus-witness run --help)
@@ -348,6 +351,9 @@ def cli() -> None:
     if argv[:1] == ["audit"]:                 # 0.2.64: deus_witness/audit.py (read only, no network, rc 0 always)
         from .audit import main as audit_main
         sys.exit(audit_main(argv[1:]))
+    if argv[:1] == ["lock"]:                  # r0315: deus_witness/lock.py (prints; never runs sudo, never writes system folders)
+        from .lock import main as lock_main
+        sys.exit(lock_main(argv[1:]))
     if argv[:1] == ["try"]:                   # 0.2.28: deus_witness/trial.py
         from .trial import run as trial_run
         sys.exit(trial_run(argv[1:]))

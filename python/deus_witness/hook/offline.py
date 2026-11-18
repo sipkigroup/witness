@@ -57,7 +57,7 @@ BAD_LONG = {"grep": ("--recursive", "--dereference-recursive", "--directories", 
 
 # the server's credential names and directories (its classifier's two patterns and its list of sample names); a test keeps them equal
 # 0.2.53: + ssh_host_*_key and ~/.config/deus-witness (server 0.2.82)
-SECRET_NAME = re.compile(r"(^|/)(\.env(\.[\w.-]+)?|\.envrc|\.netrc|\.npmrc|\.pypirc|\.pgpass|\.git-credentials|\.?credentials(\.json)?|"
+SECRET_NAME = re.compile(r"(^|/)(\.env(\.[\w.-]+)?|\w[\w.-]*\.env|\.envrc|\.netrc|\.npmrc|\.pypirc|\.pgpass|\.git-credentials|\.?credentials(\.json)?|"
                          r"\.vault-token|\.terraformrc|credentials\.tfrc\.json|\.s3cfg|\.boto|\.my\.cnf|\.authinfo(\.gpg)?|rclone\.conf|\.(zsh|bash)_history|[\w.-]+\.ovpn|"
                          r"id_(rsa|dsa|ecdsa|ed25519)(\.pub)?|ssh_host_[\w-]+_key|[\w.-]+\.(pem|key|p12|pfx|jks|keystore|kdbx|ppk|p8)|secrets?\.(ya?ml|json|toml|env)|"
                          r"Login Data|Cookies|Web Data|logins\.json|key4\.db|cookies\.sqlite|Cookies\.binarycookies|[\w .-]*passwords[\w .-]*\.csv|[\w.-]+\.1pux|"   # r0293: browser stores, password exports
@@ -152,7 +152,8 @@ def _glob_ok(g):
 
 def _segments(cmd):
     """The argv of every segment of a command read_only_shell() already accepted (its redirections to /dev/null dropped)."""
-    lx = shlex.shlex(cmd, posix=True, punctuation_chars=";&|<>")
+    from .main import drop_fd_numbers
+    lx = shlex.shlex(drop_fd_numbers(cmd), posix=True, punctuation_chars=";&|<>")     # r0335: `2>/dev/null` as read_only_shell reads it
     lx.whitespace_split, lx.commenters = True, ""
     toks, segs, seg, i = list(lx), [], [], 0
     while i < len(toks):

@@ -34,7 +34,8 @@ DEFAULT_SAFE_COMMANDS = ["ls", "pwd", "cd", "cat", "head", "tail", "wc", "echo",
                          "find", "sed", "awk", "jq",
                          "ps", "lsof", "whoami", "id", "git remote", "git tag list", "git stash list", "git stash show", "git config get", "npm ls", "npm list",
                          "pip list", "pip3 list", "pip freeze", "pip3 freeze", "pip show", "pip3 show", "uv pip", "git check-ignore", "git ls-tree", "git rev-list", "git merge-base", "git show-ref",
-                         "od", "hexdump", "strings", "xxd", "--version"]
+                         "od", "hexdump", "strings", "xxd", "git init", "xattr", "--version",
+                         "docker ps", "top -l", "vm_stat", "sysctl read", "scutil --get", "sw_vers", "netstat", "ruff check", "sqlite3 read", "printf", "hostname", "spctl --status", "unzip -l", "zip", "sips"]
 
 
 # 0.2.56 (V3): command.sandboxed = "allow" in the RECOMMENDED form: a test runner (pytest, npm test, make ...) runs without a question only
@@ -43,7 +44,9 @@ DEFAULT_SAFE_COMMANDS = ["ls", "pwd", "cd", "cat", "head", "tail", "wc", "echo",
 # never widened: the core allows OK_SANDBOXED only when the signed mandate says "allow" (svidetel_v4/decide.py). Same value: the Mandate
 # page's recommended section (web/js/mandate_form.js RECOMMENDED_SANDBOXED); a test keeps them equal.
 DEFAULT_SANDBOXED = "allow"
-# 0.2.58 (server 0.2.90, FABLE-NOL 03.11 "standing mandate"): the RECOMMENDED form says `unlisted: "allow"`: every shell command runs with
+# r0339 (Р-1711-baza п.2, the owner 17.11): the RECOMMENDED form says `unlisted: "ask"` and never offers "allow" by default; "allow" is the
+# person's explicit choice on the Mandate page, named there honestly ("like an antivirus: what Witness does not know passes").
+# HISTORY, no longer the default -- 0.2.58 (server 0.2.90, FABLE-NOL 03.11 "standing mandate") proposed `unlisted: "allow"`: every shell command runs with
 # a receipt; the owner is asked only at the four gates the witness names itself (G1 an irreversible delete outside the project, G2 any
 # non-loopback exit incl. git push / pip install, G3 secrets, G4 shell rc / LaunchAgents / crontab / the agent's own settings / the witness),
 # at a file this agent wrote and now runs, at a changed executed file, and for a line the classifier cannot read (opaque) outside a strict
@@ -141,7 +144,8 @@ def default_form(project_dir: str, web_domains=None, safe_commands=None, home=No
         0.2.32 (K1): EXCEPT the agent's own harness (<proj>/.claude/**, <proj>/.mcp.json, <proj>/.git/hooks/**, ~/.claude/**, the Deus
         Witness key files): the mandate format has no exclusions, so the witness asks the owner for those (category agent-config /
         git-config) and the hook itself refuses them without an owner-approved receipt (hook/main.py agent_config_target);
-      - shell commands (0.2.58): every command runs with a receipt (`unlisted: "allow"`); the four gates (delete outside the project,
+      - shell commands: the listed ones run; every other command is asked (`unlisted: "ask"`, r0339: "allow" is never the default).
+        Under a mandate the person signed with "allow" (0.2.58): every command runs with a receipt; the four gates (delete outside the project,
         any non-loopback exit, secrets, persistence / the witness itself), a file the agent wrote and runs, a changed executed file and
         an unreadable line are asked; reading a credential file is asked; a write outside the project runs after the hook kept a
         shadow copy (`deus-witness-hook --undo PATH` restores it), a place of persistence is refused outright;

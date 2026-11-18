@@ -267,31 +267,99 @@ def _journal(env, tool, approved, ran) -> None:
         pass
 
 
-REWRITERS = ("rtk hook claude", "rtk-rewrite.sh")
+REWRITERS = ("rtk hook claude", "rtk-rewrite.sh", "rtk-rewrite", "rtk rewrite")
+
+
+def _pre_commands(settings) -> list:
+    out = []
+    for e in ((settings.get("hooks") or {}).get("PreToolUse") or []) if isinstance(settings, dict) and isinstance(settings.get("hooks"), dict) else []:
+        for h in (e.get("hooks") or []) if isinstance(e, dict) else []:
+            c = h.get("command") if isinstance(h, dict) else None
+            if isinstance(c, str):
+                out.append(c)
+    return out
+
+
+def _read(f):
+    try:
+        with open(f, encoding="utf-8") as fh:
+            return json.loads(fh.read(4 * 1024 * 1024))
+    except (OSError, ValueError):
+        return None
+
+
+def plugin_hook_files(home) -> list:
+    """r0316 (ISPYTANIE-USTANOVKA 15.11: rtk came as the plugin rtk-plugin@enix, not in any settings.json): hooks.json of every installed,
+    not switched-off plugin (installed_plugins.json: installPath; enabledPlugins false in the user settings = skipped)."""
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
+    inst = _read(os.path.join(cfg, "plugins", "installed_plugins.json"))
+    plugins = inst.get("plugins") if isinstance(inst, dict) else None
+    if not isinstance(plugins, dict):
+        return []
+    off = {}
+    for n in ("settings.json", "settings.local.json"):
+        d = _read(os.path.join(cfg, n))
+        if isinstance(d, dict) and isinstance(d.get("enabledPlugins"), dict):
+            off.update(d["enabledPlugins"])
+    files = []
+    for name, entries in plugins.items():
+        if off.get(name) is False or not isinstance(entries, list):
+            continue
+        for e in entries:
+            ip = e.get("installPath") if isinstance(e, dict) else None
+            if isinstance(ip, str) and ip:
+                files.append(os.path.join(ip, "hooks", "hooks.json"))
+    return files
 
 
 def rewriters(project, home=None) -> list:
-    """Session start: other PreToolUse hooks known to rewrite tool calls (settings files of the user and the project). -> their commands."""
+    """Session start: other PreToolUse hooks known to rewrite tool calls (settings files of the user and the project, and, r0316, the
+    hooks.json of installed plugins). -> their commands. Known by name only: whether an unknown hook returns updatedInput cannot be read
+    from a file (limits in LIMITS)."""
     home = home or os.path.expanduser("~")
     found = []
-    for f in (os.path.join(home, ".claude", "settings.json"), os.path.join(home, ".claude", "settings.local.json"),
-              os.path.join(project or "", ".claude", "settings.json"), os.path.join(project or "", ".claude", "settings.local.json")):
-        try:
-            with open(f, encoding="utf-8") as fh:
-                s = json.loads(fh.read(4 * 1024 * 1024))
-        except (OSError, ValueError):
-            continue
-        for e in ((s.get("hooks") or {}).get("PreToolUse") or []) if isinstance(s, dict) else []:
+    srcs = [os.path.join(home, ".claude", "settings.json"), os.path.join(home, ".claude", "settings.local.json"),
+            os.path.join(project or "", ".claude", "settings.json"), os.path.join(project or "", ".claude", "settings.local.json")]
+    srcs += plugin_hook_files(home)
+    for f in srcs:
+        s = _read(f)
+        for c in _pre_commands(s):
+            if any(r in c for r in REWRITERS) and c not in found:
+                found.append(c)
+    return found
+
+
+LIMITS = ("Known limits: Claude Code does not say which rewrite wins when several PreToolUse hooks return updatedInput, so the pin makes the "
+          "approved input the likely one, not the certain one; the check after the call can only tell afterwards (it cannot undo the call); "
+          "a rewriter not in the known list (REWRITERS) is not recognised at session start, but the check after the call still catches it - "
+          "if the PostToolUse hook is registered (the managed lock registers it; a plugin or settings file without it has no check).")
+
+
+def post_check_registered(project, home=None) -> bool:
+    """r0316: is a PostToolUse hook that runs deus-witness registered (settings of user/project, hooks.json of installed plugins)? Without
+    it the check after the call never runs. (Managed settings are not read here: the managed lock registers it, lock.ours.)"""
+    home = home or os.path.expanduser("~")
+    srcs = [os.path.join(home, ".claude", "settings.json"), os.path.join(home, ".claude", "settings.local.json"),
+            os.path.join(project or "", ".claude", "settings.json"), os.path.join(project or "", ".claude", "settings.local.json")]
+    srcs += plugin_hook_files(home)
+    for f in srcs:
+        s = _read(f)
+        hs = s.get("hooks") if isinstance(s, dict) else None
+        for e in ((hs or {}).get("PostToolUse") or []) if isinstance(hs, dict) else []:
             for h in (e.get("hooks") or []) if isinstance(e, dict) else []:
                 c = h.get("command") if isinstance(h, dict) else None
-                if isinstance(c, str) and any(r in c for r in REWRITERS) and c not in found:
-                    found.append(c)
-    return found
+                if isinstance(c, str) and "deus-witness" in c:
+                    return True
+    return False
 
 
 def rewriters_line(project, home=None) -> str | None:
     r = rewriters(project, home)
     if not r:
         return None
+    if not post_check_registered(project, home):
+        return ("Deus Witness: another hook rewrites your commands (%s). Witness pins the approved command, but if that hook answers last "
+                "the rewritten command runs, and with no PostToolUse check registered Witness cannot tell you. Remove or narrow that hook "
+                "if you want every run witnessed." % r[0][:80])
     return ("Deus Witness: another hook rewrites your commands (%s). Calls Witness approves run exactly as approved (that hook does not "
             "shorten them); if one ever runs changed, Witness tells you." % r[0][:80])
