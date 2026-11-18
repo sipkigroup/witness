@@ -22,7 +22,7 @@ The details follow.
   for). HTTPS. The requests under `/v1/hook/`, `/v1/actions`, `/v1/salt`, `/v1/catalog` and `/v1/coverage` carry the agent key as
   `Authorization: Bearer <key>`: the key from `DEUS_WITNESS_KEY` or from the key file `deus-witness try` saved
   (`~/.config/deus-witness/agent-key.json`); `try` sends the previous trial key the same way when it replaces it. The witness sees your IP address, as any server does.
-- **PyPI:** the plugin runs `uvx --from deus-witness==0.2.79 deus-witness-hook`. The first time (and whenever uv's cache does not hold
+- **PyPI:** the plugin runs `uvx --from deus-witness==0.2.80 deus-witness-hook`. The first time (and whenever uv's cache does not hold
   that version) uv downloads the package and its dependencies, about 30 packages, from `pypi.org` and `files.pythonhosted.org`, uv's
   default index. PyPI sees your IP address and which versions you download. Whether uv contacts PyPI again on later runs depends on uv's
   cache; we have not measured it. With `pip install` into your own venv there is no download at hook time.
@@ -159,5 +159,5 @@ answers only about paths inside the project, the session's folders and their par
   (`DEUS_WITNESS_KEY`, sent as `Authorization`). Of token-like variables and `.env` files only the names go.
 - Git remote URLs and the contents of credential files.
 
-The plugin needs uv; it runs `uvx --from deus-witness==0.2.79 deus-witness-hook` (a pinned PyPI package whose source is in this
+The plugin needs uv; it runs `uvx --from deus-witness==0.2.80 deus-witness-hook` (a pinned PyPI package whose source is in this
 repository under `python/`).
