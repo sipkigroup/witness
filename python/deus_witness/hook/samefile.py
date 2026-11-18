@@ -41,6 +41,24 @@ AGENT_CONFIG = re.compile(r"(/\.claude(/(?!projects/[^/]+/memory/)|$)|/\.claude\
 GIT_EXEC = re.compile(r"(/\.gitattributes$|/\.gitmodules$|/\.git[. ]*$|/\.git[. ]*/(.+/)?(config|config\.worktree)$|/\.git[. ]*/(.+/)?hooks(/|$)|/\.gitconfig$|/\.config/git/config$)", re.I)
 UNMAPPED = ".claude/(a hard link the witness could not map: the project walk was cut)"   # 0.2.77b (R2-5)
 HOME_PROTECTED = (".claude/settings.json", ".claude/settings.local.json", ".claude.json", ".mcp.json", ".gitconfig", ".config/git/config")
+# r0347 (closed exam 2, EX2-069): the start-up files of home -- a program runs them by itself at every start (the server's PERSIST_PATH,
+# home part). Before r0347 a hard link `src/rc.sh` of ~/.zshrc was a plain project file: Write / Edit of it silently appended to ~/.zshrc
+# under every mandate. Now, with `protected=True`, they are in the map: the link is judged as that start-up file (refused, Н4). Fixed
+# names, plus the files directly inside the folders below (one level, at most 256 entries each). Looked at only when the written file has
+# more than one name (links(p)), as before.
+HOME_START = (".zshrc", ".zprofile", ".zshenv", ".zlogin", ".zlogout", ".zshrc.zwc", ".zprofile.zwc", ".zshenv.zwc", ".zlogin.zwc",
+              ".bashrc", ".bash_profile", ".bash_login", ".bash_logout", ".profile", ".login", ".cshrc", ".tcshrc", ".kshrc", ".mkshrc",
+              ".xinitrc", ".xprofile", ".xsession", ".pam_environment", ".screenrc", ".tmux.conf", ".config/tmux/tmux.conf",
+              ".vimrc", ".gvimrc", ".exrc", ".vim/vimrc", ".vim/gvimrc", ".config/nvim/init.vim", ".config/nvim/init.lua",
+              ".emacs", ".emacs.el", ".emacs.d/init.el", ".emacs.d/early-init.el", ".config/emacs/init.el", ".config/emacs/early-init.el",
+              ".oh-my-zsh/oh-my-zsh.sh", ".ipython/profile_default/ipython_config.py", ".ipython/profile_default/ipython_kernel_config.py",
+              ".claude/settings.json", ".claude/settings.local.json", ".claude.json", ".gitconfig", ".config/git/config",
+              ".ssh/config", ".ssh/rc", ".ssh/environment", ".ssh/authorized_keys", ".ssh/authorized_keys2", ".aws/config",
+              ".zsh_history", ".bash_history")
+HOME_START_DIRS = (".config/fish", ".config/fish/conf.d", ".config/fish/functions", ".config/fish/completions", "Library/LaunchAgents",
+                   ".config/autostart", ".config/systemd/user", ".claude/hooks", ".config/git/hooks", ".oh-my-zsh/custom",
+                   ".ipython/profile_default/startup", ".vim/plugin", ".config/nvim/plugin", ".config/deus-witness", ".deus-witness",
+                   ".kde/Autostart", ".kde4/Autostart", ".gnupg/private-keys-v1.d", "Library/Keychains")
 
 
 # 0.2.77 (red team R2-2): core.hooksPath (husky, .githooks ...). git runs the files named as hooks (githooks(5)) from that directory, not
@@ -195,8 +213,21 @@ class Secrets:
     def _protected(self):
         """0.2.77 (H3): git's configuration and hooks of the project (the walk skips .git), and the agent's / git's files of home."""
         if self.home is not None:
-            for n in HOME_PROTECTED:
+            for n in HOME_PROTECTED + HOME_START:
                 self._add(os.path.join(self.home, n))
+            for d in HOME_START_DIRS:                 # r0347: one level, regular files only (a LaunchAgents plist, a fish conf.d file ...)
+                try:
+                    with os.scandir(os.path.join(self.home, d)) as it:
+                        for k, e in enumerate(it):
+                            if k >= 256:
+                                break
+                            try:
+                                if e.is_file(follow_symlinks=False):
+                                    self._add(e.path, e.stat(follow_symlinks=False))
+                            except OSError:
+                                continue
+                except (OSError, ValueError):
+                    continue
         if self.root is None:
             return
         g = os.path.join(self.root, ".git")
