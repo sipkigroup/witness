@@ -2335,6 +2335,34 @@ def run(stdin_bytes: bytes, env=None) -> dict | None:
     return out["r"]
 
 
+def run_agent(stdin_bytes: bytes, env=None, flag=None):
+    """0.2.81 (r0353): -> (stdout text or None, exit code) for the event of any supported agent (agents.py): the event translated into
+    the Claude Code form the witness judges, each part judged (a Codex patch of several files: every file), the answers combined and
+    said in the agent's own language. A Claude Code event is judged exactly as before (run)."""
+    from . import agents
+    e = dict(os.environ if env is None else env)
+    try:
+        ev = json.loads(stdin_bytes.decode("utf-8")) if len(stdin_bytes) <= MAX_EVENT else None
+    except (ValueError, UnicodeDecodeError):
+        ev = None
+    ag = agents.detect(ev, flag, e)
+    if ag == "claude-code" or not isinstance(ev, dict):
+        r = run(stdin_bytes, env)
+        return agents.render(r, ag) if ag != "claude-code" else ((json.dumps(r, ensure_ascii=False) + "\n") if r is not None else None, 0)
+    try:
+        evs, upd = agents.normalize(ev, ag, e)
+    except Exception as x:      # noqa: BLE001  a translation that failed: a block, never a silent run
+        log("event of %s not understood (%s)" % (ag, type(x).__name__))
+        return agents.render(deny("EVENT_MALFORMED", detail="(an event of %s the hook could not translate)" % ag), ag)
+    if evs is None:
+        return None, 0
+    if not evs:
+        return None, 0                                   # a tool with no effect (think, finish, a plan)
+    e.update(upd)
+    rs = [run(json.dumps(x, ensure_ascii=False).encode("utf-8"), e) for x in evs]
+    return agents.render(agents.combine(rs), ag)
+
+
 def _reporter(s):
     """r0297: -> report(rid, executed) that tells the witness the key was set up for whether a call it allowed ran (POST
     /v1/actions/{rid}/report, the journal then says "executed" / "not executed"), or None when there is no such witness here."""
@@ -2489,6 +2517,12 @@ def main(argv=None) -> None:
             print(sandbox_fact.strict_line(argv[1] if len(argv) > 1 else os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()))
         except Exception:      # noqa: BLE001  one more line, never a crash
             print("sandbox: NOT strict (cannot tell)")
+        try:
+            from . import agents                          # 0.2.81 (r0353): other agents that let a call through when the hook fails
+            for w_ in agents.doctor_lines():
+                print("other agent: WARNING " + w_)
+        except Exception:      # noqa: BLE001  never a crash
+            pass
         sys.stdout.flush()
         os._exit(1 if r["problems"] or r.get("unsure") else 0)      # 0.2.40: "cannot tell" is not "fail-closed" either
     if argv[:1] == ["--session-start"]:
@@ -2593,17 +2627,30 @@ def main(argv=None) -> None:
         print(__doc__)
         return
     _run_mark("pretool")
+    flag = None
+    if argv[:1] == ["--agent"] and len(argv) > 1:
+        flag = argv[1]           # 0.2.81 (r0353): goose | openhands | codex | claude-code (also DEUS_WITNESS_AGENT; else from the event)
+    ag = "claude-code"
     try:
-        r = run(sys.stdin.buffer.read(MAX_EVENT + 1))
-        if r is not None:
-            _out((json.dumps(r, ensure_ascii=False) + "\n"))
+        from . import agents
+        ag = agents.detect(None, flag)
+        text, code = run_agent(sys.stdin.buffer.read(MAX_EVENT + 1), flag=flag)
+        if text is not None:
+            _out(text)
         sys.stdout.flush()
     except BaseException as e:   # noqa: BLE001  exit 2 is the one non-zero code Claude Code treats as "block"
         try:
             sys.stderr.write("Blocked by Deus Witness: HOOK_ERROR %s\n" % type(e).__name__)
+            if ag != "claude-code":
+                from . import agents
+                t_, c_ = agents.fail_closed(ag, type(e).__name__)    # 0.2.81: in the language the agent blocks on
+                if t_:
+                    _out(t_)
+                sys.stdout.flush()
+                os._exit(c_)
         finally:
             os._exit(2)
-    os._exit(0)                  # do not wait for a judging thread stuck on the network
+    os._exit(code)               # do not wait for a judging thread stuck on the network
 
 
 if __name__ == "__main__":
