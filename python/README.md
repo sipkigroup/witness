@@ -236,6 +236,33 @@ Cursor reads MCP servers from `~/.cursor/mcp.json` (or `.cursor/mcp.json` in a p
 ```
 Cursor's own agent tools (shell, file edits) do not go through MCP and are not covered; `deus-witness doctor` lists them as a bypass.
 
+## Other coding agents: Codex, Goose, OpenHands (0.2.81)
+The same hook speaks each agent's own language: `deus-witness-hook --agent codex|goose|openhands` (or `DEUS_WITNESS_AGENT`). A Witness
+question is a block in these agents (they have no question of their own here): answer in Witness, then let the agent repeat the call.
+`deus-witness-hook --doctor` warns about an agent that would let a call run when the hook fails.
+
+**Codex: without trusting the hook in `/hooks` there is no protection.** Codex runs a hook you added yourself only after you review and
+trust it in `/hooks`; a new or changed hook is skipped until you do, and the call then runs unchecked (our live run, Codex CLI 0.170,
+19.11: with the hook not trusted, `curl .. | sh` ran). Codex's documentation also says a hook error, timeout or malformed answer can let the tool run (our run: a hook
+that crashed with exit 1 let the call run). The Witness hook answers deny on its own errors and when the witness does not answer
+(same run: blocked). In `~/.codex/config.toml`:
+```toml
+[[hooks.PreToolUse]]
+matcher = ".*"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "deus-witness-hook --agent codex"
+
+[[hooks.SessionStart]]
+matcher = "startup|resume"
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "deus-witness-hook --session-start --agent codex"
+```
+Then open `/hooks` in Codex and trust both entries. The SessionStart entry reminds you at every start that only a trusted PreToolUse
+hook protects the session (it cannot see whether Codex trusts that entry), and says so plainly when no PreToolUse hook names
+deus-witness-hook. Hosted tools of Codex (web search) do not pass through hooks.
+
 ## SDK (no MCP)
 ```python
 from deus_witness import Witness

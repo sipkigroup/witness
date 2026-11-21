@@ -67,6 +67,7 @@ parents, and paths built from the words of the tool_input; any other question is
                                                 plugin as Claude Code registered it, the agent key); exit 1 if not or if
                                                 it cannot tell
   deus-witness-hook --session-start             for a SessionStart hook: a loud warning when the hook can be bypassed
+  deus-witness-hook --session-start --agent codex   the same for Codex: a reminder that only a hook trusted in /hooks protects
   deus-witness-hook --trust URL                 pin the key of another witness (asks you to type yes; a terminal only)
   deus-witness-hook --undo PATH [--list]        0.2.58: put back the shadow copy kept before the agent wrote PATH outside the project
   deus-witness-hook --setup-strict [--dry-run]  0.2.58: write the strict Claude Code sandbox into ~/.claude/settings.json (backup + diff); --undo-strict restores
@@ -2530,6 +2531,19 @@ def main(argv=None) -> None:
         try:                                              # a warning only: it never blocks the session
             raw = sys.stdin.read(MAX_EVENT) if not sys.stdin.isatty() else ""
             ev = json.loads(raw) if raw.strip() else {}
+            ag_ = argv[2] if argv[1:2] == ["--agent"] and len(argv) > 2 else os.environ.get("DEUS_WITNESS_AGENT")
+            if isinstance(ag_, str) and ag_.strip().lower() == "codex":
+                # 0.2.82 (r0355): Codex runs a hook only after the person trusts it in /hooks -- an untrusted PreToolUse hook means no
+                # protection at all (live run 19.11: `curl .. | sh` ran). Said at every start; the Claude Code checks below do not apply
+                from . import agents
+                cw_ = (ev.get("cwd") if isinstance(ev, dict) else None) or os.getcwd()
+                t_ = agents.codex_session_line(cwd=cw_)
+                _out(json.dumps({"systemMessage": t_, "hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                                             "additionalContext": "Deus Witness warning for the user: " + t_}},
+                                ensure_ascii=False) + "\n")
+                log(t_)
+                sys.stdout.flush()
+                os._exit(0)
             _run_report(ev)
             d = (ev.get("cwd") if isinstance(ev, dict) else None) or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
             out = failsafe.session_start_output(failsafe.check(os.environ.get("CLAUDE_PROJECT_DIR") or d))

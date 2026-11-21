@@ -260,9 +260,89 @@ def doctor_lines(home=None):
             out.append("OpenHands (%s): OpenHands runs the call when the hook fails or times out (only exit 2 or \"decision\": \"deny\" "
                        "blocks). The hook answers deny on its own errors; keep its \"timeout\" above DEUS_WITNESS_HOOK_TIMEOUT, and use a "
                        "managed hook where your organisation can set one." % p)
-    for p in (os.path.join(h, ".codex", "hooks.json"), os.path.join(h, ".codex", "config.toml")):
-        t = _read(p)
-        if t and "deus-witness-hook" in t:
-            out.append("Codex (%s): Codex skips a hook you have not trusted (/hooks) and runs the call when a hook crashes. Trust the "
-                       "deus-witness-hook entry; the hook prints deny on its own errors." % p)
+    found = codex_hooks(h)
+    for p, kinds in found:
+        if "PreToolUse" in kinds or not kinds:
+            line = ("Codex (%s): without trusting this hook in /hooks there is NO protection -- Codex skips a new or changed hook until you "
+                    "trust it, and a hook error, timeout or bad answer can let the tool run (the hook itself answers deny on its own "
+                    "errors). Open /hooks in Codex and trust the deus-witness-hook entry." % p)
+            if not any("SessionStart" in k for _, k in found):
+                line += " Add a SessionStart hook `deus-witness-hook --session-start --agent codex` for a reminder at every start."
+            out.append(line)
     return out
+
+
+# ---------------------------------------------------------------- Codex: the hook files and the session-start reminder (0.2.82, r0355)
+def codex_files(home=None, cwd=None, env=None):
+    """the files Codex reads hooks from (Codex docs, "Hooks": /etc/codex/hooks.json, $CODEX_HOME/hooks.json, a trusted project's
+    .codex/hooks.json; hooks also inline under [hooks] in config.toml), those that exist"""
+    e = os.environ if env is None else env
+    h = home or os.path.expanduser("~")
+    ch = e.get("CODEX_HOME") or os.path.join(h, ".codex")
+    ps = ["/etc/codex/hooks.json", os.path.join(ch, "hooks.json"), os.path.join(ch, "config.toml")]
+    if ch != os.path.join(h, ".codex"):
+        ps += [os.path.join(h, ".codex", "hooks.json"), os.path.join(h, ".codex", "config.toml")]
+    if cwd:
+        ps += [os.path.join(cwd, ".codex", "hooks.json"), os.path.join(cwd, ".codex", "config.toml")]
+    seen, out = set(), []
+    for p in ps:
+        if p not in seen and os.path.isfile(p):
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+_EVENTS = ("PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "SubagentStart", "SubagentStop",
+           "PermissionRequest", "Notification", "PreCompact")
+
+
+def _json_hook_events(t):
+    """-> set of events whose hook commands name deus-witness-hook in a hooks.json text, or None when it is not JSON"""
+    try:
+        d = json.loads(t)
+    except ValueError:
+        return None
+    hk = d.get("hooks") if isinstance(d, dict) else None
+    if not isinstance(hk, dict):
+        return set()
+    out = set()
+    for ev, groups in hk.items():
+        if "deus-witness-hook" in json.dumps(groups):
+            out.add(str(ev))
+    return out
+
+
+def codex_hooks(home=None, cwd=None, env=None):
+    """-> [(file, {events whose hook runs deus-witness-hook})] for each Codex hook file that names deus-witness-hook. A TOML file is read
+    by its section names ([[hooks.PreToolUse]] ...) around the name; an event Witness cannot tell -> empty set (still listed)."""
+    out = []
+    for p in codex_files(home, cwd, env):
+        t = _read(p)
+        if not t or "deus-witness-hook" not in t:
+            continue
+        ev = _json_hook_events(t) if p.endswith(".json") else None
+        if ev is None:
+            ev = set()
+            cur = None
+            for ln in t.splitlines():
+                m = re.match(r"^\s*\[\[?\s*hooks\.([A-Za-z]+)", ln)
+                if m:
+                    cur = m.group(1)
+                elif re.match(r"^\s*\[", ln):
+                    cur = None
+                if "deus-witness-hook" in ln and cur in _EVENTS:
+                    ev.add(cur)
+        out.append((p, ev))
+    return out
+
+
+def codex_session_line(home=None, cwd=None, env=None):
+    """-> the reminder a Codex SessionStart hook (`deus-witness-hook --session-start --agent codex`) shows the person. The hook cannot
+    see whether Codex trusts its PreToolUse entry (a SessionStart entry is trusted on its own), so it says what makes the protection
+    real; with no PreToolUse entry at all it says that nothing is checked."""
+    found = codex_hooks(home, cwd, env)
+    if not any("PreToolUse" in k for _, k in found):
+        return ("DEUS WITNESS: Codex does not send its tool calls to Witness in this session -- no PreToolUse hook runs deus-witness-hook. "
+                "Add one (`deus-witness-hook --agent codex`) and trust it in /hooks.")
+    return ("DEUS WITNESS: Witness protects this Codex session only if its PreToolUse hook is trusted. Codex skips a new or changed hook "
+            "until you trust it in /hooks -- then no call is checked. If Codex asked you to review hooks, open /hooks now.")
